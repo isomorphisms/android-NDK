@@ -105,7 +105,7 @@ runner, or a particular GPU has the same implementation.
 | Wegert direct DEX/JNI renderer | `isomorphismes/wegert` | integration proof and historical fixture |
 | Fourier-sound microphone acceptance | `isomorphismes/Fourier-sound` | reusable input backend copied; application remains there |
 | accelerometer model and hardware namespace | `Ashtray-Archer/utilities-android-phone-user` | reusable NDK adapter copied; model and hardware work remain there |
-| Pauli orbital viewer | `isomorphisms/pauli` | native-only consumer reference |
+| Pauli orbital viewer | `isomorphismes/pauli` | native-only consumer reference |
 | SURFER prepared-surface renderer | `isomorphismes/algebraic-variety-explorer-mobile` | incomplete application-specific JNI consumer, retained in place |
 
 The [migration inventory](provenance/migration-inventory.md) provides exact
