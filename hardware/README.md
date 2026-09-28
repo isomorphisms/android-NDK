@@ -1,0 +1,33 @@
+# Hardware research
+
+This tree collates hardware work that was originally saved in other repositories.
+
+## Rule
+
+The original repository remains canonical. Files here are working copies for Android NDK development. Every dossier records its provenance and its paired Android-NDK cross-index issue.
+
+Keep three evidence classes separate:
+
+- **physical** — observed on a real device;
+- **model** — documentation for the named product;
+- **platform/reference** — SoC, BSP or reference-board material that may apply but does not prove this board's wiring.
+
+Do not promote a reference value to a physical fact without a receipt.
+
+## Current dossiers
+
+| Area | Dossier | Android-NDK issue |
+| --- | --- | --- |
+| board/kernel | [MIRO A1 / SC9863A](board-and-kernel/miro-a1-sc9863a.md) | #1 |
+| CPU | [MIRO A1 CPU + Android ARMv7 ABI](cpu/miro-a1-armv7-abi.md) | #5 |
+| CPU | [TAB_P10 / Allwinner A333](cpu/tab-p10-allwinner-a333.md) | #6 |
+| GPU | [MIRO A1 / PowerVR GE8322](gpu/miro-a1-powervr-ge8322.md) | #7 |
+| GPU | [TAB_P10 / Mali-G57](gpu/tab-p10-mali-g57.md) | #7 |
+| memory/storage | [MIRO A1 memory, zram, storage](memory-and-storage/miro-a1.md) | #3 |
+| sensors/input | [MIRO A1 accelerometer](sensors-and-inputs/miro-a1-accelerometer.md) | #4 |
+| sensors/input | [MIRO A1 touchscreen](sensors-and-inputs/miro-a1-touchscreen.md) | #2 |
+| runtime/ABI | [MIRO A1 Bionic/native boundary](runtime-abi/miro-a1-bionic.md) | #9 |
+| runtime/ABI | [TAB_P10 Android/AArch64 receipt](runtime-abi/tab-p10-aarch64.md) | #8 |
+| physical outputs | [current state](physical-outputs/README.md) | — |
+
+Board-level GPIO/pinmux research belongs under board/kernel unless a pin has a proven device function. Sensor/input pins belong with the corresponding input device. Speaker, vibrator, flashlight/light, GPIO-output and similar actuator research belongs under physical outputs once evidence exists.
