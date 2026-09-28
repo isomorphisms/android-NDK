@@ -23,7 +23,7 @@ application-specific work.
 | Generic AAudio input source | `isomorphismes/Fourier-sound` `audio/native-input` `0c05d1f5228cb4bba0f639b2c7f6f3e6281f7d59` | `audio/interface/`, `audio/android/`, fake-AAudio host test | **Moved generic implementation.** Exact copies live in `native/audio/`; framing, Fourier conversion, permissions, acceptance UI, manifest, APK, and microphone procedure remain in Fourier-sound. |
 | Speaker/output sink | Android-NDK [issue #10](https://github.com/isomorphisms/android-NDK/issues/10) and Fourier-sound audio source | issue and audio source | **Unresolved / not implemented.** The recovered source supplies input only; no invented output interface was added. |
 | Android accelerometer adapter | `Ashtray-Archer/utilities-android-phone-user` `a8722e10318c63ea656729ee2c2cce526a423754` | `accelerometer/android/android_accelerometer.[ch]` | **Moved generic implementation.** Exact copies live in `native/sensors/accelerometer/`. Compact state, inspection model, CLI, app, and detailed device work remain in the source project. |
-| Pauli Android viewer | `isomorphisms/pauli` native viewer history, main `5133a5b`, production branch `android/orbital-viewer` `5d43e69` | `android/`, manifest, native renderer, historical direct-DEX commits | **Retained in place and linked.** Pauli's production shape is NativeActivity with no application DEX. Orbital mathematics and renderer do not move here. |
+| Pauli Android viewer | `isomorphismes/pauli` native viewer history, main `5133a5b`, production branch `android/orbital-viewer` `5d43e69` | `android/`, manifest, native renderer, historical direct-DEX commits | **Retained in place and linked.** Pauli's production shape is NativeActivity with no application DEX. Orbital mathematics and renderer do not move here. |
 | Analytic Continuation direct-DEX overlay consumer | `isomorphismes/analytic-continuation`, app revision used by the source DEX workflow `196b567c3de420dca52ed6164802d26aec0e9924` | Android package and source workflow reference | **Retained in place and linked.** Its application code and Android build lane do not establish a generic DEX or JNI implementation. |
 | SURFER prepared-surface native work | `isomorphismes/algebraic-variety-explorer-mobile` branch `surfer`, `3fd55197bb834661ac49ffd62cc36f49654970c1` | `native/surfer_raytracer.[ch]`, `native/README.md` | **Retained in place.** It is an application ray-tracing core with an unfinished JNI ownership boundary; it is not a complete Android DEX/JNI precedent. |
 | GLES/shader and GPU evidence | `fuego-ironworks/idris-shader-backend` plus existing Android-NDK hardware dossiers | GPU dossiers and source-linked receipts | **Copied specialized reference / retained source.** Shader code and device performance choices remain target-specific. |
@@ -44,9 +44,25 @@ classified above as reference or retained in place.
 | Wegert direct DEX lane | [`android-direct/` at `a2192d37`](https://github.com/isomorphismes/wegert/tree/a2192d371555d45235fdf05e67a4766c883789a3/android-direct) |
 | Fourier-sound native input | [`audio/` at `0c05d1f`](https://github.com/isomorphismes/Fourier-sound/tree/0c05d1f5228cb4bba0f639b2c7f6f3e6281f7d59/audio) |
 | Utilities Android accelerometer adapter | [`accelerometer/android/` at `a8722e1`](https://github.com/Ashtray-Archer/utilities-android-phone-user/tree/a8722e10318c63ea656729ee2c2cce526a423754/accelerometer/android) |
-| Pauli native viewer | [`android/` at `5d43e69`](https://github.com/isomorphisms/pauli/tree/5d43e69a63173b44120782d684c77283316120bd/android) |
+| Pauli native viewer | [`android/` at `5d43e69`](https://github.com/isomorphismes/pauli/tree/5d43e69a63173b44120782d684c77283316120bd/android) |
 | Analytic Continuation consumer revision | [`196b567` commit](https://github.com/isomorphismes/analytic-continuation/commit/196b567c3de420dca52ed6164802d26aec0e9924) |
 | SURFER prepared-surface work | [`surfer` revision `3fd5519`](https://github.com/isomorphismes/algebraic-variety-explorer-mobile/tree/3fd55197bb834661ac49ffd62cc36f49654970c1/native) |
+
+## Reciprocal backlink status
+
+The generic repository points to the detailed source material above.  The
+following reciprocal documentation changes have been published as separate,
+one-file source branches and pull requests.  They deliberately do **not** merge
+into a source repository's main branch as part of this migration.
+
+| Source location | Status | Published backlink |
+| --- | --- | --- |
+| Fourier-sound `README.md` and `docs/architecture.md` | already present at the recovered source revision | [existing Android-NDK link](https://github.com/isomorphismes/Fourier-sound/blob/0c05d1f5228cb4bba0f639b2c7f6f3e6281f7d59/docs/architecture.md) |
+| Idriç DEX backend README | source branch and open PR; not merged | [fuego-ironworks/idric-arm-thumb PR #105](https://github.com/fuego-ironworks/idric-arm-thumb/pull/105) |
+| ICK Android release gate | source branch and open PR; not merged | [dilapidated-shed/ick PR #35](https://github.com/dilapidated-shed/ick/pull/35) |
+| Wegert direct DEX/JNI README | source branch and open PR; not merged | [isomorphismes/wegert PR #62](https://github.com/isomorphismes/wegert/pull/62) |
+| Utilities accelerometer README | source branch and open PR; not merged | [Ashtray-Archer/utilities-android-phone-user PR #78](https://github.com/Ashtray-Archer/utilities-android-phone-user/pull/78) |
+| Pauli Android README | source branch and open PR; not merged | [isomorphismes/pauli PR #18](https://github.com/isomorphismes/pauli/pull/18) |
 
 ## Preservation checks performed
 
