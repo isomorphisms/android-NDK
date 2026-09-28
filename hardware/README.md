@@ -4,7 +4,7 @@ This tree collates hardware work that was originally saved in other repositories
 
 ## Rule
 
-The original repository remains canonical. Files here are working copies for Android NDK development. Every dossier records its provenance and its paired Android-NDK cross-index issue.
+The original repository remains canonical. Files here are working copies for Android NDK development. Every dossier records its provenance and its paired Android-NDK cross-index issue when one exists.
 
 Keep three evidence classes separate:
 
@@ -23,6 +23,7 @@ Do not promote a reference value to a physical fact without a receipt.
 | CPU | [TAB_P10 / Allwinner A333](cpu/tab-p10-allwinner-a333.md) | #6 |
 | GPU | [MIRO A1 / PowerVR GE8322](gpu/miro-a1-powervr-ge8322.md) | #7 |
 | GPU | [TAB_P10 / Mali-G57](gpu/tab-p10-mali-g57.md) | #7 |
+| GPU | [PowerVR precision + USC layers](gpu/powervr-precision-and-usc.md) | — |
 | memory/storage | [MIRO A1 memory, zram, storage](memory-and-storage/miro-a1.md) | #3 |
 | sensors/input | [MIRO A1 accelerometer](sensors-and-inputs/miro-a1-accelerometer.md) | #4 |
 | sensors/input | [MIRO A1 touchscreen](sensors-and-inputs/miro-a1-touchscreen.md) | #2 |
@@ -31,3 +32,5 @@ Do not promote a reference value to a physical fact without a receipt.
 | physical outputs | [current state](physical-outputs/README.md) | — |
 
 Board-level GPIO/pinmux research belongs under board/kernel unless a pin has a proven device function. Sensor/input pins belong with the corresponding input device. Speaker, vibrator, flashlight/light, GPIO-output and similar actuator research belongs under physical outputs once evidence exists.
+
+See [AGENTS.md](AGENTS.md) for the filing/evidence rules future hardware work should follow.
