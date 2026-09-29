@@ -51,18 +51,18 @@ classified above as reference or retained in place.
 ## Reciprocal backlink status
 
 The generic repository points to the detailed source material above.  The
-following reciprocal documentation changes have been published as separate,
-one-file source branches and pull requests.  They deliberately do **not** merge
-into a source repository's main branch as part of this migration.
+following reciprocal documentation changes were published as separate,
+one-file source branches and pull requests, then merged without altering the
+source material that they describe.
 
 | Source location | Status | Published backlink |
 | --- | --- | --- |
 | Fourier-sound `README.md` and `docs/architecture.md` | already present at the recovered source revision | [existing Android-NDK link](https://github.com/isomorphismes/Fourier-sound/blob/0c05d1f5228cb4bba0f639b2c7f6f3e6281f7d59/docs/architecture.md) |
-| Idriç DEX backend README | source branch and open PR; not merged | [fuego-ironworks/idric-arm-thumb PR #105](https://github.com/fuego-ironworks/idric-arm-thumb/pull/105) |
-| ICK Android release gate | source branch and open PR; not merged | [dilapidated-shed/ick PR #35](https://github.com/dilapidated-shed/ick/pull/35) |
-| Wegert direct DEX/JNI README | source branch and open PR; not merged | [isomorphismes/wegert PR #62](https://github.com/isomorphismes/wegert/pull/62) |
-| Utilities accelerometer README | source branch and open PR; not merged | [Ashtray-Archer/utilities-android-phone-user PR #78](https://github.com/Ashtray-Archer/utilities-android-phone-user/pull/78) |
-| Pauli Android README | source branch and open PR; not merged | [isomorphismes/pauli PR #18](https://github.com/isomorphismes/pauli/pull/18) |
+| Idriç DEX backend README | merged into source `main` | [fuego-ironworks/idric-arm-thumb PR #105](https://github.com/fuego-ironworks/idric-arm-thumb/pull/105) |
+| ICK Android release gate | merged into source `main` | [dilapidated-shed/ick PR #35](https://github.com/dilapidated-shed/ick/pull/35) |
+| Wegert direct DEX/JNI README | merged into source `main` | [isomorphismes/wegert PR #62](https://github.com/isomorphismes/wegert/pull/62) |
+| Utilities accelerometer README | merged into source `main` | [Ashtray-Archer/utilities-android-phone-user PR #78](https://github.com/Ashtray-Archer/utilities-android-phone-user/pull/78) |
+| Pauli Android README | merged into source `main` | [isomorphismes/pauli PR #18](https://github.com/isomorphismes/pauli/pull/18) |
 
 ## Preservation checks performed
 
