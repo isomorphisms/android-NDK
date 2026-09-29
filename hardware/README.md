@@ -2,6 +2,11 @@
 
 This tree collates hardware work that was originally saved in other repositories.
 
+The generic Android-native route is described in
+[`../ARCHITECTURE.md`](../ARCHITECTURE.md).  This hardware tree does not become
+the owner of every hardware implementation; it preserves references and
+constraints needed by generic Android-native work.
+
 ## Rule
 
 The original repository remains canonical. Files here are working copies for Android NDK development. Every dossier records its provenance and its paired Android-NDK cross-index issue when one exists.
