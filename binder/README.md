@@ -5,7 +5,7 @@ direct-DEX consumers. It does not own Shizuku policy, Crawl Space client
 authorization, application package rules, or any one system service's AIDL
 surface.
 
-There are two useful implementation lanes.
+There are two implementation lanes because the public NDK Binder API and the Java/framework Binder API do not expose the same operations.
 
 ## NDK Binder lane
 
@@ -16,20 +16,33 @@ substantial native broker:
 - receive transactions through an on-transaction callback;
 - obtain Binder calling UID/PID while handling an incoming transaction;
 - prepare/transact Binder calls;
-- create/delete/copy parcels;
+- create/delete parcels and read/write typed parcel values;
 - ping remote binders;
 - link/unlink death recipients;
 - bridge an NDK binder to a Java `android.os.IBinder` when a JNI environment is
   deliberately present.
 
-That makes a native Idriç/ICK/NDK broker a serious implementation option rather
-than merely a test shim.
+The first native Idriç slice now lives in `binder/ndk/` and
+`binder/idric/src/Android/Binder/NDK.idr`. It exposes typed `Binder`,
+`Transaction`, and `BinderStatus` handles over a narrow C ABI. Binder and
+transaction pointers are attached to Idriç GC finalizers so the C wrapper owns
+the strong-reference and parcel cleanup rules.
 
-A limitation matters for Shizuku semantics: the public NDK Binder API does not
+`AIBinder_prepareTransaction` requires the remote object to be associated with
+an `AIBinder_Class` carrying its interface descriptor. The native façade caches
+those client-side classes by descriptor and makes the association explicit.
+
+Two limitations matter for Shizuku semantics. The public NDK Binder API does not
 expose the Java `Binder.clearCallingIdentity()` /
 `Binder.restoreCallingIdentity(long)` pair. The underlying platform libbinder
 has an IPC-thread calling-identity mechanism, but using private C++ libbinder
 interfaces is a separate, unstable boundary and must not be mislabeled as NDK.
+
+Also, public `AParcel` is a typed serialization interface. It does not expose
+Java `Parcel.appendFrom` plus arbitrary data-position operations, so the NDK
+lane cannot faithfully copy an opaque incoming Parcel into another transaction.
+That specific Shizuku operation belongs to the direct DEX/framework lane (or a
+separately identified private/raw Binder backend).
 
 ## Direct DEX / framework lane
 
@@ -43,9 +56,14 @@ generating Java source:
 - hidden framework helpers where the privileged program deliberately depends on
   them.
 
-The checked Idriç DEX backend does not yet lower that object/method-call slice.
-The type plan for the required extension is in
-[`dex/idric/src/Backend/DEX/Framework.idr`](../dex/idric/src/Backend/DEX/Framework.idr).
+The Idriç DEX backend now has typed framework method references, invoke-35c
+encoding including object and wide results, and a directly encoded Binder
+framework probe that CI disassembles and checks. The remaining compiler boundary
+is source lowering: checked Idriç source still cannot yet name one of these
+framework operations and have the DEX lowerer generate the call automatically.
+
+That source hook should use Idriç's existing ANF foreign-definition information
+rather than hard-coding source function names into the DEX lowerer.
 
 ## Shizuku minimum
 
