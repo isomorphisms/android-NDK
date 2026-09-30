@@ -29,6 +29,10 @@ main = do
     (register_width LongValue == Just RegisterPair)
   expect "restoreCallingIdentity consumes long"
     (map framework_descriptor restore_calling_identity.parameters == ["J"])
+  expect "clearCallingIdentity descriptor"
+    (method_descriptor clear_calling_identity == "()J")
+  expect "restoreCallingIdentity descriptor"
+    (method_descriptor restore_calling_identity == "(J)V")
   expect "ServiceManager.getService returns IBinder"
     (framework_descriptor service_manager_get_service.result ==
       "Landroid/os/IBinder;")
@@ -36,6 +40,9 @@ main = do
     (framework_descriptor binder_transact.result == "Z")
   expect "forwarding requirement includes wide result"
     (elem MoveResultWide shizuku_forwarding_requirements)
-  expect "forwarding requirement includes cleanup"
-    (elem TryFinally shizuku_forwarding_requirements)
+  expect "forwarding requirement includes catch-all cleanup"
+    (elem CatchAllHandler shizuku_forwarding_requirements)
+  expect "forwarding cleanup can rethrow"
+    (elem MoveException shizuku_forwarding_requirements &&
+     elem ThrowException shizuku_forwarding_requirements)
   putStrLn "PASS: DEX framework/Binder type-plan test"
