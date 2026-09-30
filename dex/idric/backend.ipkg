@@ -7,6 +7,8 @@ depends = idris2
 
 modules =
   Backend.DEX.IR,
+  Backend.DEX.Framework,
+  Backend.DEX.Invoke,
   Backend.DEX.Lower,
   Backend.DEX.Hash,
   Backend.DEX.Encode,
