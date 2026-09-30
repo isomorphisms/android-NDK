@@ -39,10 +39,10 @@ main = do
   expect "IBinder.transact returns boolean"
     (framework_descriptor binder_transact.result == "Z")
   expect "forwarding requirement includes wide result"
-    (elem MoveResultWide shizuku_forwarding_requirements)
+    (elem NeedsMoveResultWide shizuku_forwarding_requirements)
   expect "forwarding requirement includes catch-all cleanup"
-    (elem CatchAllHandler shizuku_forwarding_requirements)
+    (elem NeedsCatchAllHandler shizuku_forwarding_requirements)
   expect "forwarding cleanup can rethrow"
-    (elem MoveException shizuku_forwarding_requirements &&
-     elem ThrowException shizuku_forwarding_requirements)
+    (elem NeedsMoveException shizuku_forwarding_requirements &&
+     elem NeedsThrowException shizuku_forwarding_requirements)
   putStrLn "PASS: DEX framework/Binder type-plan test"
