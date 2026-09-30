@@ -783,21 +783,15 @@ encode_dex file_plan = do
   case find_duplicate_method methods of
     Just duplicate => Left ("Duplicate DEX method signature " ++ duplicate)
     Nothing => Right ()
-  let include_text_equal = any method_uses_text_equal methods
-  let generated_prototypes = unique_prototypes methods
+  let method_ids = all_method_references file_plan.class_descriptor methods
+  _ <- traverse (validate_class_descriptor . owner) method_ids
   let prototypes =
-        if include_text_equal
-          then insert_prototype text_equals_prototype generated_prototypes
-          else generated_prototypes
+        unique_prototypes (map prototype_of_reference method_ids)
   let descriptors =
-        type_descriptors include_text_equal file_plan.class_descriptor methods
+        type_descriptors file_plan.class_descriptor prototypes method_ids
   let strings =
-        all_strings include_text_equal file_plan.class_descriptor methods prototypes descriptors
-  let generated_method_count : Int = cast (length methods)
-  let external_method_count : Int = if include_text_equal then 1 else 0
-  let method_id_count = generated_method_count + external_method_count
-  let text_equals_method_index =
-        if include_text_equal then Just generated_method_count else Nothing
+        all_strings methods method_ids prototypes descriptors
+  let method_id_count : Int = cast (length method_ids)
   let string_ids_off = 112
   let type_ids_off = string_ids_off + 4 * cast (length strings)
   let proto_ids_off = type_ids_off + 4 * cast (length descriptors)
@@ -810,7 +804,7 @@ encode_dex file_plan = do
     lookup_index "Object type" "Ljava/lang/Object;" descriptors
   type_lists <- layout_type_lists descriptors data_off prototypes
   prepared <-
-    prepare_methods strings prototypes text_equals_method_index 0 methods
+    prepare_methods strings prototypes method_ids file_plan.class_descriptor methods
   let code = layout_code type_lists.next_offset prepared
   strings_layout <- layout_strings code.next_offset strings
   let class_data_bytes = class_data code.methods
@@ -831,31 +825,19 @@ encode_dex file_plan = do
                          Right (u32le (cast index))) descriptors
   proto_id_bytes <-
     traverse (prototype_bytes strings descriptors type_lists) prototypes
-  generated_method_id_bytes <-
+  method_id_bytes <-
     traverse
-      (\method => do name_index <- lookup_index "method name" method.plan.method_name strings
-                     Right
-                       (u16le (cast class_type_index) ++
-                        u16le (cast method.prototype_index) ++
-                        u32le (cast name_index))) code.methods
-  text_equals_method_id_bytes <-
-    if include_text_equal
-      then do
-        string_type_index <-
-          lookup_index "String type" "Ljava/lang/String;" descriptors
-        if class_type_index >= string_type_index
-          then
-            Left
-              "Checked String.equals slice requires generated class method_ids to sort before java/lang/String"
-          else Right ()
+      (\method => do
+        owner_index <-
+          lookup_index "method owner type" method.owner.descriptor descriptors
         prototype_index <-
-          lookup_index "String.equals prototype" text_equals_prototype prototypes
-        name_index <- lookup_index "String.equals name" "equals" strings
+          lookup_index "method prototype" (prototype_of_reference method) prototypes
+        name_index <- lookup_index "method name" method.name strings
         Right
-          (u16le (cast string_type_index) ++
+          (u16le (cast owner_index) ++
            u16le (cast prototype_index) ++
-           u32le (cast name_index))
-      else Right []
+           u32le (cast name_index)))
+      method_ids
   let class_def_bytes =
         u32le (cast class_type_index) ++ u32le 0x11 ++
         u32le (cast object_type_index) ++ u32le 0 ++
@@ -894,8 +876,7 @@ encode_dex file_plan = do
         u32le (cast data_size) ++ u32le (cast data_off)
   let unsigned_file =
         header ++ concat string_id_bytes ++ concat type_id_bytes ++
-        concat proto_id_bytes ++ concat generated_method_id_bytes ++
-        text_equals_method_id_bytes ++ class_def_bytes ++
+        concat proto_id_bytes ++ concat method_id_bytes ++ class_def_bytes ++
         type_lists.bytes ++ code.bytes ++ strings_layout.bytes ++
         class_data_bytes ++ padding before_map 4 ++ map_bytes
   if cast (length unsigned_file) /= file_size
