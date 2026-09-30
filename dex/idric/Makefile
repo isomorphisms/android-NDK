@@ -19,6 +19,9 @@ DEX_TEXT_SMALI := build/exec/text.smali
 DEX_SELFTEST := build/exec/dex-encoder-selftest
 DEX_FRAMEWORK_PLAN_TEST := build/exec/dex-framework-plan-test
 DEX_FRAMEWORK_INVOKE_TEST := build/exec/dex-framework-invoke-test
+DEX_FRAMEWORK_GEN := build/exec/dex-framework-gen
+DEX_FRAMEWORK_FILE := build/exec/framework.dex
+DEX_FRAMEWORK_DISASSEMBLY := build/exec/baksmali-framework/Idric/FrameworkProbe.smali
 DEX_INVALID_LOG := build/exec/invalid-dex-int.log
 DEX_INVALID_ARTIFACT := build/exec/invalid-dex-int.dex
 DEX_HEADER_CHECK := tests/dex/check_dex.py
@@ -36,7 +39,7 @@ DEX_VALIDATION_RECEIPT := build/exec/dex-validation-receipt.txt
 
 .PHONY: branch-separation check-compiler check driver dex-fixture dex-text-fixture \
 	dex-text-validation dex-encoder-selftest dex-framework-plan-test \
-	dex-framework-invoke-test dex-determinism dex-reject \
+	dex-framework-invoke-test dex-framework-validation dex-determinism dex-reject \
 	dex-header-validation dex-parser-validation dex-oracle-validation \
 	dex-malformed-test dex-test dex-device test verify clean
 
@@ -122,8 +125,39 @@ $(DEX_FRAMEWORK_INVOKE_TEST): $(DRIVER) tests/dex/FrameworkInvokeTest.idr
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-invoke-test_app/
 
 dex-framework-invoke-test: $(DEX_FRAMEWORK_INVOKE_TEST)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
 		./$(DEX_FRAMEWORK_INVOKE_TEST)
+
+$(DEX_FRAMEWORK_GEN): $(DRIVER) tests/dex/FrameworkDexGen.idr
+	IDRIS2_PATH="$(CURDIR)/build/ttc:${IDRIS2_PATH}" \
+		$(IDRIC) --source-dir tests/dex tests/dex/FrameworkDexGen.idr \
+		-o dex-framework-gen
+	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-gen_app/
+
+$(DEX_FRAMEWORK_FILE): $(DEX_FRAMEWORK_GEN)
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+		./$(DEX_FRAMEWORK_GEN)
+
+$(DEX_FRAMEWORK_DISASSEMBLY): $(DEX_FRAMEWORK_FILE) $(BAKSMALI_JAR)
+	rm -rf build/exec/baksmali-framework
+	mkdir -p build/exec/baksmali-framework
+	java -jar $(BAKSMALI_JAR) disassemble $(DEX_FRAMEWORK_FILE) \
+		-o build/exec/baksmali-framework
+
+dex-framework-validation: $(DEX_FRAMEWORK_DISASSEMBLY)
+	python3 $(DEX_HEADER_CHECK) $(DEX_FRAMEWORK_FILE)
+	grep -q '^\.method public static calling_identity_round_trip()I$' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'invoke-static {}, Landroid/os/Binder;->clearCallingIdentity()J' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'move-result-wide v0' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'move-wide v2, v0' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'invoke-static {v2, v3}, Landroid/os/Binder;->restoreCallingIdentity(J)V' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'invoke-static {}, Landroid/os/Binder;->getCallingUid()I' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q '^\.method public static get_package_service(Ljava/lang/String;)Ljava/lang/Object;$' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'Landroid/os/ServiceManager;->getService(Ljava/lang/String;)Landroid/os/IBinder;' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q '^\.method public static binder_transaction_probe()I$' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'Landroid/os/Parcel;->obtain()Landroid/os/Parcel;' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'invoke-interface {v1, v4, v2, v3, v5}, Landroid/os/IBinder;->transact(ILandroid/os/Parcel;Landroid/os/Parcel;I)Z' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'Landroid/os/Parcel;->recycle()V' $(DEX_FRAMEWORK_DISASSEMBLY)
 
 $(DEX_REPEAT_FILE): $(DRIVER) $(DEX_SOURCE)
 	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
@@ -229,8 +263,8 @@ dex-malformed-test: $(DEX_MALFORMED_FILE) $(BAKSMALI_JAR)
 	fi
 
 dex-test: branch-separation check dex-fixture dex-text-validation dex-encoder-selftest \
-	dex-framework-plan-test dex-framework-invoke-test dex-determinism dex-reject \
-	dex-parser-validation dex-oracle-validation dex-malformed-test
+	dex-framework-plan-test dex-framework-invoke-test dex-framework-validation \
+	dex-determinism dex-reject dex-parser-validation dex-oracle-validation dex-malformed-test
 	@{ \
 		echo 'source checked        PASS'; \
 		echo 'checked ANF retained  PASS'; \
@@ -238,6 +272,8 @@ dex-test: branch-separation check dex-fixture dex-text-validation dex-encoder-se
 		echo 'Text equality encoded  PASS'; \
 		echo 'Binder type plan       PASS'; \
 		echo 'Binder invoke 35c      PASS'; \
+		echo 'Binder DEX metadata    PASS'; \
+		echo 'Binder DEX parsed      PASS'; \
 		echo 'DEX generated         PASS'; \
 		echo 'DEX parser validation PASS'; \
 		echo 'oracle comparison     PASS'; \
@@ -254,6 +290,7 @@ dex-test: branch-separation check dex-fixture dex-text-validation dex-encoder-se
 		printf 'backend dirty state    '; if git status --porcelain | grep -q .; then echo dirty; else echo clean; fi; \
 		printf 'classes.dex SHA-256    '; sha256sum $(DEX_FILE) | cut -d' ' -f1; \
 		printf 'text.dex SHA-256       '; sha256sum $(DEX_TEXT_FILE) | cut -d' ' -f1; \
+		printf 'framework.dex SHA-256  '; sha256sum $(DEX_FRAMEWORK_FILE) | cut -d' ' -f1; \
 		echo 'checked form           $(DEX_CHECKED_ANF)'; \
 		echo 'Text checked form      $(DEX_TEXT_CHECKED_ANF)'; \
 		echo 'DEX plan               $(DEX_PLAN)'; \
