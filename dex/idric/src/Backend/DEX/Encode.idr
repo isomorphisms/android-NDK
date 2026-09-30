@@ -129,6 +129,15 @@ instruction_width (TextEqual destination left right) =
   invocation_width_35c (text_equal_invocation destination left right)
 instruction_width (InvokeMethod invocation) =
   invocation_width_35c invocation
+instruction_width (CatchAllRegion start finish handler) = Right 0
+instruction_width (MoveException register) =
+  if valid_register 255 register
+    then Right 1
+    else Left "DEX move-exception requires a register in v0..v255"
+instruction_width (ThrowException register) =
+  if valid_register 255 register
+    then Right 1
+    else Left "DEX throw requires a register in v0..v255"
 instruction_width (IntegerBranch _ left right target) =
   if valid_register 15 left && valid_register 15 right
     then Right 2
@@ -260,6 +269,16 @@ encode_instruction strings method_ids labels address
   _ <- instruction_width instruction
   method_index <- lookup_index "external method" invocation.method method_ids
   encode_invoke_35c method_index invocation
+encode_instruction strings method_ids labels address
+  (CatchAllRegion start finish handler) = Right []
+encode_instruction strings method_ids labels address
+  instruction@(MoveException register) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x0d + cast register.number * 256))
+encode_instruction strings method_ids labels address
+  instruction@(ThrowException register) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x27 + cast register.number * 256))
 encode_instruction strings method_ids labels address
   instruction@(IntegerBranch condition left right target) = do
   _ <- instruction_width instruction
