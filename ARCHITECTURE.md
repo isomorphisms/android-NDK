@@ -78,6 +78,23 @@ requiring application DEX.  Pauli demonstrates that DEX-free shape; Wegert
 demonstrates a direct-DEX/JNI shape.  Each stays a consumer, not the owner of
 the reusable substrate.
 
+## Binder and system-service boundary
+
+[`binder/`](binder/) owns the reusable IPC mechanics between Android processes
+and system services. It is separate from both application policy and HAL/device
+access.
+
+The current Binder work keeps two lanes explicit:
+
+- public NDK Binder for native local binders, caller identity observation,
+  transactions, parcels, liveness, and death notifications;
+- direct DEX/framework calls where ART-level APIs or hidden framework behavior
+  are part of the required semantics.
+
+A successful Binder transaction proves neither HAL access nor a complete
+application privilege model. Conversely, a Binder broker can be useful without
+claiming direct hardware access.
+
 ## Generic interfaces and the HAL boundary
 
 The NDK normally reaches public Android native APIs such as AAudio,
