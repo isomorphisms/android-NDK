@@ -88,6 +88,21 @@ long_goto_method =
      [Mark (MkLabel 0), ReturnInteger (MkRegister 0)])
 
 private
+bad_catch_handler_method : MethodPlan
+bad_catch_handler_method =
+  MkMethodPlan "selftest" "bad_catch_handler" 0 [] IntegerValue 1
+    [ Mark (MkLabel 0)
+    , IntegerConstant (MkRegister 0) 0
+    , Mark (MkLabel 1)
+    , Goto (MkLabel 3)
+    , Mark (MkLabel 2)
+    , ThrowException (MkRegister 0)
+    , Mark (MkLabel 3)
+    , ReturnInteger (MkRegister 0)
+    , CatchAllRegion (MkLabel 0) (MkLabel 1) (MkLabel 2)
+    ]
+
+private
 single_method_file : MethodPlan -> FilePlan
 single_method_file method = MkFilePlan "LIdric/SelfTest;" [method]
 
@@ -117,4 +132,6 @@ main = do
     (encode_dex (single_method_file bad_branch_method))
   expect_left "format 10t branch range"
     (encode_dex (single_method_file long_goto_method))
+  expect_left "catch handler must begin with move-exception"
+    (encode_dex (single_method_file bad_catch_handler_method))
   putStrLn "PASS: DEX encoder self-test"
