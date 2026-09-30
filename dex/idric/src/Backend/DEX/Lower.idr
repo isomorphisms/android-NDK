@@ -1,5 +1,6 @@
 module Backend.DEX.Lower
 
+import Backend.DEX.Foreign
 import Backend.DEX.IR
 import Compiler.ANF
 import Core.Name
@@ -12,6 +13,7 @@ private
 record LowerState where
   constructor MkLowerState
   integer_less_name : Name
+  foreigns : List (Name, DEXForeign)
   registers : List (Int, Register)
   value_types : List (Int, ValueType)
   result_register : Register
@@ -165,6 +167,77 @@ is_checked_equal actual =
     _ => False
 
 private
+find_foreign : Name -> List (Name, DEXForeign) -> Maybe DEXForeign
+find_foreign requested [] = Nothing
+find_foreign requested ((name, foreign) :: rest) =
+  if requested == name
+    then Just foreign
+    else find_foreign requested rest
+
+private
+foreign_result_value_type : DEXForeign -> Either String ValueType
+foreign_result_value_type foreign =
+  case foreign.method.result of
+    ExistingValue value => Right value
+    ReferenceValue reference => Right ObjectValue
+    LongValue =>
+      Left
+        ("DEX source lowering does not yet allocate a register pair for foreign result " ++
+         show foreign.method)
+    VoidValue =>
+      Left
+        ("DEX foreign call has no value result: " ++ show foreign.method)
+
+private
+foreign_argument_registers :
+  String -> List Administrative_Normal_Form_Variable -> LowerState ->
+  Either String (List Register)
+foreign_argument_registers role [] state = Right []
+foreign_argument_registers role
+  (Administrative_Normal_Form_Local_Variable variable :: rest) state = do
+  register <- lookup_register role variable state
+  more <- foreign_argument_registers role rest state
+  Right (register :: more)
+foreign_argument_registers role
+  (Administrative_Normal_Form_Erased_Variable :: rest) state =
+  Left
+    (role ++
+     " contains an erased/world argument; PrimIO world erasure is not in the pure foreign slice")
+
+private
+lower_foreign_call :
+  Register -> ValueType -> Name -> List Administrative_Normal_Form_Variable ->
+  LowerState -> Either String LowerState
+lower_foreign_call destination destination_type name arguments state =
+  case find_foreign name state.foreigns of
+    Nothing =>
+      Left ("Unsupported checked named call in DEX checked slice: " ++ show name)
+    Just foreign =>
+      if foreign.effect == PrimitiveIOForeign
+        then
+          Left
+            ("DEX PrimIO foreign lowering is not yet enabled for " ++
+             show foreign.method)
+        else do
+          result_type <- foreign_result_value_type foreign
+          if result_type /= destination_type
+            then
+              Left
+                ("DEX foreign result type mismatch for " ++ show foreign.method ++
+                 ": inferred " ++ show result_type ++
+                 ", destination is " ++ show destination_type)
+            else Right ()
+          registers <-
+            foreign_argument_registers
+              ("Foreign call " ++ show name) arguments state
+          Right
+            (emit
+              (InvokeMethod
+                (Invoke foreign.invocation_kind foreign.method registers
+                  (Just destination)))
+              state)
+
+private
 lower_comparison :
   IntegerCondition -> Register -> Register -> Register -> LowerState -> LowerState
 lower_comparison condition destination left right state =
@@ -248,10 +321,15 @@ infer_value_type
   (Administrative_Normal_Form_Named_Function_Application _ _ name [_, _]) state =
   if is_checked_int32_less name state.integer_less_name || is_checked_equal name
     then Right IntegerValue
-    else Left ("Cannot infer DEX value type for checked call " ++ show name)
+    else
+      case find_foreign name state.foreigns of
+        Nothing => Left ("Cannot infer DEX value type for checked call " ++ show name)
+        Just foreign => foreign_result_value_type foreign
 infer_value_type
   (Administrative_Normal_Form_Named_Function_Application _ _ name _) state =
-  Left ("Cannot infer DEX value type for checked call " ++ show name)
+  case find_foreign name state.foreigns of
+    Nothing => Left ("Cannot infer DEX value type for checked call " ++ show name)
+    Just foreign => foreign_result_value_type foreign
 infer_value_type expression state =
   Left ("Cannot infer DEX value type for checked ANF: " ++ show expression)
 
@@ -314,8 +392,14 @@ mutual
               then Left "Checked == is outside the DEX Text equality slice"
               else Right (emit (TextEqual destination left right) state)
           else
-            Left
-              ("Unsupported checked named call in DEX checked slice: " ++ show name)
+            lower_foreign_call destination IntegerValue name
+              [ Administrative_Normal_Form_Local_Variable left_variable
+              , Administrative_Normal_Form_Local_Variable right_variable
+              ]
+              state
+  lower_to destination destination_type
+    (Administrative_Normal_Form_Named_Function_Application _ _ name arguments) state =
+      lower_foreign_call destination destination_type name arguments state
   lower_to destination destination_type
     (Administrative_Normal_Form_Binding _ nested_destination value body) state = do
       target <- lookup_register "Let destination" nested_destination state
@@ -487,9 +571,10 @@ validate_method_name name =
 ||| virtual-register placement and target instruction planning.
 public export
 lower_method :
-  Name -> String -> String -> List ValueType -> ValueType ->
+  Name -> List (Name, DEXForeign) -> String -> String ->
+  List ValueType -> ValueType ->
   Administrative_Normal_Form_Definition -> Either String MethodPlan
-lower_method integer_less_name source_name requested_method parameter_types result_type
+lower_method integer_less_name foreigns source_name requested_method parameter_types result_type
   (Make_Administrative_Normal_Form_Function arguments body) = do
   method_name <- validate_method_name requested_method
   if length arguments /= length parameter_types
@@ -508,11 +593,11 @@ lower_method integer_less_name source_name requested_method parameter_types resu
   let register_count = parameter_start + parameter_count
   instructions <-
     finish_method result_type body
-      (MkLowerState integer_less_name mapping argument_types result_register 0 [])
+      (MkLowerState integer_less_name foreigns mapping argument_types result_register 0 [])
   Right
     (MkMethodPlan source_name method_name parameter_count parameter_types result_type
       register_count instructions)
-lower_method integer_less_name source_name requested_method parameter_types result_type definition =
+lower_method integer_less_name foreigns source_name requested_method parameter_types result_type definition =
   Left
     ("DEX export `" ++ source_name ++ "` is not a checked function: " ++
      show definition)
