@@ -9,6 +9,7 @@ modules =
   Backend.DEX.IR,
   Backend.DEX.Framework,
   Backend.DEX.Invoke,
+  Backend.DEX.Foreign,
   Backend.DEX.Lower,
   Backend.DEX.Hash,
   Backend.DEX.Encode,
