@@ -288,11 +288,12 @@ Show Instruction where
   show (TextEqual destination left right) =
     "text-equal " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
   show (InvokeMethod invocation) =
-    show invocation.kind ++ " {" ++ show_registers invocation.arguments ++ "}, " ++
-    show invocation.method ++
-    case invocation.result_register of
-      Nothing => ""
-      Just register => " => " ++ show register
+    let suffix =
+          case invocation.result_register of
+            Nothing => ""
+            Just register => " => " ++ show register
+    in show invocation.kind ++ " {" ++ show_registers invocation.arguments ++ "}, " ++
+       show invocation.method ++ suffix
   show (IntegerBranch condition left right target) =
     show condition ++ " " ++ show left ++ ", " ++
     show right ++ ", " ++ show target
