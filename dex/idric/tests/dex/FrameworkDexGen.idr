@@ -43,7 +43,7 @@ private
 binder_transaction_probe : MethodPlan
 binder_transaction_probe =
   MkMethodPlan "framework-selftest" "binder_transaction_probe"
-    0 [] IntegerValue 7
+    0 [] IntegerValue 10
     [ TextConstant (MkRegister 0) "package"
     , InvokeMethod
         (Invoke InvokeStatic service_manager_get_service
@@ -55,6 +55,9 @@ binder_transaction_probe =
     , IntegerConstant (MkRegister 4) 1598968902
     , IntegerConstant (MkRegister 5) 0
     , InvokeMethod
+        (Invoke InvokeStatic clear_calling_identity [] (Just (MkRegister 7)))
+    , Mark (MkLabel 0)
+    , InvokeMethod
         (Invoke InvokeInterface binder_transact
           [ MkRegister 1
           , MkRegister 4
@@ -63,11 +66,22 @@ binder_transaction_probe =
           , MkRegister 5
           ]
           (Just (MkRegister 6)))
+    , Mark (MkLabel 1)
+    , InvokeMethod
+        (Invoke InvokeStatic restore_calling_identity [MkRegister 7] Nothing)
+    , Goto (MkLabel 3)
+    , Mark (MkLabel 2)
+    , MoveException (MkRegister 9)
+    , InvokeMethod
+        (Invoke InvokeStatic restore_calling_identity [MkRegister 7] Nothing)
+    , ThrowException (MkRegister 9)
+    , Mark (MkLabel 3)
     , InvokeMethod
         (Invoke InvokeVirtual parcel_recycle [MkRegister 2] Nothing)
     , InvokeMethod
         (Invoke InvokeVirtual parcel_recycle [MkRegister 3] Nothing)
     , ReturnInteger (MkRegister 6)
+    , CatchAllRegion (MkLabel 0) (MkLabel 1) (MkLabel 2)
     ]
 
 private
