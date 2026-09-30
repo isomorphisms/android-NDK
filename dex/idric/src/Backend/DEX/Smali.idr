@@ -1,6 +1,7 @@
 module Backend.DEX.Smali
 
 import Backend.DEX.IR
+import Backend.DEX.Invoke
 import Data.String
 
 %default total
@@ -27,6 +28,8 @@ private
 render_instruction : Instruction -> String
 render_instruction (Move destination source) =
   render_move_with "move" destination source
+render_instruction (MoveWide destination source) =
+  render_move_with "move-wide" destination source
 render_instruction (MoveObject destination source) =
   render_move_with "move-object" destination source
 render_instruction (IntegerConstant destination value) =
@@ -40,6 +43,35 @@ render_instruction (TextEqual destination left right) =
   "invoke-virtual {" ++ show left ++ ", " ++ show right ++
   "}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z\n    move-result " ++
   show destination
+render_instruction (InvokeMethod invocation) =
+  let registers =
+        case invocation_register_words invocation of
+          Left explanation => invocation.arguments
+          Right words => words
+      call =
+        show invocation.kind ++ " {" ++ render_registers registers ++ "}, " ++
+        show invocation.method
+  in call ++ render_result invocation.method.result invocation.result_register
+  where
+    render_registers : List Register -> String
+    render_registers [] = ""
+    render_registers [register] = show register
+    render_registers (register :: rest) =
+      show register ++ ", " ++ render_registers rest
+
+    render_result : FrameworkValueType -> Maybe Register -> String
+    render_result VoidValue Nothing = ""
+    render_result LongValue (Just register) =
+      "\n    move-result-wide " ++ show register
+    render_result (ReferenceValue reference) (Just register) =
+      "\n    move-result-object " ++ show register
+    render_result (ExistingValue TextValue) (Just register) =
+      "\n    move-result-object " ++ show register
+    render_result (ExistingValue ObjectValue) (Just register) =
+      "\n    move-result-object " ++ show register
+    render_result (ExistingValue value) (Just register) =
+      "\n    move-result " ++ show register
+    render_result result register = " # invalid-result-plan"
 render_instruction (IntegerBranch condition left right target) =
   show condition ++ " " ++ show left ++ ", " ++ show right ++ ", " ++ show target
 render_instruction (Goto target) = "goto " ++ show target
