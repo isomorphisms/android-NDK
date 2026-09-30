@@ -258,6 +258,9 @@ data Instruction
   | IntegerBinary IntegerBinaryOperation Register Register Register
   | TextEqual Register Register Register
   | InvokeMethod InvocationPlan
+  | CatchAllRegion Label Label Label
+  | MoveException Register
+  | ThrowException Register
   | IntegerBranch IntegerCondition Register Register Label
   | Goto Label
   | Mark Label
@@ -294,6 +297,10 @@ Show Instruction where
             Just register => " => " ++ show register
     in show invocation.kind ++ " {" ++ show_registers invocation.arguments ++ "}, " ++
        show invocation.method ++ suffix
+  show (CatchAllRegion start finish handler) =
+    "catch-all {" ++ show start ++ " .. " ++ show finish ++ "} " ++ show handler
+  show (MoveException register) = "move-exception " ++ show register
+  show (ThrowException register) = "throw " ++ show register
   show (IntegerBranch condition left right target) =
     show condition ++ " " ++ show left ++ ", " ++
     show right ++ ", " ++ show target
