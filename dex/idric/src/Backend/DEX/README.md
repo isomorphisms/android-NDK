@@ -123,3 +123,47 @@ checked-ANF lowering above.
 APK/UI machinery remains outside the generic semantic lowering. A framework
 call or other Android-facing extension to that lowering should be added with a
 concrete checked Idriç fixture that requires it.
+
+
+## Binder/framework-call extension
+
+The Shizuku/Crawl Space broker gives the first concrete consumer for a generic
+framework-call slice. Its minimum forwarding path is deliberately narrower than
+a general Java object model.
+
+[`Framework.idr`](./Framework.idr) records the target-level method and value
+types needed before encoder integration. The first slice needs:
+
+- exact class and method references;
+- `invoke-static`, `invoke-virtual`, and `invoke-interface`;
+- ordinary, object, and wide move-result operations;
+- a two-register `long` value for the calling-identity token;
+- cleanup/finally semantics around `restoreCallingIdentity`;
+- object references for `IBinder` and `Parcel`.
+
+The motivating framework calls are:
+
+```text
+Binder.getCallingUid()                         → int
+Binder.getCallingPid()                         → int
+Binder.clearCallingIdentity()                  → long
+Binder.restoreCallingIdentity(long)            → void
+ServiceManager.getService(String)               → IBinder
+Parcel.obtain()                                 → Parcel
+Parcel.dataPosition()                           → int
+Parcel.dataAvail()                              → int
+Parcel.appendFrom(Parcel, int, int)             → void
+Parcel.recycle()                                → void
+IBinder.pingBinder()                            → boolean
+IBinder.transact(int, Parcel, Parcel, int)      → boolean
+```
+
+This does **not** yet require arbitrary object construction or a generated
+death-recipient class. Those belong to the next class-model slice. Keeping
+death callbacks out of the first patch gives the framework-call encoder a
+small, independently testable finish condition.
+
+A framework-call implementation is accepted only when a checked Idriç fixture
+produces the target plan and direct DEX bytes and the resulting class runs under
+ART. Handwritten smali or a separately handwritten DEX class remains an oracle,
+not acceptance for the compiler path.
