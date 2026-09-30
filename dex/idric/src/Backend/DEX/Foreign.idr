@@ -66,7 +66,7 @@ reference_type : List Char -> FrameworkValueType
 reference_type descriptor =
   let text = pack descriptor in
   if text == "Ljava/lang/String;"
-    then ExistingValue StringValue
+    then ExistingValue TextValue
     else if text == "Ljava/lang/Object;"
       then ExistingValue ObjectValue
       else ReferenceValue (MkTypeReference text)
@@ -168,7 +168,7 @@ source_matches_target : CFType -> FrameworkValueType -> Bool
 source_matches_target CFInt32 (ExistingValue IntegerValue) = True
 source_matches_target CFInt32 (ExistingValue BooleanValue) = True
 source_matches_target CFInt64 LongValue = True
-source_matches_target CFString (ExistingValue StringValue) = True
+source_matches_target CFString (ExistingValue TextValue) = True
 source_matches_target source (ReferenceValue reference) =
   reference_source_type source
 source_matches_target source (ExistingValue ObjectValue) =
