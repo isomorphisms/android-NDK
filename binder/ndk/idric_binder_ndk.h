@@ -14,13 +14,14 @@ typedef struct idric_binder_transaction idric_binder_transaction;
 int idric_binder_get_calling_uid(void);
 int idric_binder_get_calling_pid(void);
 
-/* Process-wide Binder thread-pool controls. */
-void idric_binder_start_thread_pool(void);
-int idric_binder_set_thread_pool_max_threads(uint32_t count);
-void idric_binder_join_thread_pool(void);
-
-/* API-29 service lookup. Returned handles own one strong Binder reference. */
-idric_binder_handle *idric_binder_check_service(const char *instance);
+/*
+ * The packaged application NDK does not ship binder_process.h or
+ * binder_manager.h. Thread-pool control and service-manager lookup therefore
+ * belong to a separate platform/private boundary, not this public-NDK façade.
+ *
+ * This façade operates on Binder handles already obtained at another explicit
+ * boundary, or returned from a transaction.
+ */
 void idric_binder_release(idric_binder_handle *binder);
 int idric_binder_ping(const idric_binder_handle *binder);
 
