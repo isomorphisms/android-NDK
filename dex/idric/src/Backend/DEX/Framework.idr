@@ -55,6 +55,12 @@ framework_descriptor (ReferenceValue reference) = reference.descriptor
 framework_descriptor LongValue = "J"
 framework_descriptor VoidValue = "V"
 
+private
+parameter_descriptors : List FrameworkValueType -> String
+parameter_descriptors [] = ""
+parameter_descriptors (value :: rest) =
+  framework_descriptor value ++ parameter_descriptors rest
+
 public export
 record MethodReference where
   constructor MkMethodReference
@@ -62,6 +68,12 @@ record MethodReference where
   name : String
   parameters : List FrameworkValueType
   result : FrameworkValueType
+
+public export
+method_descriptor : MethodReference -> String
+method_descriptor method =
+  "(" ++ parameter_descriptors method.parameters ++ ")" ++
+  framework_descriptor method.result
 
 public export
 data InvokeKind
@@ -190,8 +202,9 @@ data RequiredInstructionFamily
   | MoveResultObject
   | MoveResultWide
   | MoveWide
-  | ReturnVoid
-  | TryFinally
+  | CatchAllHandler
+  | MoveException
+  | ThrowException
 
 public export
 shizuku_forwarding_requirements : List RequiredInstructionFamily
@@ -201,9 +214,18 @@ shizuku_forwarding_requirements =
   , MoveResultObject
   , MoveResultWide
   , MoveWide
-  , ReturnVoid
-  , TryFinally
+  , CatchAllHandler
+  , MoveException
+  , ThrowException
   ]
+
+||| clearCallingIdentity returns an opaque Java long token. It is a two-register
+||| target value, not permission to widen Idriç's ordinary numeric semantics.
+||| The first broker slice only has to retain it unchanged until
+||| restoreCallingIdentity consumes it.
+public export
+data CallingIdentityTokenUse
+  = PreserveOpaqueLong
 
 ||| The first compiler extension should stop at this boundary. Death recipients
 ||| require generated callback/interface objects and are a later class-model
@@ -214,4 +236,3 @@ data LaterBinderRequirement
   | GeneratedDeathRecipient
   | InstanceField
   | ConstructorCall
-  | ExceptionTable
