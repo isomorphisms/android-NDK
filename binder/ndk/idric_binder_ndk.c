@@ -1,9 +1,7 @@
 #include "idric_binder_ndk.h"
 
 #include <android/binder_ibinder.h>
-#include <android/binder_manager.h>
 #include <android/binder_parcel.h>
-#include <android/binder_process.h>
 #include <android/binder_status.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -130,23 +128,6 @@ int idric_binder_get_calling_uid(void) {
 
 int idric_binder_get_calling_pid(void) {
     return (int)AIBinder_getCallingPid();
-}
-
-void idric_binder_start_thread_pool(void) {
-    ABinderProcess_startThreadPool();
-}
-
-int idric_binder_set_thread_pool_max_threads(uint32_t count) {
-    return ABinderProcess_setThreadPoolMaxThreadCount(count) ? 1 : 0;
-}
-
-void idric_binder_join_thread_pool(void) {
-    ABinderProcess_joinThreadPool();
-}
-
-idric_binder_handle *idric_binder_check_service(const char *instance) {
-    if (instance == NULL) return NULL;
-    return wrap_owned_binder(AServiceManager_checkService(instance));
 }
 
 void idric_binder_release(idric_binder_handle *binder) {
