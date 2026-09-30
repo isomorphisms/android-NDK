@@ -1,0 +1,6 @@
+package idric_android_binder
+version = 0.1.0
+
+sourcedir = "src"
+
+modules = Android.Binder.NDK
