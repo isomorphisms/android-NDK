@@ -32,13 +32,22 @@ the strong-reference and parcel cleanup rules.
 an `AIBinder_Class` carrying its interface descriptor. The native façade caches
 those client-side classes by descriptor and makes the association explicit.
 
-Two limitations matter for Shizuku semantics. The public NDK Binder API does not
-expose the Java `Binder.clearCallingIdentity()` /
-`Binder.restoreCallingIdentity(long)` pair. The underlying platform libbinder
-has an IPC-thread calling-identity mechanism, but using private C++ libbinder
-interfaces is a separate, unstable boundary and must not be mislabeled as NDK.
+Three limitations matter for Shizuku semantics.
 
-Also, public `AParcel` is a typed serialization interface. It does not expose
+First, the NDK package used by ordinary application builds contains the
+`binder_ibinder`, Binder-JNI bridge, parcel, and status headers, but not the
+platform `binder_manager.h` or `binder_process.h` headers. Service-manager
+lookup and ProcessState thread-pool controls are therefore not part of this
+public-NDK façade. The current native slice operates on a Binder handle supplied
+at another explicit boundary or returned by a transaction.
+
+Second, the public NDK Binder API does not expose the Java
+`Binder.clearCallingIdentity()` / `Binder.restoreCallingIdentity(long)` pair.
+The underlying platform libbinder has an IPC-thread calling-identity mechanism,
+but using private/platform libbinder interfaces is a separate boundary and must
+not be mislabeled as ordinary NDK.
+
+Third, public `AParcel` is a typed serialization interface. It does not expose
 Java `Parcel.appendFrom` plus arbitrary data-position operations, so the NDK
 lane cannot faithfully copy an opaque incoming Parcel into another transaction.
 That specific Shizuku operation belongs to the direct DEX/framework lane (or a
