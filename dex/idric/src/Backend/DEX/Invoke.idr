@@ -57,12 +57,19 @@ expand_arguments (register :: registers) (value :: values) = do
 expand_arguments _ _ =
   Left "DEX invocation register count does not match the method signature"
 
+||| Concrete DEX register words used by a non-range invocation. Wide arguments
+||| expand to their consecutive register pair.
+public export
+invocation_register_words : InvocationPlan -> Either String (List Register)
+invocation_register_words invocation =
+  expand_arguments invocation.arguments (argument_types invocation)
+
 ||| Number of DEX argument register words consumed by format 35c.
 ||| Receiver registers for virtual/interface calls are included.
 public export
 invocation_argument_words : InvocationPlan -> Either String Int
 invocation_argument_words invocation = do
-  registers <- expand_arguments invocation.arguments (argument_types invocation)
+  registers <- invocation_register_words invocation
   let word_count : Int = cast (length registers)
   if word_count > 5
     then Left "DEX format 35c invocation exceeds five register words"
@@ -179,7 +186,7 @@ encode_invoke_35c method_index invocation = do
   if method_index < 0 || method_index > 65535
     then Left "DEX format 35c method index exceeds 16 bits"
     else Right ()
-  registers <- expand_arguments invocation.arguments (argument_types invocation)
+  registers <- invocation_register_words invocation
   word_count <- invocation_argument_words invocation
   let first =
         invoke_opcode invocation.kind +
