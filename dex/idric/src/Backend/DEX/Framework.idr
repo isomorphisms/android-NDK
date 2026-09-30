@@ -113,6 +113,18 @@ data RequiredInstructionFamily
   | NeedsThrowException
 
 public export
+Eq RequiredInstructionFamily where
+  NeedsInvokeMethod == NeedsInvokeMethod = True
+  NeedsMoveResult == NeedsMoveResult = True
+  NeedsMoveResultObject == NeedsMoveResultObject = True
+  NeedsMoveResultWide == NeedsMoveResultWide = True
+  NeedsMoveWide == NeedsMoveWide = True
+  NeedsCatchAllHandler == NeedsCatchAllHandler = True
+  NeedsMoveException == NeedsMoveException = True
+  NeedsThrowException == NeedsThrowException = True
+  _ == _ = False
+
+public export
 shizuku_forwarding_requirements : List RequiredInstructionFamily
 shizuku_forwarding_requirements =
   [ NeedsInvokeMethod
