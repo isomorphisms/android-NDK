@@ -14,8 +14,12 @@ fail message = do
   exitFailure
 
 private
-expect_equal : Eq value => Show value => String -> value -> value -> IO ()
-expect_equal label expected actual =
+expect_right_equal :
+  Eq value => Show value =>
+  String -> value -> Either String value -> IO ()
+expect_right_equal label expected (Left explanation) =
+  fail (label ++ ": encoder rejected plan: " ++ explanation)
+expect_right_equal label expected (Right actual) =
   if expected == actual
     then pure ()
     else fail (label ++ ": expected " ++ show expected ++ ", got " ++ show actual)
@@ -59,21 +63,21 @@ bad_wide =
 
 main : IO ()
 main = do
-  expect_equal "invoke-static getCallingUid + move-result"
+  expect_right_equal "invoke-static getCallingUid + move-result"
     [0x71, 0x00, 0x23, 0x01, 0x00, 0x00, 0x0a, 0x03]
-    !(pure (either (const []) id (encode_invoke_35c 0x0123 calling_uid)))
+    (encode_invoke_35c 0x0123 calling_uid)
 
-  expect_equal "invoke-static clearCallingIdentity + move-result-wide"
+  expect_right_equal "invoke-static clearCallingIdentity + move-result-wide"
     [0x71, 0x00, 0x24, 0x01, 0x00, 0x00, 0x0b, 0x04]
-    !(pure (either (const []) id (encode_invoke_35c 0x0124 clear_identity)))
+    (encode_invoke_35c 0x0124 clear_identity)
 
-  expect_equal "restoreCallingIdentity expands long to two register words"
+  expect_right_equal "restoreCallingIdentity expands long to two register words"
     [0x71, 0x20, 0x25, 0x01, 0x32, 0x00]
-    !(pure (either (const []) id (encode_invoke_35c 0x0125 restore_identity)))
+    (encode_invoke_35c 0x0125 restore_identity)
 
-  expect_equal "IBinder.transact fills all five 35c argument words"
+  expect_right_equal "IBinder.transact fills all five 35c argument words"
     [0x72, 0x54, 0x26, 0x01, 0x10, 0x32, 0x0a, 0x05]
-    !(pure (either (const []) id (encode_invoke_35c 0x0126 transact)))
+    (encode_invoke_35c 0x0126 transact)
 
   expect_left "wide argument starting at v15 crosses 35c register limit"
     (encode_invoke_35c 0 bad_wide)
