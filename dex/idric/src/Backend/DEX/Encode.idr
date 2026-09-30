@@ -2,6 +2,7 @@ module Backend.DEX.Encode
 
 import Backend.DEX.Hash
 import Backend.DEX.IR
+import Backend.DEX.Invoke
 import Data.Buffer
 import Data.List
 import Data.Maybe
@@ -68,6 +69,20 @@ padding offset alignment =
   replicate (cast (align_up offset alignment - offset)) 0
 
 private
+text_equals_reference : MethodReference
+text_equals_reference =
+  MkMethodReference
+    (MkTypeReference "Ljava/lang/String;")
+    "equals"
+    [ReferenceValue (MkTypeReference "Ljava/lang/Object;")]
+    (ExistingValue BooleanValue)
+
+private
+text_equal_invocation : Register -> Register -> Register -> InvocationPlan
+text_equal_invocation destination left right =
+  Invoke InvokeVirtual text_equals_reference [left, right] (Just destination)
+
+private
 move_width : Register -> Register -> Either String Int
 move_width destination source =
   if not (valid_register 65535 destination && valid_register 65535 source)
@@ -77,6 +92,13 @@ move_width destination source =
       else if valid_register 255 destination
         then Right 2
         else Right 3
+
+private
+wide_move_width : Register -> Register -> Either String Int
+wide_move_width destination source =
+  if not (valid_register 65534 destination && valid_register 65534 source)
+    then Left "DEX move-wide register pair exceeds v65535"
+    else move_width destination source
 
 private
 instruction_width : Instruction -> Either String Int
@@ -96,6 +118,7 @@ instruction_width (TextConstant destination value) =
     then Right 2
     else Left "DEX const-string requires a destination in v0..v255"
 instruction_width (Move destination source) = move_width destination source
+instruction_width (MoveWide destination source) = wide_move_width destination source
 instruction_width (MoveObject destination source) = move_width destination source
 instruction_width (IntegerBinary _ destination left right) =
   if valid_register 255 destination &&
@@ -103,11 +126,9 @@ instruction_width (IntegerBinary _ destination left right) =
     then Right 2
     else Left "DEX format 23x Int32 arithmetic requires registers v0..v255"
 instruction_width (TextEqual destination left right) =
-  if valid_register 255 destination &&
-     valid_register 15 left && valid_register 15 right
-    then Right 4
-    else Left
-      "DEX first String.equals slice requires result v0..v255 and operands v0..v15"
+  invocation_width_35c (text_equal_invocation destination left right)
+instruction_width (InvokeMethod invocation) =
+  invocation_width_35c invocation
 instruction_width (IntegerBranch _ left right target) =
   if valid_register 15 left && valid_register 15 right
     then Right 2
@@ -190,10 +211,10 @@ encode_move narrow_opcode from16_opcode wide_opcode destination source = do
 
 private
 encode_instruction :
-  List String -> Maybe Int -> List (Label, Int) -> Int -> Instruction ->
+  List String -> List MethodReference -> List (Label, Int) -> Int -> Instruction ->
   Either String (List Int)
-encode_instruction strings text_equals_method labels address (Mark label) = Right []
-encode_instruction strings text_equals_method labels address
+encode_instruction strings method_ids labels address (Mark label) = Right []
+encode_instruction strings method_ids labels address
   instruction@(IntegerConstant destination value) = do
   width <- instruction_width instruction
   let register = cast destination.number
@@ -205,7 +226,7 @@ encode_instruction strings text_equals_method labels address
           (0x12 + register * 256 + unsigned_mod literal 16 * 4096))
     2 => Right (u16le (0x13 + register * 256) ++ u16le literal)
     _ => Right (u16le (0x14 + register * 256) ++ u32le literal)
-encode_instruction strings text_equals_method labels address
+encode_instruction strings method_ids labels address
   instruction@(TextConstant destination value) = do
   _ <- instruction_width instruction
   string_index <- lookup_index "const-string" value strings
@@ -215,32 +236,31 @@ encode_instruction strings text_equals_method labels address
       Right
         (u16le (0x1a + cast destination.number * 256) ++
          u16le (cast string_index))
-encode_instruction strings text_equals_method labels address (Move destination source) =
+encode_instruction strings method_ids labels address (Move destination source) =
   encode_move 0x01 0x02 0x03 destination source
-encode_instruction strings text_equals_method labels address (MoveObject destination source) =
+encode_instruction strings method_ids labels address (MoveWide destination source) = do
+  _ <- wide_move_width destination source
+  encode_move 0x04 0x05 0x06 destination source
+encode_instruction strings method_ids labels address (MoveObject destination source) =
   encode_move 0x07 0x08 0x09 destination source
-encode_instruction strings text_equals_method labels address
+encode_instruction strings method_ids labels address
   instruction@(IntegerBinary operation destination left right) = do
   _ <- instruction_width instruction
   Right
     (u16le (binary_opcode operation + cast destination.number * 256) ++
      u16le (cast left.number + cast right.number * 256))
-encode_instruction strings text_equals_method labels address
+encode_instruction strings method_ids labels address
   instruction@(TextEqual destination left right) = do
   _ <- instruction_width instruction
-  method_index <-
-    case text_equals_method of
-      Nothing => Left "DEX String.equals method reference was not prepared"
-      Just index => Right (the Integer (cast index))
-  if method_index > 65535
-    then Left "DEX method index for String.equals exceeds format 35c"
-    else
-      Right
-        (u16le 0x206e ++
-         u16le method_index ++
-         u16le (cast left.number + cast right.number * 16) ++
-         u16le (0x0a + cast destination.number * 256))
-encode_instruction strings text_equals_method labels address
+  let invocation = text_equal_invocation destination left right
+  method_index <- lookup_index "external method" invocation.method method_ids
+  encode_invoke_35c method_index invocation
+encode_instruction strings method_ids labels address
+  instruction@(InvokeMethod invocation) = do
+  _ <- instruction_width instruction
+  method_index <- lookup_index "external method" invocation.method method_ids
+  encode_invoke_35c method_index invocation
+encode_instruction strings method_ids labels address
   instruction@(IntegerBranch condition left right target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
@@ -256,7 +276,7 @@ encode_instruction strings text_equals_method labels address
           (branch_opcode condition + cast left.number * 256 +
            cast right.number * 4096) ++
          u16le (cast offset))
-encode_instruction strings text_equals_method labels address instruction@(Goto target) = do
+encode_instruction strings method_ids labels address instruction@(Goto target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
   let offset = target_address - address
@@ -266,11 +286,11 @@ encode_instruction strings text_equals_method labels address instruction@(Goto t
         ("First DEX goto format 10t offset is zero or out of range at code unit " ++
          show address ++ ": " ++ show offset)
     else Right (u16le (0x28 + unsigned_mod (cast offset) 256 * 256))
-encode_instruction strings text_equals_method labels address
+encode_instruction strings method_ids labels address
   instruction@(ReturnInteger register) = do
   _ <- instruction_width instruction
   Right (u16le (0x0f + cast register.number * 256))
-encode_instruction strings text_equals_method labels address
+encode_instruction strings method_ids labels address
   instruction@(ReturnObject register) = do
   _ <- instruction_width instruction
   Right (u16le (0x11 + cast register.number * 256))
@@ -281,7 +301,7 @@ encode_instruction_stream :
   Either String (List Int)
 encode_instruction_stream strings text_equals_method labels address [] = Right []
 encode_instruction_stream strings text_equals_method labels address (instruction :: rest) = do
-  encoded <- encode_instruction strings text_equals_method labels address instruction
+  encoded <- encode_instruction strings method_ids labels address instruction
   width <- instruction_width instruction
   more <-
     encode_instruction_stream strings text_equals_method labels (address + width) rest
@@ -289,10 +309,10 @@ encode_instruction_stream strings text_equals_method labels address (instruction
 
 private
 encode_instructions :
-  List String -> Maybe Int -> List Instruction -> Either String (List Int)
-encode_instructions strings text_equals_method instructions = do
+  List String -> List MethodReference -> List Instruction -> Either String (List Int)
+encode_instructions strings method_ids instructions = do
   labels <- label_addresses instructions
-  encode_instruction_stream strings text_equals_method labels 0 instructions
+  encode_instruction_stream strings method_ids labels 0 instructions
 
 private
 record Prototype where
