@@ -52,6 +52,7 @@ jobs:
       - name: Typecheck Idriç NDK Binder hooks
         working-directory: binder/idric
         run: |
+          export IDRIS2_PATH="$GITHUB_WORKSPACE/dex/idric/Idric/_/libs/prelude/build/ttc"
           ../../dex/idric/Idric/build/exec/idris2 --typecheck idric-android-binder.ipkg
 
       - name: Typecheck DEX backend and Binder extension
