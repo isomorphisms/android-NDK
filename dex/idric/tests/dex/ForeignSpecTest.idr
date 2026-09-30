@@ -4,6 +4,7 @@ import Backend.DEX.Foreign
 import Backend.DEX.IR
 import Compiler.ANF
 import Core.CompileExpr
+import Core.Name
 import System
 
 %default covering
