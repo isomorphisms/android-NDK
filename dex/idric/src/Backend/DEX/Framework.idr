@@ -103,26 +103,26 @@ binder_transact =
 ||| slice. This is a capability inventory, not an instruction encoding.
 public export
 data RequiredInstructionFamily
-  = InvokeMethod
-  | MoveResult
-  | MoveResultObject
-  | MoveResultWide
-  | MoveWide
-  | CatchAllHandler
-  | MoveException
-  | ThrowException
+  = NeedsInvokeMethod
+  | NeedsMoveResult
+  | NeedsMoveResultObject
+  | NeedsMoveResultWide
+  | NeedsMoveWide
+  | NeedsCatchAllHandler
+  | NeedsMoveException
+  | NeedsThrowException
 
 public export
 shizuku_forwarding_requirements : List RequiredInstructionFamily
 shizuku_forwarding_requirements =
-  [ InvokeMethod
-  , MoveResult
-  , MoveResultObject
-  , MoveResultWide
-  , MoveWide
-  , CatchAllHandler
-  , MoveException
-  , ThrowException
+  [ NeedsInvokeMethod
+  , NeedsMoveResult
+  , NeedsMoveResultObject
+  , NeedsMoveResultWide
+  , NeedsMoveWide
+  , NeedsCatchAllHandler
+  , NeedsMoveException
+  , NeedsThrowException
   ]
 
 ||| clearCallingIdentity returns an opaque Java long token. It is a two-register
