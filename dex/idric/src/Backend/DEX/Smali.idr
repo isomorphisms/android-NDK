@@ -72,6 +72,12 @@ render_instruction (InvokeMethod invocation) =
     render_result (ExistingValue value) (Just register) =
       "\n    move-result " ++ show register
     render_result result register = " # invalid-result-plan"
+render_instruction (CatchAllRegion start finish handler) =
+  ".catchall {" ++ show start ++ " .. " ++ show finish ++ "} " ++ show handler
+render_instruction (MoveException register) =
+  "move-exception " ++ show register
+render_instruction (ThrowException register) =
+  "throw " ++ show register
 render_instruction (IntegerBranch condition left right target) =
   show condition ++ " " ++ show left ++ ", " ++ show right ++ ", " ++ show target
 render_instruction (Goto target) = "goto " ++ show target
