@@ -4,100 +4,6 @@ import Backend.DEX.IR
 
 %default total
 
-||| A validated DEX type descriptor such as Landroid/os/IBinder;.
-||| Validation/encoding belongs to the DEX backend; application code should use
-||| semantic names above this target layer.
-public export
-record TypeReference where
-  constructor MkTypeReference
-  descriptor : String
-
-public export
-Eq TypeReference where
-  (MkTypeReference left) == (MkTypeReference right) = left == right
-
-public export
-Show TypeReference where
-  show reference = reference.descriptor
-
-||| DEX register-width class. Long/double values occupy a consecutive register
-||| pair even though the source language should not expose that placement.
-public export
-data RegisterWidth
-  = SingleRegister
-  | RegisterPair
-
-public export
-data FrameworkValueType
-  = ExistingValue ValueType
-  | ReferenceValue TypeReference
-  | LongValue
-  | VoidValue
-
-public export
-Eq FrameworkValueType where
-  (ExistingValue left) == (ExistingValue right) = left == right
-  (ReferenceValue left) == (ReferenceValue right) = left == right
-  LongValue == LongValue = True
-  VoidValue == VoidValue = True
-  _ == _ = False
-
-public export
-register_width : FrameworkValueType -> Maybe RegisterWidth
-register_width VoidValue = Nothing
-register_width LongValue = Just RegisterPair
-register_width _ = Just SingleRegister
-
-public export
-framework_descriptor : FrameworkValueType -> String
-framework_descriptor (ExistingValue value) = value_descriptor value
-framework_descriptor (ReferenceValue reference) = reference.descriptor
-framework_descriptor LongValue = "J"
-framework_descriptor VoidValue = "V"
-
-private
-parameter_descriptors : List FrameworkValueType -> String
-parameter_descriptors [] = ""
-parameter_descriptors (value :: rest) =
-  framework_descriptor value ++ parameter_descriptors rest
-
-public export
-record MethodReference where
-  constructor MkMethodReference
-  owner : TypeReference
-  name : String
-  parameters : List FrameworkValueType
-  result : FrameworkValueType
-
-public export
-method_descriptor : MethodReference -> String
-method_descriptor method =
-  "(" ++ parameter_descriptors method.parameters ++ ")" ++
-  framework_descriptor method.result
-
-public export
-data InvokeKind
-  = InvokeStatic
-  | InvokeVirtual
-  | InvokeInterface
-
-public export
-Show InvokeKind where
-  show InvokeStatic = "invoke-static"
-  show InvokeVirtual = "invoke-virtual"
-  show InvokeInterface = "invoke-interface"
-
-||| A target plan for one framework invocation. The ordinary checked-ANF lowerer
-||| does not emit this yet; this type makes the missing target semantics
-||| inspectable before encoder work starts.
-public export
-record InvocationPlan where
-  constructor Invoke
-  kind : InvokeKind
-  method : MethodReference
-  arguments : List Register
-  result_register : Maybe Register
-
 public export
 android_binder : TypeReference
 android_binder = MkTypeReference "Landroid/os/Binder;"
@@ -227,9 +133,9 @@ public export
 data CallingIdentityTokenUse
   = PreserveOpaqueLong
 
-||| The first compiler extension should stop at this boundary. Death recipients
-||| require generated callback/interface objects and are a later class-model
-||| slice, not a reason to make the first forwarding patch unbounded.
+||| Death recipients require generated callback/interface objects and are a
+||| later class-model slice, not a reason to make the first forwarding patch
+||| unbounded.
 public export
 data LaterBinderRequirement
   = GeneratedBinderSubclass
