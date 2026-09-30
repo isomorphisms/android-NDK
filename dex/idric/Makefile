@@ -19,6 +19,7 @@ DEX_TEXT_SMALI := build/exec/text.smali
 DEX_SELFTEST := build/exec/dex-encoder-selftest
 DEX_FRAMEWORK_PLAN_TEST := build/exec/dex-framework-plan-test
 DEX_FRAMEWORK_INVOKE_TEST := build/exec/dex-framework-invoke-test
+DEX_FOREIGN_SPEC_TEST := build/exec/dex-foreign-spec-test
 DEX_FRAMEWORK_GEN := build/exec/dex-framework-gen
 DEX_FRAMEWORK_FILE := build/exec/framework.dex
 DEX_FRAMEWORK_DISASSEMBLY := build/exec/baksmali-framework/Idric/FrameworkProbe.smali
@@ -39,7 +40,7 @@ DEX_VALIDATION_RECEIPT := build/exec/dex-validation-receipt.txt
 
 .PHONY: check-compiler check driver dex-fixture dex-text-fixture \
 	dex-text-validation dex-encoder-selftest dex-framework-plan-test \
-	dex-framework-invoke-test dex-framework-validation dex-determinism dex-reject \
+	dex-framework-invoke-test dex-foreign-spec-test dex-framework-validation dex-determinism dex-reject \
 	dex-header-validation dex-parser-validation dex-oracle-validation \
 	dex-malformed-test dex-test dex-device test verify clean
 
@@ -121,8 +122,18 @@ $(DEX_FRAMEWORK_INVOKE_TEST): $(DRIVER) tests/dex/FrameworkInvokeTest.idr
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-invoke-test_app/
 
 dex-framework-invoke-test: $(DEX_FRAMEWORK_INVOKE_TEST)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
 		./$(DEX_FRAMEWORK_INVOKE_TEST)
+
+$(DEX_FOREIGN_SPEC_TEST): $(DRIVER) tests/dex/ForeignSpecTest.idr
+	IDRIS2_PATH="$(CURDIR)/build/ttc:${IDRIS2_PATH}" \
+		$(IDRIC) --source-dir tests/dex tests/dex/ForeignSpecTest.idr \
+		-o dex-foreign-spec-test
+	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-foreign-spec-test_app/
+
+dex-foreign-spec-test: $(DEX_FOREIGN_SPEC_TEST)
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+		./$(DEX_FOREIGN_SPEC_TEST)
 
 $(DEX_FRAMEWORK_GEN): $(DRIVER) tests/dex/FrameworkDexGen.idr
 	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
