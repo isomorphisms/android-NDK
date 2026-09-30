@@ -17,6 +17,8 @@ DEX_TEXT_CHECKED_ANF := build/exec/text.checked.anf
 DEX_TEXT_PLAN := build/exec/text.dex.plan
 DEX_TEXT_SMALI := build/exec/text.smali
 DEX_SELFTEST := build/exec/dex-encoder-selftest
+DEX_FRAMEWORK_PLAN_TEST := build/exec/dex-framework-plan-test
+DEX_FRAMEWORK_INVOKE_TEST := build/exec/dex-framework-invoke-test
 DEX_INVALID_LOG := build/exec/invalid-dex-int.log
 DEX_INVALID_ARTIFACT := build/exec/invalid-dex-int.dex
 DEX_HEADER_CHECK := tests/dex/check_dex.py
@@ -33,7 +35,8 @@ DEX_MALFORMED_FILE := build/exec/malformed-magic.dex
 DEX_VALIDATION_RECEIPT := build/exec/dex-validation-receipt.txt
 
 .PHONY: branch-separation check-compiler check driver dex-fixture dex-text-fixture \
-	dex-text-validation dex-encoder-selftest dex-determinism dex-reject \
+	dex-text-validation dex-encoder-selftest dex-framework-plan-test \
+	dex-framework-invoke-test dex-determinism dex-reject \
 	dex-header-validation dex-parser-validation dex-oracle-validation \
 	dex-malformed-test dex-test dex-device test verify clean
 
@@ -99,8 +102,28 @@ $(DEX_SELFTEST): $(DRIVER) tests/dex/EncoderSelfTest.idr
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-encoder-selftest_app/
 
 dex-encoder-selftest: $(DEX_SELFTEST)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
 		./$(DEX_SELFTEST)
+
+$(DEX_FRAMEWORK_PLAN_TEST): $(DRIVER) tests/dex/FrameworkPlanTest.idr
+	IDRIS2_PATH="$(CURDIR)/build/ttc:${IDRIS2_PATH}" \
+		$(IDRIC) --source-dir tests/dex tests/dex/FrameworkPlanTest.idr \
+		-o dex-framework-plan-test
+	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-plan-test_app/
+
+dex-framework-plan-test: $(DEX_FRAMEWORK_PLAN_TEST)
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+		./$(DEX_FRAMEWORK_PLAN_TEST)
+
+$(DEX_FRAMEWORK_INVOKE_TEST): $(DRIVER) tests/dex/FrameworkInvokeTest.idr
+	IDRIS2_PATH="$(CURDIR)/build/ttc:${IDRIS2_PATH}" \
+		$(IDRIC) --source-dir tests/dex tests/dex/FrameworkInvokeTest.idr \
+		-o dex-framework-invoke-test
+	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-invoke-test_app/
+
+dex-framework-invoke-test: $(DEX_FRAMEWORK_INVOKE_TEST)
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+		./$(DEX_FRAMEWORK_INVOKE_TEST)
 
 $(DEX_REPEAT_FILE): $(DRIVER) $(DEX_SOURCE)
 	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
@@ -206,12 +229,15 @@ dex-malformed-test: $(DEX_MALFORMED_FILE) $(BAKSMALI_JAR)
 	fi
 
 dex-test: branch-separation check dex-fixture dex-text-validation dex-encoder-selftest \
-	dex-determinism dex-reject dex-parser-validation dex-oracle-validation dex-malformed-test
+	dex-framework-plan-test dex-framework-invoke-test dex-determinism dex-reject \
+	dex-parser-validation dex-oracle-validation dex-malformed-test
 	@{ \
 		echo 'source checked        PASS'; \
 		echo 'checked ANF retained  PASS'; \
 		echo 'Text ABI encoded       PASS'; \
 		echo 'Text equality encoded  PASS'; \
+		echo 'Binder type plan       PASS'; \
+		echo 'Binder invoke 35c      PASS'; \
 		echo 'DEX generated         PASS'; \
 		echo 'DEX parser validation PASS'; \
 		echo 'oracle comparison     PASS'; \
