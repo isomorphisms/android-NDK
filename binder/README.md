@@ -38,8 +38,10 @@ First, the NDK package used by ordinary application builds contains the
 `binder_ibinder`, Binder-JNI bridge, parcel, and status headers, but not the
 platform `binder_manager.h` or `binder_process.h` headers. Service-manager
 lookup and ProcessState thread-pool controls are therefore not part of this
-public-NDK façade. The current native slice operates on a Binder handle supplied
-at another explicit boundary or returned by a transaction.
+public-NDK façade. The native slice now exposes the stable
+`AIBinder_fromJavaBinder` bridge explicitly: an `android.os.IBinder` delivered
+through JNI becomes an owned native `Binder` handle. Handles may also be
+returned by typed transactions.
 
 Second, the public NDK Binder API does not expose the Java
 `Binder.clearCallingIdentity()` / `Binder.restoreCallingIdentity(long)` pair.
@@ -102,14 +104,17 @@ because it can relay Parcel bytes.
 
 Do not collapse these into one vague “Binder works” result.
 
-1. **local-callback** — a locally defined Binder object receives a transaction.
-2. **caller-identity** — the callback records the caller UID and PID.
-3. **remote-ping** — obtain a remote Binder and successfully ping it.
-4. **parcel-round-trip** — transact a harmless method and decode its reply.
-5. **broker-identity** — prove the forwarded transaction is observed under the
-   broker identity rather than the ordinary application caller.
-6. **death** — remote/client Binder death triggers the registered cleanup path.
-7. **delivery** — pass the broker Binder into an ordinary application process.
+1. **java-to-ndk bridge** — an `IBinder` delivered through JNI becomes an
+   owned `AIBinder` handle.
+2. **remote-ping** — the bridged Binder successfully pings.
+3. **typed parcel round-trip** — associate its descriptor, transact a harmless
+   typed method, and decode its reply.
+4. **local-callback** — a locally defined Binder object receives a transaction.
+5. **caller-identity** — the callback records the caller UID and PID.
+6. **broker-identity** — prove the forwarded framework transaction is observed
+   under broker identity rather than the ordinary application caller.
+7. **death** — remote/client Binder death triggers the registered cleanup path.
+8. **delivery** — pass the broker Binder into an ordinary application process.
 
 Each step needs its own evidence. In particular, NDK caller UID/PID and raw
 transact evidence do not prove the broker-identity step.

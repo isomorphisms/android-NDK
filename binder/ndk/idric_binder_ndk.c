@@ -1,8 +1,10 @@
 #include "idric_binder_ndk.h"
 
 #include <android/binder_ibinder.h>
+#include <android/binder_ibinder_jni.h>
 #include <android/binder_parcel.h>
 #include <android/binder_status.h>
+#include <jni.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -122,12 +124,19 @@ static idric_binder_handle *wrap_owned_binder(AIBinder *binder) {
     return handle;
 }
 
-int idric_binder_get_calling_uid(void) {
-    return (int)AIBinder_getCallingUid();
+int32_t idric_binder_get_calling_uid(void) {
+    return (int32_t)AIBinder_getCallingUid();
 }
 
-int idric_binder_get_calling_pid(void) {
-    return (int)AIBinder_getCallingPid();
+int32_t idric_binder_get_calling_pid(void) {
+    return (int32_t)AIBinder_getCallingPid();
+}
+
+idric_binder_handle *idric_binder_from_java(void *jni_environment,
+                                            void *java_binder) {
+    if (jni_environment == NULL || java_binder == NULL) return NULL;
+    return wrap_owned_binder(
+        AIBinder_fromJavaBinder((JNIEnv *)jni_environment, (jobject)java_binder));
 }
 
 void idric_binder_release(idric_binder_handle *binder) {
@@ -137,18 +146,18 @@ void idric_binder_release(idric_binder_handle *binder) {
     free(binder);
 }
 
-int idric_binder_ping(const idric_binder_handle *binder) {
-    if (binder == NULL || binder->value == NULL) return (int)bad_value();
-    return (int)AIBinder_ping(binder->value);
+int32_t idric_binder_ping(const idric_binder_handle *binder) {
+    if (binder == NULL || binder->value == NULL) return (int32_t)bad_value();
+    return (int32_t)AIBinder_ping(binder->value);
 }
 
-int idric_binder_associate_descriptor(idric_binder_handle *binder,
+int32_t idric_binder_associate_descriptor(idric_binder_handle *binder,
                                       const char *descriptor) {
     const AIBinder_Class *clazz;
-    if (binder == NULL || binder->value == NULL) return (int)bad_value();
+    if (binder == NULL || binder->value == NULL) return (int32_t)bad_value();
     clazz = class_for_descriptor(descriptor);
-    if (clazz == NULL) return STATUS_NO_MEMORY;
-    return AIBinder_associateClass(binder->value, clazz) ? STATUS_OK : STATUS_BAD_TYPE;
+    if (clazz == NULL) return (int32_t)STATUS_NO_MEMORY;
+    return AIBinder_associateClass(binder->value, clazz) ? (int32_t)STATUS_OK : (int32_t)STATUS_BAD_TYPE;
 }
 
 idric_binder_transaction *idric_binder_transaction_new(idric_binder_handle *binder) {
@@ -176,9 +185,9 @@ void idric_binder_transaction_delete(idric_binder_transaction *transaction) {
     free(transaction);
 }
 
-int idric_binder_transaction_status(const idric_binder_transaction *transaction) {
-    if (transaction == NULL) return (int)bad_value();
-    return (int)transaction->status;
+int32_t idric_binder_transaction_status(const idric_binder_transaction *transaction) {
+    if (transaction == NULL) return (int32_t)bad_value();
+    return (int32_t)transaction->status;
 }
 
 static binder_status_t ready_to_write(const idric_binder_transaction *transaction) {
@@ -195,39 +204,39 @@ static binder_status_t ready_to_read(const idric_binder_transaction *transaction
     return transaction->status;
 }
 
-int idric_binder_transaction_write_int32(idric_binder_transaction *transaction,
-                                         int value) {
+int32_t idric_binder_transaction_write_int32(idric_binder_transaction *transaction,
+                                         int32_t value) {
     binder_status_t status = ready_to_write(transaction);
-    if (status != STATUS_OK) return (int)status;
-    transaction->status = AParcel_writeInt32(transaction->input, (int32_t)value);
-    return (int)transaction->status;
+    if (status != STATUS_OK) return (int32_t)status;
+    transaction->status = AParcel_writeInt32(transaction->input, value);
+    return (int32_t)transaction->status;
 }
 
-int idric_binder_transaction_write_binder(idric_binder_transaction *transaction,
+int32_t idric_binder_transaction_write_binder(idric_binder_transaction *transaction,
                                           const idric_binder_handle *binder) {
     binder_status_t status = ready_to_write(transaction);
-    if (status != STATUS_OK) return (int)status;
+    if (status != STATUS_OK) return (int32_t)status;
     transaction->status = AParcel_writeStrongBinder(
         transaction->input, binder == NULL ? NULL : binder->value);
-    return (int)transaction->status;
+    return (int32_t)transaction->status;
 }
 
-int idric_binder_transaction_write_fd(idric_binder_transaction *transaction,
-                                      int fd) {
+int32_t idric_binder_transaction_write_fd(idric_binder_transaction *transaction,
+                                      int32_t fd) {
     binder_status_t status = ready_to_write(transaction);
-    if (status != STATUS_OK) return (int)status;
+    if (status != STATUS_OK) return (int32_t)status;
     transaction->status = AParcel_writeParcelFileDescriptor(transaction->input, fd);
-    return (int)transaction->status;
+    return (int32_t)transaction->status;
 }
 
-int idric_binder_transaction_send(idric_binder_transaction *transaction,
+int32_t idric_binder_transaction_send(idric_binder_transaction *transaction,
                                   uint32_t code, uint32_t flags) {
     binder_status_t status;
     if (transaction == NULL || transaction->target == NULL ||
         transaction->input == NULL || transaction->sent) {
-        return (int)bad_value();
+        return (int32_t)bad_value();
     }
-    if (transaction->status != STATUS_OK) return (int)transaction->status;
+    if (transaction->status != STATUS_OK) return (int32_t)transaction->status;
 
     status = AIBinder_transact(transaction->target, code,
                               &transaction->input, &transaction->output, flags);
@@ -235,10 +244,10 @@ int idric_binder_transaction_send(idric_binder_transaction *transaction,
     transaction->input = NULL;
     transaction->sent = 1;
     transaction->status = status;
-    return (int)status;
+    return (int32_t)status;
 }
 
-int idric_binder_transaction_read_int32(idric_binder_transaction *transaction) {
+int32_t idric_binder_transaction_read_int32(idric_binder_transaction *transaction) {
     int32_t value = 0;
     binder_status_t status = ready_to_read(transaction);
     if (status != STATUS_OK) {
@@ -246,7 +255,7 @@ int idric_binder_transaction_read_int32(idric_binder_transaction *transaction) {
         return 0;
     }
     transaction->status = AParcel_readInt32(transaction->output, &value);
-    return transaction->status == STATUS_OK ? (int)value : 0;
+    return transaction->status == STATUS_OK ? value : 0;
 }
 
 idric_binder_handle *idric_binder_transaction_read_binder(
@@ -262,7 +271,7 @@ idric_binder_handle *idric_binder_transaction_read_binder(
     return wrap_owned_binder(binder);
 }
 
-int idric_binder_transaction_read_fd(idric_binder_transaction *transaction) {
+int32_t idric_binder_transaction_read_fd(idric_binder_transaction *transaction) {
     int fd = -1;
     binder_status_t status = ready_to_read(transaction);
     if (status != STATUS_OK) {
@@ -270,9 +279,9 @@ int idric_binder_transaction_read_fd(idric_binder_transaction *transaction) {
         return -1;
     }
     transaction->status = AParcel_readParcelFileDescriptor(transaction->output, &fd);
-    return transaction->status == STATUS_OK ? fd : -1;
+    return transaction->status == STATUS_OK ? (int32_t)fd : -1;
 }
 
-int idric_binder_pointer_is_null(const void *pointer) {
+int32_t idric_binder_pointer_is_null(const void *pointer) {
     return pointer == NULL ? 1 : 0;
 }
