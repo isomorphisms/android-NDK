@@ -16,6 +16,12 @@ DEX_TEXT_FILE := build/exec/text.dex
 DEX_TEXT_CHECKED_ANF := build/exec/text.checked.anf
 DEX_TEXT_PLAN := build/exec/text.dex.plan
 DEX_TEXT_SMALI := build/exec/text.smali
+DEX_FOREIGN_SOURCE := examples/DexForeign.idric
+DEX_FOREIGN_FILE := build/exec/foreign.dex
+DEX_FOREIGN_CHECKED_ANF := build/exec/foreign.checked.anf
+DEX_FOREIGN_PLAN := build/exec/foreign.dex.plan
+DEX_FOREIGN_SMALI := build/exec/foreign.smali
+DEX_FOREIGN_DISASSEMBLY := build/exec/baksmali-foreign/Idric/Generated.smali
 DEX_SELFTEST := build/exec/dex-encoder-selftest
 DEX_FRAMEWORK_PLAN_TEST := build/exec/dex-framework-plan-test
 DEX_FRAMEWORK_INVOKE_TEST := build/exec/dex-framework-invoke-test
@@ -39,7 +45,7 @@ DEX_MALFORMED_FILE := build/exec/malformed-magic.dex
 DEX_VALIDATION_RECEIPT := build/exec/dex-validation-receipt.txt
 
 .PHONY: check-compiler check driver dex-fixture dex-text-fixture \
-	dex-text-validation dex-encoder-selftest dex-framework-plan-test \
+	dex-text-validation dex-foreign-validation dex-encoder-selftest dex-framework-plan-test \
 	dex-framework-invoke-test dex-foreign-spec-test dex-framework-validation dex-determinism dex-reject \
 	dex-header-validation dex-parser-validation dex-oracle-validation \
 	dex-malformed-test dex-test dex-device test verify clean
@@ -94,6 +100,17 @@ dex-text-fixture: $(DEX_TEXT_FILE) $(DEX_TEXT_CHECKED_ANF) $(DEX_TEXT_PLAN) $(DE
 	grep -q 'move-object' $(DEX_TEXT_PLAN)
 	grep -q 'const-string' $(DEX_TEXT_PLAN)
 	grep -q 'return-object' $(DEX_TEXT_PLAN)
+
+$(DEX_FOREIGN_FILE) $(DEX_FOREIGN_CHECKED_ANF) $(DEX_FOREIGN_PLAN) $(DEX_FOREIGN_SMALI) &: $(DRIVER) $(DEX_FOREIGN_SOURCE)
+	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
+		./$(DRIVER) --cg dex --source-dir examples $(DEX_FOREIGN_SOURCE) -o foreign
+
+dex-foreign-fixture: $(DEX_FOREIGN_FILE) $(DEX_FOREIGN_CHECKED_ANF) $(DEX_FOREIGN_PLAN) $(DEX_FOREIGN_SMALI)
+	grep -q '^export DexForeign.count_bits as count_bits$$' $(DEX_FOREIGN_CHECKED_ANF)
+	grep -q 'java_integer_bit_count' $(DEX_FOREIGN_CHECKED_ANF)
+	grep -q '^method count_bits$$' $(DEX_FOREIGN_PLAN)
+	grep -q 'Ljava/lang/Integer;->bitCount(I)I' $(DEX_FOREIGN_PLAN)
+	grep -q 'invoke-static' $(DEX_FOREIGN_PLAN)
 
 $(DEX_SELFTEST): $(DRIVER) tests/dex/EncoderSelfTest.idr
 	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
@@ -206,6 +223,19 @@ $(SMALI_JAR):
 		https://github.com/baksmali/smali/releases/download/3.0.10/smali-3.0.10-fat-release.jar \
 		-o $@
 	echo '$(SMALI_SHA256)  $@' | sha256sum -c -
+
+$(DEX_FOREIGN_DISASSEMBLY): $(DEX_FOREIGN_FILE) $(BAKSMALI_JAR)
+	rm -rf build/exec/baksmali-foreign
+	mkdir -p build/exec/baksmali-foreign
+	java -jar $(BAKSMALI_JAR) disassemble $(DEX_FOREIGN_FILE) \
+		-o build/exec/baksmali-foreign
+
+dex-foreign-validation: dex-foreign-fixture $(DEX_FOREIGN_DISASSEMBLY)
+	python3 $(DEX_HEADER_CHECK) $(DEX_FOREIGN_FILE)
+	grep -q '^\.method public static count_bits(I)I$$' $(DEX_FOREIGN_DISASSEMBLY)
+	grep -q 'invoke-static {p0}, Ljava/lang/Integer;->bitCount(I)I' $(DEX_FOREIGN_DISASSEMBLY)
+	grep -q 'move-result v0' $(DEX_FOREIGN_DISASSEMBLY)
+	grep -q 'return v0' $(DEX_FOREIGN_DISASSEMBLY)
 
 $(DEX_CANDIDATE_DISASSEMBLY): $(DEX_FILE) $(BAKSMALI_JAR)
 	mkdir -p build/exec/baksmali-candidate
