@@ -784,7 +784,9 @@ encode_dex file_plan = do
     Just duplicate => Left ("Duplicate DEX method signature " ++ duplicate)
     Nothing => Right ()
   let method_ids = all_method_references file_plan.class_descriptor methods
-  _ <- traverse (validate_class_descriptor . owner) method_ids
+  _ <- traverse
+    (\method => validate_class_descriptor method.owner.descriptor)
+    method_ids
   let prototypes =
         unique_prototypes (map prototype_of_reference method_ids)
   let descriptors =
