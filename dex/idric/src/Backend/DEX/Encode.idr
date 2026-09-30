@@ -823,13 +823,21 @@ layout_code_from current [] accumulated laid_out first =
 layout_code_from current (method :: rest) accumulated laid_out first =
   let start = align_up current 4
       pad = padding current 4
+      tries_size = method.exception_table.try_count
+      exception_padding =
+        if tries_size > 0 && method.instruction_units `mod` 2 == 1
+          then [0, 0]
+          else []
       header =
         u16le (cast method.plan.register_count) ++
         u16le (cast method.plan.parameter_count) ++
         u16le (cast (outgoing_register_count method.plan.instructions)) ++
-        u16le 0 ++ u32le 0 ++
+        u16le (cast tries_size) ++ u32le 0 ++
         u32le (cast method.instruction_units)
-      item = header ++ method.instruction_bytes
+      item =
+        header ++ method.instruction_bytes ++ exception_padding ++
+        method.exception_table.try_bytes ++
+        method.exception_table.handler_bytes
       placed = { code_offset := start } method
       next_first =
         case first of
