@@ -297,14 +297,14 @@ encode_instruction strings method_ids labels address
 
 private
 encode_instruction_stream :
-  List String -> Maybe Int -> List (Label, Int) -> Int -> List Instruction ->
+  List String -> List MethodReference -> List (Label, Int) -> Int -> List Instruction ->
   Either String (List Int)
-encode_instruction_stream strings text_equals_method labels address [] = Right []
-encode_instruction_stream strings text_equals_method labels address (instruction :: rest) = do
+encode_instruction_stream strings method_ids labels address [] = Right []
+encode_instruction_stream strings method_ids labels address (instruction :: rest) = do
   encoded <- encode_instruction strings method_ids labels address instruction
   width <- instruction_width instruction
   more <-
-    encode_instruction_stream strings text_equals_method labels (address + width) rest
+    encode_instruction_stream strings method_ids labels (address + width) rest
   Right (encoded ++ more)
 
 private
@@ -317,22 +317,37 @@ encode_instructions strings method_ids instructions = do
 private
 record Prototype where
   constructor MkPrototype
-  parameter_types : List ValueType
-  result_type : ValueType
+  parameter_descriptors : List String
+  result_descriptor : String
 
 private
 Eq Prototype where
   left == right =
-    left.parameter_types == right.parameter_types &&
-    left.result_type == right.result_type
+    left.parameter_descriptors == right.parameter_descriptors &&
+    left.result_descriptor == right.result_descriptor
 
 private
-prototype_of : MethodPlan -> Prototype
-prototype_of method = MkPrototype method.parameter_types method.result_type
+prototype_of_method : MethodPlan -> Prototype
+prototype_of_method method =
+  MkPrototype
+    (map value_descriptor method.parameter_types)
+    (value_descriptor method.result_type)
 
 private
-text_equals_prototype : Prototype
-text_equals_prototype = MkPrototype [ObjectValue] BooleanValue
+prototype_of_reference : MethodReference -> Prototype
+prototype_of_reference method =
+  MkPrototype
+    (map framework_descriptor method.parameters)
+    (framework_descriptor method.result)
+
+private
+generated_method_reference : String -> MethodPlan -> MethodReference
+generated_method_reference class_descriptor method =
+  MkMethodReference
+    (MkTypeReference class_descriptor)
+    method.method_name
+    (map ExistingValue method.parameter_types)
+    (ExistingValue method.result_type)
 
 private
 compare_descriptors : List String -> List String -> Ordering
@@ -347,14 +362,12 @@ compare_descriptors (left :: left_rest) (right :: right_rest) =
 private
 compare_prototype : Prototype -> Prototype -> Ordering
 compare_prototype left right =
-  case compare
-    (value_descriptor left.result_type)
-    (value_descriptor right.result_type) of
-      EQ =>
-        compare_descriptors
-          (map value_descriptor left.parameter_types)
-          (map value_descriptor right.parameter_types)
-      ordering => ordering
+  case compare left.result_descriptor right.result_descriptor of
+    EQ =>
+      compare_descriptors
+        left.parameter_descriptors
+        right.parameter_descriptors
+    ordering => ordering
 
 private
 insert_prototype : Prototype -> List Prototype -> List Prototype
@@ -366,9 +379,39 @@ insert_prototype prototype (candidate :: rest) =
     GT => candidate :: insert_prototype prototype rest
 
 private
-unique_prototypes : List MethodPlan -> List Prototype
-unique_prototypes methods =
-  foldr (\method, values => insert_prototype (prototype_of method) values) [] methods
+unique_prototypes : List Prototype -> List Prototype
+unique_prototypes =
+  foldr insert_prototype []
+
+private
+method_reference_before : MethodReference -> MethodReference -> Bool
+method_reference_before left right =
+  case compare left.owner.descriptor right.owner.descriptor of
+    LT => True
+    GT => False
+    EQ =>
+      case compare left.name right.name of
+        LT => True
+        GT => False
+        EQ =>
+          compare_prototype
+            (prototype_of_reference left)
+            (prototype_of_reference right) /= GT
+
+private
+insert_method_reference :
+  MethodReference -> List MethodReference -> List MethodReference
+insert_method_reference method [] = [method]
+insert_method_reference method (candidate :: rest) =
+  if method == candidate
+    then candidate :: rest
+    else if method_reference_before method candidate
+      then method :: candidate :: rest
+      else candidate :: insert_method_reference method rest
+
+private
+sort_method_references : List MethodReference -> List MethodReference
+sort_method_references = foldr insert_method_reference []
 
 private
 method_before : MethodPlan -> MethodPlan -> Bool
@@ -376,7 +419,11 @@ method_before left right =
   case compare left.method_name right.method_name of
     LT => True
     GT => False
-    EQ => compare_prototype (prototype_of left) (prototype_of right) /= GT
+    EQ =>
+      compare_prototype
+        (prototype_of_method left)
+        (prototype_of_method right) /= GT
+
 private
 insert_method : MethodPlan -> List MethodPlan -> List MethodPlan
 insert_method method [] = [method]
@@ -396,7 +443,7 @@ find_duplicate_method (method :: rest) =
   if any
        (\candidate =>
          candidate.method_name == method.method_name &&
-         prototype_of candidate == prototype_of method) rest
+         prototype_of_method candidate == prototype_of_method method) rest
     then Just method.method_name
     else find_duplicate_method rest
 
@@ -414,11 +461,20 @@ ascii_bytes value = traverse encode_character (unpack value)
               show character)
 
 private
+descriptor_shorty : String -> Char
+descriptor_shorty descriptor =
+  case unpack descriptor of
+    'L' :: _ => 'L'
+    '[' :: _ => 'L'
+    character :: _ => character
+    [] => '?'
+
+private
 shorty : Prototype -> String
 shorty prototype =
   pack
-    (shorty_character prototype.result_type ::
-     map shorty_character prototype.parameter_types)
+    (descriptor_shorty prototype.result_descriptor ::
+     map descriptor_shorty prototype.parameter_descriptors)
 
 private
 instruction_texts : Instruction -> List String
@@ -426,43 +482,50 @@ instruction_texts (TextConstant destination value) = [value]
 instruction_texts instruction = []
 
 private
-instruction_uses_text_equal : Instruction -> Bool
-instruction_uses_text_equal (TextEqual _ _ _) = True
-instruction_uses_text_equal _ = False
+instruction_method_references : Instruction -> List MethodReference
+instruction_method_references (TextEqual _ _ _) = [text_equals_reference]
+instruction_method_references (InvokeMethod invocation) = [invocation.method]
+instruction_method_references _ = []
 
 private
-method_uses_text_equal : MethodPlan -> Bool
-method_uses_text_equal method = any instruction_uses_text_equal method.instructions
+method_external_references : MethodPlan -> List MethodReference
+method_external_references method =
+  concat (map instruction_method_references method.instructions)
+
+private
+all_method_references : String -> List MethodPlan -> List MethodReference
+all_method_references class_descriptor methods =
+  sort_method_references
+    (map (generated_method_reference class_descriptor) methods ++
+     concat (map method_external_references methods))
 
 private
 method_texts : MethodPlan -> List String
 method_texts method = concat (map instruction_texts method.instructions)
 
 private
-type_descriptors : Bool -> String -> List MethodPlan -> List String
-type_descriptors include_text_equal class_descriptor methods =
+prototype_descriptors : Prototype -> List String
+prototype_descriptors prototype =
+  prototype.result_descriptor :: prototype.parameter_descriptors
+
+private
+type_descriptors :
+  String -> List Prototype -> List MethodReference -> List String
+type_descriptors class_descriptor prototypes method_ids =
   sort
     (nub
       ([class_descriptor, "Ljava/lang/Object;"] ++
-       (if include_text_equal
-          then ["Ljava/lang/String;", "Ljava/lang/Object;", "Z"]
-          else []) ++
-       concat
-         (map
-           (\method =>
-             value_descriptor method.result_type ::
-             map value_descriptor method.parameter_types)
-           methods)))
+       map (\method => method.owner.descriptor) method_ids ++
+       concat (map prototype_descriptors prototypes)))
 
 private
 all_strings :
-  Bool -> String -> List MethodPlan -> List Prototype -> List String -> List String
-all_strings include_text_equal descriptor methods prototypes descriptors =
+  List MethodPlan -> List MethodReference -> List Prototype -> List String -> List String
+all_strings methods method_ids prototypes descriptors =
   sort
     (nub
       (descriptors ++
-       map method_name methods ++
-       (if include_text_equal then ["equals"] else []) ++
+       map (\method => method.name) method_ids ++
        map shorty prototypes ++
        concat (map method_texts methods)))
 
@@ -477,11 +540,10 @@ record TypeListLayout where
 
 private
 encode_parameter_types :
-  List String -> List ValueType -> Either String (List Int)
+  List String -> List String -> Either String (List Int)
 encode_parameter_types descriptors [] = Right []
-encode_parameter_types descriptors (value_type :: rest) = do
-  type_index <-
-    lookup_index "parameter type" (value_descriptor value_type) descriptors
+encode_parameter_types descriptors (descriptor :: rest) = do
+  type_index <- lookup_index "parameter type" descriptor descriptors
   more <- encode_parameter_types descriptors rest
   Right (u16le (cast type_index) ++ more)
 
@@ -493,16 +555,17 @@ layout_type_lists_from descriptors current [] accumulated offsets first count =
   Right (MkTypeListLayout accumulated offsets first current count)
 layout_type_lists_from descriptors current (prototype :: rest)
                        accumulated offsets first count =
-  if null prototype.parameter_types
+  if null prototype.parameter_descriptors
     then
       layout_type_lists_from descriptors current rest accumulated
         ((prototype, 0) :: offsets) first count
     else do
-      encoded_types <- encode_parameter_types descriptors prototype.parameter_types
+      encoded_types <-
+        encode_parameter_types descriptors prototype.parameter_descriptors
       let start = align_up current 4
       let pad = padding current 4
       let item =
-            u32le (cast (length prototype.parameter_types)) ++ encoded_types
+            u32le (cast (length prototype.parameter_descriptors)) ++ encoded_types
       let next = start + cast (length item)
       let next_first =
             case first of
@@ -539,27 +602,45 @@ record PreparedMethod where
 
 private
 prepare_methods :
-  List String -> List Prototype -> Maybe Int -> Int -> List MethodPlan ->
-  Either String (List PreparedMethod)
-prepare_methods strings prototypes text_equals_method next_index [] = Right []
-prepare_methods strings prototypes text_equals_method next_index (method :: rest) = do
+  List String -> List Prototype -> List MethodReference -> String ->
+  List MethodPlan -> Either String (List PreparedMethod)
+prepare_methods strings prototypes method_ids class_descriptor [] = Right []
+prepare_methods strings prototypes method_ids class_descriptor (method :: rest) = do
   if method.parameter_count < 0 ||
      method.parameter_count /= cast (length method.parameter_types) ||
      method.register_count < method.parameter_count ||
      method.register_count > 65535
     then Left ("Invalid DEX register/parameter counts for " ++ method.method_name)
     else Right ()
-  prototype_index <- lookup_index "prototype" (prototype_of method) prototypes
-  bytes <- encode_instructions strings text_equals_method method.instructions
+  prototype_index <-
+    lookup_index "prototype" (prototype_of_method method) prototypes
+  method_index <-
+    lookup_index "generated method"
+      (generated_method_reference class_descriptor method) method_ids
+  bytes <- encode_instructions strings method_ids method.instructions
   more <-
-    prepare_methods strings prototypes text_equals_method (next_index + 1) rest
+    prepare_methods strings prototypes method_ids class_descriptor rest
   Right
-    (MkPreparedMethod method next_index prototype_index bytes
+    (MkPreparedMethod method method_index prototype_index bytes
       (cast (length bytes) `div` 2) 0 :: more)
+
+private
+instruction_outgoing_register_count : Instruction -> Int
+instruction_outgoing_register_count (TextEqual _ _ _) = 2
+instruction_outgoing_register_count (InvokeMethod invocation) =
+  case invocation_argument_words invocation of
+    Left explanation => 0
+    Right count => count
+instruction_outgoing_register_count _ = 0
+
+private
+max_int : Int -> Int -> Int
+max_int left right = if left >= right then left else right
+
 private
 outgoing_register_count : List Instruction -> Int
 outgoing_register_count instructions =
-  if any instruction_uses_text_equal instructions then 2 else 0
+  foldl max_int 0 (map instruction_outgoing_register_count instructions)
 
 private
 record CodeLayout where
@@ -682,7 +763,7 @@ prototype_bytes :
 prototype_bytes strings descriptors type_lists prototype = do
   shorty_index <- lookup_index "shorty" (shorty prototype) strings
   return_type_index <-
-    lookup_index "return type" (value_descriptor prototype.result_type) descriptors
+    lookup_index "return type" prototype.result_descriptor descriptors
   parameters_off <- find_prototype_offset prototype type_lists.offsets
   Right
     (u32le (cast shorty_index) ++ u32le (cast return_type_index) ++
