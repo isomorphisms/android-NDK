@@ -102,27 +102,27 @@ $(DEX_SELFTEST): $(DRIVER) tests/dex/EncoderSelfTest.idr
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-encoder-selftest_app/
 
 dex-encoder-selftest: $(DEX_SELFTEST)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
 		./$(DEX_SELFTEST)
 
 $(DEX_FRAMEWORK_PLAN_TEST): $(DRIVER) tests/dex/FrameworkPlanTest.idr
-	IDRIS2_PATH="$(CURDIR)/build/ttc:${IDRIS2_PATH}" \
+	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
 		$(IDRIC) --source-dir tests/dex tests/dex/FrameworkPlanTest.idr \
 		-o dex-framework-plan-test
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-plan-test_app/
 
 dex-framework-plan-test: $(DEX_FRAMEWORK_PLAN_TEST)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
 		./$(DEX_FRAMEWORK_PLAN_TEST)
 
 $(DEX_FRAMEWORK_INVOKE_TEST): $(DRIVER) tests/dex/FrameworkInvokeTest.idr
-	IDRIS2_PATH="$(CURDIR)/build/ttc:${IDRIS2_PATH}" \
+	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
 		$(IDRIC) --source-dir tests/dex tests/dex/FrameworkInvokeTest.idr \
 		-o dex-framework-invoke-test
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-invoke-test_app/
 
 dex-framework-invoke-test: $(DEX_FRAMEWORK_INVOKE_TEST)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
 		./$(DEX_FRAMEWORK_INVOKE_TEST)
 
 $(DEX_REPEAT_FILE): $(DRIVER) $(DEX_SOURCE)
