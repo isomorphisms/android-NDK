@@ -153,6 +153,9 @@ dex-framework-validation: $(DEX_FRAMEWORK_DISASSEMBLY)
 	grep -q '^\.method public static binder_transaction_probe()I$' $(DEX_FRAMEWORK_DISASSEMBLY)
 	grep -q 'Landroid/os/Parcel;->obtain()Landroid/os/Parcel;' $(DEX_FRAMEWORK_DISASSEMBLY)
 	grep -q 'invoke-interface {v1, v4, v2, v3, v5}, Landroid/os/IBinder;->transact(ILandroid/os/Parcel;Landroid/os/Parcel;I)Z' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q '\.catchall' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'move-exception v9' $(DEX_FRAMEWORK_DISASSEMBLY)
+	grep -q 'throw v9' $(DEX_FRAMEWORK_DISASSEMBLY)
 	grep -q 'Landroid/os/Parcel;->recycle()V' $(DEX_FRAMEWORK_DISASSEMBLY)
 
 $(DEX_REPEAT_FILE): $(DRIVER) $(DEX_SOURCE)
@@ -270,6 +273,7 @@ dex-test: check dex-fixture dex-text-validation dex-encoder-selftest \
 		echo 'Binder invoke 35c      PASS'; \
 		echo 'Binder DEX metadata    PASS'; \
 		echo 'Binder DEX parsed      PASS'; \
+		echo 'Binder catch-all       PASS'; \
 		echo 'DEX generated         PASS'; \
 		echo 'DEX parser validation PASS'; \
 		echo 'oracle comparison     PASS'; \
