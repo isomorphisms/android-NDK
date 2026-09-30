@@ -1,0 +1,72 @@
+name: Idriç Binder DEX
+
+on:
+  push:
+    branches:
+      - binder/idric-shizuku
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: idric-binder-dex-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  binder-dex:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Android-NDK branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+
+      - name: Checkout current Idriç compiler
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: isomorphisms/Idric
+          ref: Idriç
+          path: dex/idric/Idric
+
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl python3 util-linux default-jre-headless
+
+      - name: Bootstrap exact Idriç checkout
+        working-directory: dex/idric/Idric
+        run: |
+          ./edric all
+          test -x build/exec/idris2
+          build/exec/idris2 --version
+
+      - name: Typecheck DEX backend and Binder extension
+        working-directory: dex/idric
+        run: |
+          IDRIC="$PWD/Idric/build/exec/idris2"
+          make check IDRIC="$IDRIC" IDRIC_REPO="$PWD/Idric"
+
+      - name: Regression-check existing DEX slices
+        working-directory: dex/idric
+        run: |
+          IDRIC="$PWD/Idric/build/exec/idris2"
+          make dex-fixture dex-text-validation dex-encoder-selftest \
+            IDRIC="$IDRIC" IDRIC_REPO="$PWD/Idric"
+
+      - name: Validate Binder framework DEX
+        working-directory: dex/idric
+        run: |
+          IDRIC="$PWD/Idric/build/exec/idris2"
+          make dex-framework-plan-test dex-framework-invoke-test dex-framework-validation \
+            IDRIC="$IDRIC" IDRIC_REPO="$PWD/Idric"
+
+      - name: Retain Binder DEX evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: idric-binder-dex-${{ github.sha }}
+          path: |
+            dex/idric/build/exec/framework.dex
+            dex/idric/build/exec/baksmali-framework/
+          if-no-files-found: warn
+          retention-days: 14
