@@ -1,0 +1,54 @@
+name: Idriç DEX foreign source
+
+on:
+  push:
+    branches:
+      - binder/idric-shizuku-source
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: idric-dex-foreign-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  foreign-source:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Android-NDK branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+
+      - name: Checkout current Idriç compiler
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: isomorphisms/Idric
+          ref: Idriç
+          path: dex/idric/Idric
+
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl python3 util-linux
+
+      - name: Bootstrap exact Idriç checkout
+        working-directory: dex/idric/Idric
+        run: |
+          ./edric all
+          test -x build/exec/idris2
+          build/exec/idris2 --version
+
+      - name: Typecheck DEX backend including foreign contract
+        working-directory: dex/idric
+        run: |
+          IDRIC="$PWD/Idric/build/exec/idris2"
+          make check IDRIC="$IDRIC" IDRIC_REPO="$PWD/Idric"
+
+      - name: Run typed foreign convention acceptance
+        working-directory: dex/idric
+        run: |
+          IDRIC="$PWD/Idric/build/exec/idris2"
+          make dex-foreign-spec-test IDRIC="$IDRIC" IDRIC_REPO="$PWD/Idric"
