@@ -21,6 +21,7 @@ where the actual hardware differs.
 - [JNI boundary](jni/)
 - [APK and distribution path](apk/)
 - [Reusable native Android interfaces](native/)
+- [Binder / system-service boundary](binder/)
 - [Hardware reference dossiers](hardware/)
 - [Migration inventory and provenance](provenance/migration-inventory.md)
 - [Migration verification record](provenance/verification.md)
