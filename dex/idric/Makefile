@@ -45,7 +45,7 @@ DEX_MALFORMED_FILE := build/exec/malformed-magic.dex
 DEX_VALIDATION_RECEIPT := build/exec/dex-validation-receipt.txt
 
 .PHONY: check-compiler check driver dex-fixture dex-text-fixture \
-	dex-text-validation dex-foreign-validation dex-encoder-selftest dex-framework-plan-test \
+	dex-text-validation dex-foreign-fixture dex-foreign-validation dex-encoder-selftest dex-framework-plan-test \
 	dex-framework-invoke-test dex-foreign-spec-test dex-framework-validation dex-determinism dex-reject \
 	dex-header-validation dex-parser-validation dex-oracle-validation \
 	dex-malformed-test dex-test dex-device test verify clean
@@ -139,17 +139,17 @@ $(DEX_FRAMEWORK_INVOKE_TEST): $(DRIVER) tests/dex/FrameworkInvokeTest.idr
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-invoke-test_app/
 
 dex-framework-invoke-test: $(DEX_FRAMEWORK_INVOKE_TEST)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
 		./$(DEX_FRAMEWORK_INVOKE_TEST)
 
 $(DEX_FOREIGN_SPEC_TEST): $(DRIVER) tests/dex/ForeignSpecTest.idr
-	IDRIS2_PATH="$(CURDIR)/build/ttc:${IDRIS2_PATH}" \
+	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
 		$(IDRIC) --source-dir tests/dex tests/dex/ForeignSpecTest.idr \
 		-o dex-foreign-spec-test
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-foreign-spec-test_app/
 
 dex-foreign-spec-test: $(DEX_FOREIGN_SPEC_TEST)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
 		./$(DEX_FOREIGN_SPEC_TEST)
 
 $(DEX_FRAMEWORK_GEN): $(DRIVER) tests/dex/FrameworkDexGen.idr
@@ -302,7 +302,7 @@ dex-malformed-test: $(DEX_MALFORMED_FILE) $(BAKSMALI_JAR)
 		exit 1; \
 	fi
 
-dex-test: check dex-fixture dex-text-validation dex-encoder-selftest \
+dex-test: check dex-fixture dex-text-validation dex-foreign-validation dex-encoder-selftest \
 	dex-framework-plan-test dex-framework-invoke-test dex-framework-validation \
 	dex-determinism dex-reject dex-parser-validation dex-oracle-validation dex-malformed-test
 	@{ \
@@ -310,6 +310,7 @@ dex-test: check dex-fixture dex-text-validation dex-encoder-selftest \
 		echo 'checked ANF retained  PASS'; \
 		echo 'Text ABI encoded       PASS'; \
 		echo 'Text equality encoded  PASS'; \
+		echo 'checked foreign invoke PASS'; \
 		echo 'Binder type plan       PASS'; \
 		echo 'Binder invoke 35c      PASS'; \
 		echo 'Binder DEX metadata    PASS'; \
@@ -331,6 +332,7 @@ dex-test: check dex-fixture dex-text-validation dex-encoder-selftest \
 		printf 'backend dirty state    '; if git status --porcelain | grep -q .; then echo dirty; else echo clean; fi; \
 		printf 'classes.dex SHA-256    '; sha256sum $(DEX_FILE) | cut -d' ' -f1; \
 		printf 'text.dex SHA-256       '; sha256sum $(DEX_TEXT_FILE) | cut -d' ' -f1; \
+		printf 'foreign.dex SHA-256    '; sha256sum $(DEX_FOREIGN_FILE) | cut -d' ' -f1; \
 		printf 'framework.dex SHA-256  '; sha256sum $(DEX_FRAMEWORK_FILE) | cut -d' ' -f1; \
 		echo 'checked form           $(DEX_CHECKED_ANF)'; \
 		echo 'Text checked form      $(DEX_TEXT_CHECKED_ANF)'; \
