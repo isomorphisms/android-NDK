@@ -610,6 +610,148 @@ find_prototype_offset requested ((prototype, offset) :: rest) =
     else find_prototype_offset requested rest
 
 private
+record CatchAllPlan where
+  constructor MkCatchAllPlan
+  start_address : Int
+  instruction_count : Int
+  handler_address : Int
+
+private
+catch_all_before : CatchAllPlan -> CatchAllPlan -> Bool
+catch_all_before left right =
+  left.start_address < right.start_address
+
+private
+insert_catch_all : CatchAllPlan -> List CatchAllPlan -> List CatchAllPlan
+insert_catch_all region [] = [region]
+insert_catch_all region (candidate :: rest) =
+  if catch_all_before region candidate
+    then region :: candidate :: rest
+    else candidate :: insert_catch_all region rest
+
+private
+sort_catch_all : List CatchAllPlan -> List CatchAllPlan
+sort_catch_all = foldr insert_catch_all []
+
+private
+first_handler_instruction_is_move_exception : List Instruction -> Bool
+first_handler_instruction_is_move_exception [] = False
+first_handler_instruction_is_move_exception (Mark label :: rest) =
+  first_handler_instruction_is_move_exception rest
+first_handler_instruction_is_move_exception
+  (CatchAllRegion start finish handler :: rest) =
+    first_handler_instruction_is_move_exception rest
+first_handler_instruction_is_move_exception (MoveException register :: rest) = True
+first_handler_instruction_is_move_exception _ = False
+
+private
+handler_starts_with_move_exception : Label -> List Instruction -> Bool
+handler_starts_with_move_exception requested [] = False
+handler_starts_with_move_exception requested (Mark label :: rest) =
+  if requested == label
+    then first_handler_instruction_is_move_exception rest
+    else handler_starts_with_move_exception requested rest
+handler_starts_with_move_exception requested (_ :: rest) =
+  handler_starts_with_move_exception requested rest
+
+private
+resolve_catch_all :
+  List (Label, Int) -> List Instruction ->
+  (Label, Label, Label) -> Either String CatchAllPlan
+resolve_catch_all labels instructions (start, finish, handler) = do
+  start_address <- find_label start labels
+  finish_address <- find_label finish labels
+  handler_address <- find_label handler labels
+  let instruction_count = finish_address - start_address
+  if instruction_count <= 0
+    then Left "DEX catch-all region must protect at least one code unit"
+    else Right ()
+  if instruction_count > 65535
+    then Left "DEX catch-all region exceeds try_item insn_count"
+    else Right ()
+  if handler_address >= start_address && handler_address < finish_address
+    then Left "DEX catch-all handler cannot begin inside its protected region"
+    else Right ()
+  if handler_starts_with_move_exception handler instructions
+    then Right ()
+    else Left
+      ("DEX catch-all handler " ++ show handler ++
+       " must begin with move-exception")
+  Right (MkCatchAllPlan start_address instruction_count handler_address)
+
+private
+catch_all_directives : List Instruction -> List (Label, Label, Label)
+catch_all_directives [] = []
+catch_all_directives (CatchAllRegion start finish handler :: rest) =
+  (start, finish, handler) :: catch_all_directives rest
+catch_all_directives (_ :: rest) = catch_all_directives rest
+
+private
+validate_non_overlapping_catch_all :
+  Int -> List CatchAllPlan -> Either String ()
+validate_non_overlapping_catch_all previous_finish [] = Right ()
+validate_non_overlapping_catch_all previous_finish (region :: rest) =
+  if region.start_address < previous_finish
+    then Left "DEX catch-all regions overlap"
+    else
+      validate_non_overlapping_catch_all
+        (region.start_address + region.instruction_count) rest
+
+private
+prepare_catch_all_regions :
+  List Instruction -> Either String (List CatchAllPlan)
+prepare_catch_all_regions instructions = do
+  labels <- label_addresses instructions
+  regions <-
+    traverse
+      (resolve_catch_all labels instructions)
+      (catch_all_directives instructions)
+  let sorted = sort_catch_all regions
+  validate_non_overlapping_catch_all 0 sorted
+  Right sorted
+
+private
+record ExceptionTable where
+  constructor MkExceptionTable
+  try_count : Int
+  try_bytes : List Int
+  handler_bytes : List Int
+
+private
+encode_catch_all_entries :
+  Int -> List CatchAllPlan -> Either String (List Int, List Int)
+encode_catch_all_entries handler_offset [] = Right ([], [])
+encode_catch_all_entries handler_offset (region :: rest) = do
+  if handler_offset > 65535
+    then Left "DEX catch handler offset exceeds try_item ushort"
+    else Right ()
+  let handler =
+        [0] ++ uleb128 (cast region.handler_address)
+  let try_item =
+        u32le (cast region.start_address) ++
+        u16le (cast region.instruction_count) ++
+        u16le (cast handler_offset)
+  (more_tries, more_handlers) <-
+    encode_catch_all_entries
+      (handler_offset + cast (length handler)) rest
+  Right
+    (try_item ++ more_tries, handler ++ more_handlers)
+
+private
+encode_exception_table :
+  List CatchAllPlan -> Either String ExceptionTable
+encode_exception_table [] = Right (MkExceptionTable 0 [] [])
+encode_exception_table regions = do
+  let prefix = uleb128 (cast (length regions))
+  (tries, handlers) <-
+    encode_catch_all_entries (cast (length prefix)) regions
+  Right
+    (MkExceptionTable
+      (cast (length regions))
+      tries
+      (prefix ++ handlers))
+
+private
 record PreparedMethod where
   constructor MkPreparedMethod
   plan : MethodPlan
@@ -617,6 +759,7 @@ record PreparedMethod where
   prototype_index : Int
   instruction_bytes : List Int
   instruction_units : Int
+  exception_table : ExceptionTable
   code_offset : Int
 
 private
@@ -637,11 +780,13 @@ prepare_methods strings prototypes method_ids class_descriptor (method :: rest) 
     lookup_index "generated method"
       (generated_method_reference class_descriptor method) method_ids
   bytes <- encode_instructions strings method_ids method.instructions
+  catch_all <- prepare_catch_all_regions method.instructions
+  exception_table <- encode_exception_table catch_all
   more <-
     prepare_methods strings prototypes method_ids class_descriptor rest
   Right
     (MkPreparedMethod method method_index prototype_index bytes
-      (cast (length bytes) `div` 2) 0 :: more)
+      (cast (length bytes) `div` 2) exception_table 0 :: more)
 
 private
 instruction_outgoing_register_count : Instruction -> Int
