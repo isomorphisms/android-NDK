@@ -121,17 +121,17 @@ $(DEX_FRAMEWORK_INVOKE_TEST): $(DRIVER) tests/dex/FrameworkInvokeTest.idr
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-invoke-test_app/
 
 dex-framework-invoke-test: $(DEX_FRAMEWORK_INVOKE_TEST)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
 		./$(DEX_FRAMEWORK_INVOKE_TEST)
 
 $(DEX_FRAMEWORK_GEN): $(DRIVER) tests/dex/FrameworkDexGen.idr
-	IDRIS2_PATH="$(CURDIR)/build/ttc:${IDRIS2_PATH}" \
+	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
 		$(IDRIC) --source-dir tests/dex tests/dex/FrameworkDexGen.idr \
 		-o dex-framework-gen
 	cp "$(IDRIC_RUNTIME_LIBRARY)" build/exec/dex-framework-gen_app/
 
 $(DEX_FRAMEWORK_FILE): $(DEX_FRAMEWORK_GEN)
-	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):${LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" \
 		./$(DEX_FRAMEWORK_GEN)
 
 $(DEX_FRAMEWORK_DISASSEMBLY): $(DEX_FRAMEWORK_FILE) $(BAKSMALI_JAR)
