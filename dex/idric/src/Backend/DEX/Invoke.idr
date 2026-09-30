@@ -1,6 +1,5 @@
 module Backend.DEX.Invoke
 
-import Backend.DEX.Framework
 import Backend.DEX.IR
 
 %default total
@@ -57,6 +56,54 @@ expand_arguments (register :: registers) (value :: values) = do
   Right (words ++ rest)
 expand_arguments _ _ =
   Left "DEX invocation register count does not match the method signature"
+
+||| Number of DEX argument register words consumed by format 35c.
+||| Receiver registers for virtual/interface calls are included.
+public export
+invocation_argument_words : InvocationPlan -> Either String Int
+invocation_argument_words invocation = do
+  registers <- expand_arguments invocation.arguments (argument_types invocation)
+  let word_count : Int = cast (length registers)
+  if word_count > 5
+    then Left "DEX format 35c invocation exceeds five register words"
+    else Right word_count
+
+private
+move_result_width : FrameworkValueType -> Maybe Register -> Either String Int
+move_result_width VoidValue Nothing = Right 0
+move_result_width VoidValue (Just register) =
+  Left "DEX void invocation cannot have a result register"
+move_result_width result Nothing =
+  Left "DEX non-void invocation requires a result register"
+move_result_width LongValue (Just register) =
+  if valid_register 254 register
+    then Right 1
+    else Left "DEX move-result-wide requires a register pair beginning in v0..v254"
+move_result_width (ReferenceValue reference) (Just register) =
+  if valid_register 255 register
+    then Right 1
+    else Left "DEX move-result-object requires a register in v0..v255"
+move_result_width (ExistingValue TextValue) (Just register) =
+  if valid_register 255 register
+    then Right 1
+    else Left "DEX move-result-object requires a register in v0..v255"
+move_result_width (ExistingValue ObjectValue) (Just register) =
+  if valid_register 255 register
+    then Right 1
+    else Left "DEX move-result-object requires a register in v0..v255"
+move_result_width (ExistingValue value) (Just register) =
+  if valid_register 255 register
+    then Right 1
+    else Left "DEX move-result requires a register in v0..v255"
+
+||| Width in 16-bit DEX code units for an invoke-35c plus its move-result,
+||| when required.
+public export
+invocation_width_35c : InvocationPlan -> Either String Int
+invocation_width_35c invocation = do
+  _ <- invocation_argument_words invocation
+  result_width <- move_result_width invocation.method.result invocation.result_register
+  Right (3 + result_width)
 
 private
 invoke_opcode : InvokeKind -> Integer
@@ -133,10 +180,7 @@ encode_invoke_35c method_index invocation = do
     then Left "DEX format 35c method index exceeds 16 bits"
     else Right ()
   registers <- expand_arguments invocation.arguments (argument_types invocation)
-  let word_count = length registers
-  if word_count > 5
-    then Left "DEX format 35c invocation exceeds five register words"
-    else Right ()
+  word_count <- invocation_argument_words invocation
   let first =
         invoke_opcode invocation.kind +
         fifth_register registers * 256 +
