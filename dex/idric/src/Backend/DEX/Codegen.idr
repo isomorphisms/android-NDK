@@ -1,6 +1,7 @@
 module Backend.DEX.Codegen
 
 import Backend.DEX.Encode
+import Backend.DEX.Foreign
 import Backend.DEX.IR
 import Backend.DEX.Lower
 import Backend.DEX.Smali
@@ -97,6 +98,18 @@ lookup_anf_definition requested ((name, definition) :: rest) =
   if requested == name then Just definition else lookup_anf_definition requested rest
 
 private
+collect_dex_foreigns :
+  List (Name, Administrative_Normal_Form_Definition) ->
+  Either String (List (Name, DEXForeign))
+collect_dex_foreigns [] = Right []
+collect_dex_foreigns ((name, definition) :: rest) = do
+  maybe_foreign <- foreign_from_definition definition
+  more <- collect_dex_foreigns rest
+  case maybe_foreign of
+    Nothing => Right more
+    Just foreign => Right ((name, foreign) :: more)
+
+private
 find_duplicate_name : List String -> Maybe String
 find_duplicate_name [] = Nothing
 find_duplicate_name (name :: rest) =
@@ -116,11 +129,12 @@ validate_exports exports =
 private
 lower_exports :
   Name ->
+  List (Name, DEXForeign) ->
   List ExportABI ->
   List (Name, Administrative_Normal_Form_Definition) ->
   Either String (List MethodPlan)
-lower_exports integer_less_name [] definitions = Right []
-lower_exports integer_less_name (selected :: rest) definitions = do
+lower_exports integer_less_name foreigns [] definitions = Right []
+lower_exports integer_less_name foreigns (selected :: rest) definitions = do
   definition <-
     case lookup_anf_definition selected.internal_name definitions of
       Nothing =>
@@ -129,7 +143,7 @@ lower_exports integer_less_name (selected :: rest) definitions = do
            show selected.internal_name ++ "`")
       Just found => Right found
   method <-
-    lower_method integer_less_name
+    lower_method integer_less_name foreigns
       (show selected.internal_name) selected.method_name
       selected.parameter_types selected.result_type definition
   if method.parameter_count /= cast (length selected.parameter_types)
@@ -139,7 +153,7 @@ lower_exports integer_less_name (selected :: rest) definitions = do
          "`: source type has " ++ show (length selected.parameter_types) ++
          " parameters, ANF has " ++ show method.parameter_count)
     else Right ()
-  more <- lower_exports integer_less_name rest definitions
+  more <- lower_exports integer_less_name foreigns rest definitions
   Right (method :: more)
 
 private
@@ -178,8 +192,13 @@ compile_dex definitions syntax temporary_directory output_directory
   case validate_exports export_abis of
     Left explanation => throw (UserError ("dex rejected exports: " ++ explanation))
     Right () => pure ()
+  foreigns <-
+    case collect_dex_foreigns (anf resolved_compile_data) of
+      Left explanation =>
+        throw (UserError ("dex rejected foreign declaration: " ++ explanation))
+      Right accepted => pure accepted
   methods <-
-    case lower_exports integer_less_name export_abis (anf resolved_compile_data) of
+    case lower_exports integer_less_name foreigns export_abis (anf resolved_compile_data) of
       Left explanation =>
         throw (UserError ("dex rejected checked program: " ++ explanation))
       Right accepted => pure accepted
