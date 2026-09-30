@@ -31,8 +31,8 @@ calling_uid :
 calling_uid =
   parse_dex_foreign
     "dex:static:Landroid/os/Binder;:getCallingUid:()I"
-    []
-    CFInt32
+    [CFWorld]
+    (CFIORes CFInt32)
 
 private
 restore_identity :
@@ -65,8 +65,8 @@ main = do
       expect "calling uid is static" (foreign.invocation_kind == InvokeStatic)
       expect "calling uid result descriptor"
         (method_descriptor foreign.method == "()I")
-      expect "calling uid is pure declaration"
-        (foreign.effect == PureForeign)
+      expect "calling uid remains effectful"
+        (foreign.effect == PrimitiveIOForeign)
 
   case restore_identity of
     Left explanation => fail explanation
