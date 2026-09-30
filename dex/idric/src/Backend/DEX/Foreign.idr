@@ -1,6 +1,7 @@
 module Backend.DEX.Foreign
 
 import Backend.DEX.IR
+import Compiler.ANF
 import Core.CompileExpr
 import Data.List
 import Data.String
@@ -65,7 +66,7 @@ reference_type : List Char -> FrameworkValueType
 reference_type descriptor =
   let text = pack descriptor in
   if text == "Ljava/lang/String;"
-    then ExistingValue TextValue
+    then ExistingValue StringValue
     else if text == "Ljava/lang/Object;"
       then ExistingValue ObjectValue
       else ReferenceValue (MkTypeReference text)
@@ -111,7 +112,7 @@ parse_parameters chars reversed = do
 
 private
 parse_method_descriptor :
-  Text -> Either String (List FrameworkValueType, FrameworkValueType)
+  String -> Either String (List FrameworkValueType, FrameworkValueType)
 parse_method_descriptor descriptor =
   case unpack descriptor of
     '(' :: rest => do
@@ -123,7 +124,7 @@ parse_method_descriptor descriptor =
     _ => Left "DEX method descriptor must begin with '('"
 
 private
-parse_invoke_kind : Text -> Either String InvokeKind
+parse_invoke_kind : String -> Either String InvokeKind
 parse_invoke_kind "static" = Right InvokeStatic
 parse_invoke_kind "virtual" = Right InvokeVirtual
 parse_invoke_kind "interface" = Right InvokeInterface
@@ -132,7 +133,7 @@ parse_invoke_kind other =
 
 private
 parse_fields :
-  List Char -> Either String (InvokeKind, TypeReference, Text, Text)
+  List Char -> Either String (InvokeKind, TypeReference, String, String)
 parse_fields chars = do
   (kind_chars, after_kind) <-
     maybe (Left "Missing dex foreign owner") Right (split_once ':' chars)
@@ -167,7 +168,7 @@ source_matches_target : CFType -> FrameworkValueType -> Bool
 source_matches_target CFInt32 (ExistingValue IntegerValue) = True
 source_matches_target CFInt32 (ExistingValue BooleanValue) = True
 source_matches_target CFInt64 LongValue = True
-source_matches_target CFString (ExistingValue TextValue) = True
+source_matches_target CFString (ExistingValue StringValue) = True
 source_matches_target source (ReferenceValue reference) =
   reference_source_type source
 source_matches_target source (ExistingValue ObjectValue) =
@@ -238,7 +239,7 @@ validate_signature kind method source_arguments source_result = do
 ||| dex:static:Landroid/os/Binder;:getCallingUid:()I
 public export
 parse_dex_foreign :
-  Text -> List CFType -> CFType -> Either String DEXForeign
+  String -> List CFType -> CFType -> Either String DEXForeign
 parse_dex_foreign convention source_arguments source_result = do
   body <-
     case drop_prefix (unpack "dex:") (unpack convention) of
@@ -251,13 +252,13 @@ parse_dex_foreign convention source_arguments source_result = do
   Right (MkDEXForeign effect kind method)
 
 private
-is_dex_convention : Text -> Bool
+is_dex_convention : String -> Bool
 is_dex_convention convention =
   starts_with (unpack "dex:") (unpack convention)
 
 private
 select_dex_convention :
-  List Text -> Either String (Maybe Text)
+  List String -> Either String (Maybe String)
 select_dex_convention conventions =
   case filter is_dex_convention conventions of
     [] => Right Nothing
