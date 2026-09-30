@@ -46,18 +46,6 @@ prim__get_calling_uid : PrimIO Int
 %foreign (binder_library "idric_binder_get_calling_pid")
 prim__get_calling_pid : PrimIO Int
 
-%foreign (binder_library "idric_binder_start_thread_pool")
-prim__start_thread_pool : PrimIO ()
-
-%foreign (binder_library "idric_binder_set_thread_pool_max_threads")
-prim__set_thread_pool_max_threads : Bits32 -> PrimIO Int
-
-%foreign (binder_library "idric_binder_join_thread_pool")
-prim__join_thread_pool : PrimIO ()
-
-%foreign (binder_library "idric_binder_check_service")
-prim__check_service : String -> PrimIO AnyPtr
-
 %foreign (binder_library "idric_binder_release")
 prim__release_any : AnyPtr -> PrimIO ()
 
@@ -126,26 +114,6 @@ get_calling_uid = primIO prim__get_calling_uid
 public export
 get_calling_pid : IO Int
 get_calling_pid = primIO prim__get_calling_pid
-
-public export
-start_thread_pool : IO ()
-start_thread_pool = primIO prim__start_thread_pool
-
-public export
-set_thread_pool_max_threads : Bits32 -> IO Bool
-set_thread_pool_max_threads count = do
-  accepted <- primIO $ prim__set_thread_pool_max_threads count
-  pure (accepted /= 0)
-
-public export
-join_thread_pool : IO ()
-join_thread_pool = primIO prim__join_thread_pool
-
-public export
-check_service : String -> IO (Maybe Binder)
-check_service instance_name = do
-  pointer <- primIO $ prim__check_service instance_name
-  wrap_binder pointer
 
 public export
 ping : Binder -> IO BinderStatus
