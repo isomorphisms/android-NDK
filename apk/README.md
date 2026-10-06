@@ -44,3 +44,21 @@ consumer repository must keep its release identity, signing, store metadata,
 and acceptance evidence explicit.  A passing host package check, emulator
 launch, installed APK, and physical-device behavior are separate evidence
 levels.
+
+
+## Maintained direct NativeActivity packager
+
+`build-nativeactivity-apk.sh` is the maintained generic path for a framework
+`android.app.NativeActivity` package whose application code is already an
+NDK-built shared library. It invokes Android build-tools directly: `aapt2`,
+`zipalign`, and `apksigner`. It does not invoke Gradle, Java, Kotlin, or
+`d8`, and by default rejects a finished APK containing DEX.
+
+The consumer supplies its own manifest, package/version identity, SDK bounds,
+ABI, signing key metadata, and expected certificate digest. The script never
+creates a key and never chooses a fallback signer. It verifies the keystore
+certificate before packaging and the finished APK signer, package ID,
+`versionCode`, NativeActivity launcher, ABI payload, and APK digest afterward.
+
+Run `apk/tests/run-packager.sh` with the Android SDK/NDK and an explicit test
+keystore to exercise the positive path plus missing/wrong-signer hostile cases.
