@@ -50,11 +50,12 @@ var saved_key = ENV.ANDROID_KEYSTORE
 setglobal ENV.ANDROID_KEYSTORE = "$work/missing.p12"
 rejected missing-key 'not a regular non-symlink input' "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so"
 setglobal ENV.ANDROID_KEYSTORE = saved_key
-# Fresh keys are adversarial fixtures only, never a packager fallback.
-"$[ENV.ANDROID_JAVA_HOME]/bin/keytool" -genkeypair -alias wrong -keyalg RSA -keystore "$work/wrong.p12" -storetype PKCS12 -storepass fixture-password -keypass fixture-password -dname CN=HostileFixture -validity 1 > "$work/key.log" 2>&1
+# An existing JRE trust certificate is a hostile non-signing input. No new APK
+# key is generated even for this negative test; mismatch fails before signing.
+/usr/bin/cp "$[ENV.ANDROID_JAVA_HOME]/lib/security/cacerts" "$work/wrong.p12"
 setglobal ENV.ANDROID_KEYSTORE = "$work/wrong.p12"
-setglobal ENV.ANDROID_KEY_ALIAS = 'wrong'
-setglobal ENV.ANDROID_STORE_PASSWORD = 'fixture-password'
+setglobal ENV.ANDROID_KEY_ALIAS = 'debian:isrg_root_x1.pem'
+setglobal ENV.ANDROID_STORE_PASSWORD = 'changeit'
 rejected wrong-key 'keystore certificate is not the registered signer' "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so"
 setglobal ENV.ANDROID_KEYSTORE = saved_key
 setglobal ENV.ANDROID_KEY_ALIAS = 'wegert-debug'
