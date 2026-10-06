@@ -34,7 +34,7 @@ Do not promote a reference value to a physical fact without a receipt.
 | GPU | [TAB_P10 / Mali-G57](gpu/tab-p10-mali-g57.md) | #7 |
 | GPU | [PowerVR precision + USC layers](gpu/powervr-precision-and-usc.md) | — |
 | memory/storage | [MIRO A1 memory, zram, storage](memory-and-storage/miro-a1.md) | #3 |
-| memory/storage | [MIRO C67 model memory/storage](memory-and-storage/miro-c67.md) | — |
+| memory/storage | [MIRO C67 observed memory/storage](memory-and-storage/miro-c67.md) | — |
 | sensors/input | [MIRO A1 accelerometer](sensors-and-inputs/miro-a1-accelerometer.md) | #4 |
 | sensors/input | [MIRO A1 touchscreen](sensors-and-inputs/miro-a1-touchscreen.md) | #2 |
 | runtime/ABI | [MIRO A1 Bionic/native boundary](runtime-abi/miro-a1-bionic.md) | #9 |
@@ -57,8 +57,8 @@ native execution and page size unknown. The C67 has no paired issue in this
 original set; no new issue is required solely to mirror these links.
 
 The CPU/runtime reconciliation above is preserved. The GPU companion batch below
-repairs its previously deferred GPU wording. Sensor, board/kernel, memory/storage
-and tablet-native pairs remain separate; this work does not certify them.
+repairs its previously deferred GPU wording. Sensor, board/kernel
+and tablet-native pairs remain separate; memory/storage is reconciled below.
 
 ## GPU companion reconciliation — 2026-10-06
 
@@ -91,5 +91,27 @@ Existing shader-wrapper host regression tests passed at shader source
 target discrimination only.
 
 No issue was closed, PR merged, device procedure executed or shader gate changed.
-The C67 memory/storage model dossier still needs its own comparison with Cat Food;
-it and the remaining untouched indexes are a separate bounded continuation.
+The memory/storage continuation below now compares that dossier with Cat Food;
+other untouched indexes remain separate bounded work.
+
+## Memory/storage continuation — October 6, 2026
+
+This batch updates the paired [Android NDK #3](https://github.com/isomorphisms/android-NDK/issues/3) /
+[zram #3](https://github.com/fuego-ironworks/zram/issues/3) and connects
+[IB #95](https://github.com/isomorphisms/ib/issues/95) as the active pre-write
+capacity consumer. CPU, native and GPU work above is preserved.
+
+- [A1](memory-and-storage/miro-a1.md): direct September 26 operator summary,
+  with MemTotal/SwapTotal and dated approximate /data capacity; backup target
+  remains distinct from its A1 ADB host and other A1 receipts.
+- [C67](memory-and-storage/miro-c67.md): Cat Food's landed October 5 ledger,
+  reviewed at `602a2862d248dcfd9629c48c442574f1959513aa`, resolves previously requested
+  MemTotal/SwapTotal, /data filesystem and MMC-path observations.
+- Kernel totals, RAM packages, compressed-swap implementation, current writer
+  capacity and actual workload behavior remain distinct.
+
+Discoverability is satisfied; current IB app/shell capacity reconciliation and
+zram codec/writeback/process-retention behavior remain separate acceptance.
+The [existing IB report](https://github.com/isomorphisms/ib/blob/843c7bcf5336c685c4a96a4b4bc28b96fbc7a5dc/docs/android-device-capabilities.md) and original zram collector are linked,
+not executed or replaced. No issue closure, PR merge, kernel-setting change,
+storage write, new registry or benchmark is part of this batch.
