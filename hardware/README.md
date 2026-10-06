@@ -56,7 +56,40 @@ landed October 5 observation, replacing stale ABI-unknown wording while keeping
 native execution and page size unknown. The C67 has no paired issue in this
 original set; no new issue is required solely to mirror these links.
 
-GPU, sensor, board/kernel, storage and tablet pairs remain separate batches.
-The [C67 GPU dossier](gpu/miro-c67-powervr-ge8320.md) and memory/storage copy
-still need comparison with Cat Food's newer observation; this CPU/runtime batch
-does not certify their current wording or any application rendering.
+The CPU/runtime reconciliation above is preserved. The GPU companion batch below
+repairs its previously deferred GPU wording. Sensor, board/kernel, memory/storage
+and tablet-native pairs remain separate; this work does not certify them.
+
+## GPU companion reconciliation — 2026-10-06
+
+The CPU/ABI mapping in [#5](https://github.com/isomorphisms/android-NDK/issues/5) /
+[ComputerScience #72](https://github.com/walnut-burgundy/computer-science/issues/72)
+was refreshed concurrently on this branch. This companion change preserves that
+work and updates the GPU pair [#7](https://github.com/isomorphisms/android-NDK/issues/7) /
+[shader-backend #65](https://github.com/fuego-ironworks/idris-shader-backend/issues/65).
+No competing branch or duplicate CPU issue update is needed.
+
+| Intention | Reconciled result | Remaining boundary |
+| --- | --- | --- |
+| Select A1 versus C67 native ABI | A1 ARMv7 and C67 primary arm64-v8a observations are linked by the prior CPU batch | Compiler/artifact-specific execution; advertised C67 ARM32 compatibility is not an execution receipt |
+| Reuse GPU evidence | Direct September 16 A1 receipt and scoped TAB_P10 summary | Exact new consumer context, bytes and behavior; A1 receipt omits firmware/unit ID |
+| Resolve stale C67 GPU unknowns | Cat Food's landed October 5 SurfaceFlinger GE8320/driver observation | Consumer EGL/GLSL, precision, shader and readback results remain unknown |
+| Consume shared AArch64 packages on C67 | ABI lane can be shared | The pinned shader wrapper requires tablet ARM/Mali-G57; it has no C67 PowerVR gate |
+| Preserve parallel narrow numeric preference | Prior CPU notes retain it | No inferred SIMD lowering, speedup or safe precision loss |
+
+[Fourier-sound PR #28, “Keep FFT spectrum GPU-resident through Wegert rendering”](https://github.com/isomorphismes/Fourier-sound/pull/28)
+at `3c2ecaafd9384b2096dd55b11cca5a74ec0c6c83` requires GLES 3.1
+compute/SSBO behavior and currently produces an A1-only GPU APK. Historical
+six-fragment acceptance and hosted builds cannot accept that compute path,
+the C67, or a different device unit.
+
+Read the [C67 GPU dossier](gpu/miro-c67-powervr-ge8320.md) for exact
+Cat Food/shader source and archive identities, the wrapper mismatch, and the
+smallest existing prebuilt-runner observation. No device ran in this batch.
+Existing shader-wrapper host regression tests passed at shader source
+`4a29362e580df393e4d64a9929e4c1e592ac4c53`; that verifies wrapper
+target discrimination only.
+
+No issue was closed, PR merged, device procedure executed or shader gate changed.
+The C67 memory/storage model dossier still needs its own comparison with Cat Food;
+it and the remaining untouched indexes are a separate bounded continuation.

@@ -26,6 +26,15 @@ GLSL                  OpenGL ES GLSL ES 3.20 build 1.18@6267915
 
 This is physical-driver evidence, not a model-listing inference.
 
+The [unchanged physical receipt](https://github.com/fuego-ironworks/idris-shader-backend/pull/16#issuecomment-5717347742)
+records execution at `2026-09-16T13:50:45Z`; the comment was posted September
+17. It omits build fingerprint and a physical-unit identifier. Preserve that
+limit when comparing it with AICI's Bionic receipt or another A1 phone.
+
+Cat Food owns [the staged A1 profile](https://github.com/isomorphisms/catfood/blob/a1d36ee45b66a1af86d7594cc18df889610d5c81/android/devices/miro-a1.md)
+on [isomorphisms/catfood PR #111, “Make the staged MIRO A1 profile and verified Android acquisition consumable”](https://github.com/isomorphisms/catfood/pull/111).
+That navigation work is not landed or fresh physical acceptance.
+
 ## Exact accepted shader package
 
 Physical acceptance was recorded against idris-shader-backend commit:
@@ -95,3 +104,15 @@ Mesa or an emulator does not substitute for this hardware receipt.
 
 - https://github.com/fuego-ironworks/idris-shader-backend/pull/16
 - https://github.com/fuego-ironworks/idris-shader-backend/pull/46
+
+## Current consumers
+
+[isomorphismes/Fourier-sound PR #28, “Keep FFT spectrum GPU-resident through Wegert rendering”](https://github.com/isomorphismes/Fourier-sound/pull/28)
+at `3c2ecaafd9384b2096dd55b11cca5a74ec0c6c83` requires an application
+GLES 3.1 compute/SSBO path and an exact-artifact A1 receipt. These historical
+fragment/readback results do not accept compute FFTs, microphone-driven output,
+replacement installation or frame pacing.
+
+[C67's GE8320 compositor evidence](miro-c67-powervr-ge8320.md) is separate
+from this GE8322 application-context receipt. GPU family similarity does not
+transfer driver acceptance.

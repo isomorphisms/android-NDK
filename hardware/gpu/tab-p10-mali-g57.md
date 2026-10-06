@@ -47,3 +47,24 @@ Separate microarchitecture research identifies the tablet target with an Allwinn
 
 - https://github.com/fuego-ironworks/idris-shader-backend/pull/44
 - https://github.com/fuego-ironworks/idris-shader-backend/pull/46
+
+## Source and package boundaries, refreshed October 6, 2026
+
+[Shader-backend PR #44, “Accept the physical Mali-G57 tablet renderer”](https://github.com/fuego-ironworks/idris-shader-backend/pull/44),
+head `876bd99b922d1f06f16085680194ce6a02dd1511`, summarizes the physical
+results above. That summary does not provide an unchanged byte-bound receipt
+with capture time and archive digest here; do not invent those missing fields.
+[PR #46, “Integrate Android GLES physical acceptance onto main”](https://github.com/fuego-ironworks/idris-shader-backend/pull/46),
+head `59e54ffd882e524c7b967eb636f4fa14cef12c3d`, integrates the gate; a
+source integration is not a fresh physical run.
+
+Cat Food's staged [package row](https://github.com/isomorphisms/catfood/blob/fe7d665cb98ce28f2267859e081ac2eeeb7a9d7b/android/packages.tsv)
+pins an AArch64 runner at `f3ed48fce28bbee0c0eb9d588e061502f4f323ff`,
+archive SHA-256 `25ee1a7de1cbfed2ab20670e8e26824904d98efe079f080d7d66e79a5a29bb50`.
+Do not assign that digest to the earlier summary without a matching receipt.
+The same ABI can serve C67, but the [wrapper's Mali gate](https://github.com/fuego-ironworks/idris-shader-backend/blob/f3ed48fce28bbee0c0eb9d588e061502f4f323ff/tools/accept_powervr_android.sh)
+cannot accept [C67 PowerVR](miro-c67-powervr-ge8320.md).
+
+Cat Food's September 16 ordinary tablet provisioning receipt is not a shader
+receipt. TAB_P10 storage, firmware, privilege and app-context claims each need
+their own evidence; none is inherited from the C67 or A1.
