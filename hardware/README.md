@@ -11,6 +11,8 @@ constraints needed by generic Android-native work.
 
 The original repository remains canonical. Files here are working copies for Android NDK development. Every dossier records its provenance and its paired Android-NDK cross-index issue when one exists.
 
+[Cat Food](https://github.com/isomorphisms/catfood) owns supported-system build/deployment facts and concrete device profiles. Original specialist repositories retain their research and exact acceptance receipts. Consumer requirements stay here; cross-links do not relocate those owners or grant acceptance.
+
 Keep three evidence classes separate:
 
 - **physical** — observed on a real device;
@@ -36,10 +38,25 @@ Do not promote a reference value to a physical fact without a receipt.
 | sensors/input | [MIRO A1 accelerometer](sensors-and-inputs/miro-a1-accelerometer.md) | #4 |
 | sensors/input | [MIRO A1 touchscreen](sensors-and-inputs/miro-a1-touchscreen.md) | #2 |
 | runtime/ABI | [MIRO A1 Bionic/native boundary](runtime-abi/miro-a1-bionic.md) | #9 |
-| runtime/ABI | [MIRO C67 unverified runtime/ABI](runtime-abi/miro-c67-unverified.md) | — |
+| runtime/ABI | [MIRO C67 observed ABI / unverified native execution](runtime-abi/miro-c67-unverified.md) | — |
 | runtime/ABI | [TAB_P10 Android/AArch64 receipt](runtime-abi/tab-p10-aarch64.md) | #8 |
 | physical outputs | [current state](physical-outputs/README.md) | — |
 
 Board-level GPIO/pinmux research belongs under board/kernel unless a pin has a proven device function. Sensor/input pins belong with the corresponding input device. Speaker, vibrator, flashlight/light, GPIO-output and similar actuator research belongs under physical outputs once evidence exists.
 
 See [AGENTS.md](AGENTS.md) for the filing/evidence rules future hardware work should follow.
+
+## First reconciled batch — 2026-10-06
+
+The 18 hardware cross-index issues form nine pairs. This batch reconciles the
+CPU/ABI pair (#5 / ComputerScience #72) and native/Bionic pair (#9 / AICI #166).
+The [C67 CPU dossier](cpu/miro-c67-helio-g36.md) and
+[runtime dossier](runtime-abi/miro-c67-unverified.md) now point to Cat Food's
+landed October 5 observation, replacing stale ABI-unknown wording while keeping
+native execution and page size unknown. The C67 has no paired issue in this
+original set; no new issue is required solely to mirror these links.
+
+GPU, sensor, board/kernel, storage and tablet pairs remain separate batches.
+The [C67 GPU dossier](gpu/miro-c67-powervr-ge8320.md) and memory/storage copy
+still need comparison with Cat Food's newer observation; this CPU/runtime batch
+does not certify their current wording or any application rendering.
