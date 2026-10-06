@@ -34,7 +34,7 @@ export ANDROID_KEY_PASSWORD=wegert-debug
 export ANDROID_EXPECTED_CERT_SHA256=de9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9
 export ANDROID_SOURCE_COMMIT="${GITHUB_SHA:-fixture}"
 
-"$repo_root/apk/build-nativeactivity-apk.sh" \
+bash "$repo_root/apk/build-nativeactivity-apk.sh" \
     "$repo_root/apk/tests/fixtures/AndroidManifest.xml" \
     "$work/libfixture.so" \
     armeabi-v7a \
@@ -46,7 +46,7 @@ grep -Fq $'package\torg.isomorphisms.androidndk.fixture' "$work/fixture.receipt.
 grep -Fq $'signer_cert_sha256\tde9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9' "$work/fixture.receipt.tsv"
 
 if ANDROID_EXPECTED_CERT_SHA256=0000000000000000000000000000000000000000000000000000000000000000 \
-    "$repo_root/apk/build-nativeactivity-apk.sh" \
+    bash "$repo_root/apk/build-nativeactivity-apk.sh" \
       "$repo_root/apk/tests/fixtures/AndroidManifest.xml" \
       "$work/libfixture.so" \
       armeabi-v7a \
@@ -59,7 +59,7 @@ grep -Fq "keystore certificate changed" "$work/wrong.log"
 test ! -e "$work/wrong.apk"
 
 if env -u ANDROID_KEYSTORE \
-    "$repo_root/apk/build-nativeactivity-apk.sh" \
+    bash "$repo_root/apk/build-nativeactivity-apk.sh" \
       "$repo_root/apk/tests/fixtures/AndroidManifest.xml" \
       "$work/libfixture.so" \
       armeabi-v7a \
