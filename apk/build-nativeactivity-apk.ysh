@@ -1,0 +1,73 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+var script_path = $(/usr/bin/readlink -f "$0")
+var apk_root = $(/usr/bin/dirname "$script_path")
+source "$apk_root/common.ysh"
+test "$#" = 4 || fail 'expected MANIFEST NATIVE_LIBRARY ABI OUTPUT_APK'
+var manifest = "$1"
+var native_library = "$2"
+var abi = "$3"
+var output = "$4"
+regular "$manifest"
+regular "$native_library"
+test ! -e "$output" && test ! -e "$output.receipt.tsv" || fail 'output already exists; use a fresh attempt directory'
+tools
+test "${ANDROID_TARGET_SDK:-}" = 34 || fail 'this tool release fixes platform API 34'
+test "${ANDROID_MIN_SDK:-}" = 21 || fail 'this tool release fixes minimum API 21'
+test -n "${ANDROID_PACKAGE_ID:-}" && test -n "${ANDROID_VERSION_CODE:-}" && test -n "${ANDROID_VERSION_NAME:-}" || fail 'application metadata is required'
+test -n "${ANDROID_KEYSTORE:-}" && test -n "${ANDROID_KEY_ALIAS:-}" || fail 'registered keystore is required'
+regular "$ANDROID_KEYSTORE"
+var expected = $(signer "$ANDROID_PACKAGE_ID")
+var certificate = $("$ANDROID_JAVA_HOME/bin/keytool" -exportcert -keystore "$ANDROID_KEYSTORE" -storetype PKCS12 -storepass:env ANDROID_STORE_PASSWORD -alias "$ANDROID_KEY_ALIAS" 2>/dev/null | /usr/bin/sha256sum | /usr/bin/awk '{print $1}')
+test "$certificate" = "$expected" || fail 'keystore certificate is not the registered signer'
+var parent = $(/usr/bin/dirname "$output")
+/usr/bin/mkdir -p "$parent"
+setvar parent = $(/usr/bin/readlink -f "$parent")
+var work = $(/usr/bin/mktemp -d "$parent/.native-package.XXXXXXXX")
+trap --add EXIT { /usr/bin/rm -r "$work" }
+trap --add INT { exit 130 }
+trap --add TERM { exit 143 }
+var libname = $(/usr/bin/basename "$native_library")
+/usr/bin/cp "$manifest" "$work/manifest.xml"
+/usr/bin/mkdir -p "$work/payload/lib/$abi"
+/usr/bin/cp "$native_library" "$work/payload/lib/$abi/$libname"
+var aapt = "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt2"
+var resources = []
+if test -n "${ANDROID_RESOURCE_DIR:-}"; then
+  test -d "$ANDROID_RESOURCE_DIR" || fail 'resource directory is missing'
+  var resource_links = $(/usr/bin/find "$ANDROID_RESOURCE_DIR" -type l -print)
+  test -z "$resource_links" || fail 'resource symlink is forbidden'
+  "$aapt" compile --dir "$ANDROID_RESOURCE_DIR" -o "$work/resources.zip"
+  setvar resources = ["$work/resources.zip"]
+fi
+"$aapt" link -I "$ANDROID_SDK_ROOT/platforms/android-34/android.jar" --manifest "$work/manifest.xml" --rename-manifest-package "$ANDROID_PACKAGE_ID" --version-code "$ANDROID_VERSION_CODE" --version-name "$ANDROID_VERSION_NAME" --min-sdk-version 21 --target-sdk-version 34 -o "$work/unaligned.apk" @resources
+var payload_names = ['lib']
+if test -n "${ANDROID_ASSET_DIR:-}"; then
+  test -d "$ANDROID_ASSET_DIR" || fail 'asset directory is missing'
+  var asset_links = $(/usr/bin/find "$ANDROID_ASSET_DIR" -type l -print)
+  test -z "$asset_links" || fail 'asset symlink is forbidden'
+  /usr/bin/cp -R "$ANDROID_ASSET_DIR" "$work/payload/assets"
+  setvar payload_names = ['lib', 'assets']
+fi
+cd "$work/payload" { /usr/bin/zip -q -r "$work/unaligned.apk" @payload_names }
+"$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign" -f 4 "$work/unaligned.apk" "$work/aligned.apk"
+"$ANDROID_JAVA_HOME/bin/java" -jar "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib/apksigner.jar" sign --ks "$ANDROID_KEYSTORE" --ks-type PKCS12 --ks-pass env:ANDROID_STORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD --ks-key-alias "$ANDROID_KEY_ALIAS" --out "$work/verified.apk" "$work/aligned.apk"
+var native_digest = $(inspect "$work/verified.apk" "$abi" "$libname" "$ANDROID_PACKAGE_ID" "$ANDROID_VERSION_CODE")
+var input_native_digest = $(digest "$work/payload/lib/$abi/$libname")
+test "$native_digest" = "$input_native_digest" || fail 'packaged native bytes changed'
+var apk_digest = $(digest "$work/verified.apk")
+var manifest_digest = $(digest "$work/manifest.xml")
+var tool_digest = $(digest "$apk_root/tools.tsv")
+{
+  printf 'schema\tandroid-ndk-nativeactivity-apk-v2\n'
+  printf 'package\t%s\nversion_code\t%s\nabi\t%s\n' "$ANDROID_PACKAGE_ID" "$ANDROID_VERSION_CODE" "$abi"
+  printf 'native_library\t%s\nnative_sha256\t%s\napk_sha256\t%s\nsigner_cert_sha256\t%s\n' "$libname" "$native_digest" "$apk_digest" "$expected"
+  printf 'manifest_sha256\t%s\ntool_manifest_sha256\t%s\n' "$manifest_digest" "$tool_digest"
+  printf 'evidence_class\tpackage-inspection\nproducer_execution\tNOT_VERIFIED\n'
+} > "$work/receipt.tsv"
+# Receipt first is not authority. APK is installed last, without replacing prior output.
+/usr/bin/ln "$work/receipt.tsv" "$output.receipt.tsv"
+/usr/bin/ln "$work/verified.apk" "$output"
+var output_digest = $(digest "$output")
+test "$output_digest" = "$apk_digest" || fail 'output changed during export'
+printf 'ANDROID_NDK_PACKAGE_INSPECTION\tPASS\nAPK_SHA256\t%s\n' "$apk_digest"

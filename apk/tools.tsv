@@ -1,0 +1,7 @@
+# Qualified candidate material pins: Linux x86_64, build-tools 35.0.0, platform 34 r3, NDK r27c.
+sdk	build-tools/35.0.0/aapt2	d1096e11aba9c974644369ee3c50d239acac3f3428ffa928e5b9c14dfb7a57de
+sdk	build-tools/35.0.0/zipalign	a205d94a45c8522ca1b571dcbe190df145c818f0a29dfb366e4dd78eef4f56a7
+sdk	build-tools/35.0.0/lib/apksigner.jar	00ef9948f843fe395d2440ae3ef41405b8040a6d5d46493bd1902ac0ee6deae7
+sdk	platforms/android-34/android.jar	6cea1df3efb77103ac3e2beb9bf4718964b0e0869ab16d39d29d5cbae1c147ad
+sdk	build-tools/35.0.0/lib64/libc++.so	71c9f5d2e9d6e3e1875340c20a2f6b750c2c7f54f730f5fb7f1fd1d0877c8d6f
+ndk	toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf	a8bd1b1d548f30cf582a025bf42d63ce225a861e8ad35006a722c27e0a4b3a8c

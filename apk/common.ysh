@@ -1,0 +1,126 @@
+# Loaded by the canonical Grease programs. No caller-selected fingerprint.
+var ANDROID_SDK_ROOT = get(ENV, 'ANDROID_SDK_ROOT', '')
+var ANDROID_NDK_ROOT = get(ENV, 'ANDROID_NDK_ROOT', '')
+var ANDROID_JAVA_HOME = get(ENV, 'ANDROID_JAVA_HOME', '')
+var ANDROID_BUILD_TOOLS = get(ENV, 'ANDROID_BUILD_TOOLS', '')
+var ANDROID_EXPECTED_CERT_SHA256 = get(ENV, 'ANDROID_EXPECTED_CERT_SHA256', '')
+var ANDROID_REQUIRE_NO_DEX = get(ENV, 'ANDROID_REQUIRE_NO_DEX', '1')
+var AICI_ROOT = get(ENV, 'AICI_ROOT', '')
+var ANDROID_PACKAGE_ID = get(ENV, 'ANDROID_PACKAGE_ID', '')
+var ANDROID_VERSION_CODE = get(ENV, 'ANDROID_VERSION_CODE', '')
+var ANDROID_VERSION_NAME = get(ENV, 'ANDROID_VERSION_NAME', '')
+var ANDROID_MIN_SDK = get(ENV, 'ANDROID_MIN_SDK', '')
+var ANDROID_TARGET_SDK = get(ENV, 'ANDROID_TARGET_SDK', '')
+var ANDROID_KEYSTORE = get(ENV, 'ANDROID_KEYSTORE', '')
+var ANDROID_KEY_ALIAS = get(ENV, 'ANDROID_KEY_ALIAS', '')
+var ANDROID_RESOURCE_DIR = get(ENV, 'ANDROID_RESOURCE_DIR', '')
+var ANDROID_ASSET_DIR = get(ENV, 'ANDROID_ASSET_DIR', '')
+proc fail(message) { echo "android-NDK: $message" >&2; exit 1; }
+proc digest(path) { /usr/bin/sha256sum "$path" | /usr/bin/awk '{print $1}'; }
+proc regular(path) {
+  test -f "$path" && test ! -L "$path" || fail "not a regular non-symlink input: $path"
+  var links = $(/usr/bin/stat -c %h "$path")
+  test "$links" = 1 || fail "hardlinked input: $path"
+}
+proc value(path, key) {
+  /usr/bin/awk -F '\t' -v key="$key" '$1==key {n++; v=$2; if(NF!=2) bad=1} END {if(n!=1 || bad) exit 1; print v}' "$path"
+}
+proc tools {
+  for dangerous in JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS LD_PRELOAD LD_LIBRARY_PATH; do
+    var inherited = get(ENV, dangerous, '')
+    test -z "$inherited" || fail "inherited injection variable: $dangerous"
+  done
+  test -z "${ANDROID_BUILD_TOOLS:-}" || fail 'caller tool override is forbidden'
+  test -z "${ANDROID_EXPECTED_CERT_SHA256:-}" || fail 'caller fingerprint is forbidden; use the registered identity'
+  test "${ANDROID_REQUIRE_NO_DEX:-1}" = 1 || fail 'no-DEX cannot be disabled'
+  test -n "${ANDROID_SDK_ROOT:-}" && test -n "${ANDROID_NDK_ROOT:-}" || fail 'SDK and NDK material roots are required'
+  test -n "${ANDROID_JAVA_HOME:-}" || fail 'explicit signing-tools JRE is required'
+  var base = ''
+  var tab = $(printf '\t')
+  while IFS="$tab" read -r kind relative expected; do
+    case "$kind" in
+      \#*|'') continue ;;
+      sdk)
+        setvar base = "$ANDROID_SDK_ROOT"
+        ;;
+      ndk)
+        setvar base = "$ANDROID_NDK_ROOT"
+        ;;
+      *) fail "unknown tool domain: $kind" ;;
+    esac
+    var actual = $(digest "$base/$relative")
+    test "$actual" = "$expected" || fail "tool bytes changed: $relative"
+  done < "$apk_root/tools.tsv"
+  var registry_digest = $(digest "$AICI_ROOT/android-signing/identities.tsv")
+  test "$registry_digest" = 8963ccd264dfeaad6517cc648a22950becfeea3a4652a44f1d2fa0a5ee16c2a5 || fail 'unapproved signing registry bytes'
+}
+proc signer(package) {
+  /usr/bin/awk -F '\t' -v p="$package" '$1==p && $2=="test" {n++; v=$3} END {if(n!=1) exit 1; print v}' "$AICI_ROOT/android-signing/identities.tsv"
+}
+proc inspect(apk, abi, libname, package, version) {
+  regular "$apk"
+  var work = $(/usr/bin/mktemp -d /tmp/native-inspect.XXXXXXXX)
+  var aapt = "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt2"
+  var readelf = "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+  /usr/bin/unzip -Z1 "$apk" > "$work/entries"
+  var duplicates = $(/usr/bin/sort "$work/entries" | /usr/bin/uniq -d)
+  test -z "$duplicates" || fail 'duplicate APK entries'
+  ! /usr/bin/grep -Eq '(^/|(^|/)\.\.(/|$)|\.dex$)' "$work/entries" || fail 'escaping or DEX payload'
+  var libraries = $(/usr/bin/grep -E '^lib/.*[^/]$' "$work/entries")
+  test "$libraries" = "lib/$abi/$libname" || fail 'unexpected native payload set'
+  /usr/bin/unzip -p "$apk" "lib/$abi/$libname" > "$work/native.so"
+  "$readelf" -h "$work/native.so" > "$work/elf"
+  var elf_class = ''
+  var machine = ''
+  case "$abi" in
+    armeabi-v7a)
+      setvar elf_class = 'ELF32'
+      setvar machine = 'ARM'
+      ;;
+    arm64-v8a)
+      setvar elf_class = 'ELF64'
+      setvar machine = 'AArch64'
+      ;;
+    x86)
+      setvar elf_class = 'ELF32'
+      setvar machine = 'Intel 80386'
+      ;;
+    x86_64)
+      setvar elf_class = 'ELF64'
+      setvar machine = 'Advanced Micro Devices X86-64'
+      ;;
+    *) fail "unsupported ABI: $abi" ;;
+  esac
+  /usr/bin/grep -Eq "Class:[[:space:]]+$elf_class\$" "$work/elf" || fail 'ELF class mismatch'
+  /usr/bin/grep -Eq "Machine:[[:space:]]+$machine\$" "$work/elf" || fail 'ELF machine mismatch'
+  /usr/bin/grep -Fq "Data:                              2's complement, little endian" "$work/elf" || fail 'ELF byte order mismatch'
+  /usr/bin/grep -Eq 'Type:[[:space:]]+DYN ' "$work/elf" || fail 'native payload is not a shared object'
+  "$readelf" --dyn-syms "$work/native.so" > "$work/symbols"
+  /usr/bin/grep -Eq 'GLOBAL[[:space:]]+DEFAULT[[:space:]]+[0-9]+[[:space:]]+ANativeActivity_onCreate$' "$work/symbols" || fail 'NativeActivity export is missing'
+  "$aapt" dump badging "$apk" > "$work/badging"
+  /usr/bin/grep -Fq "package: name='$package' versionCode='$version'" "$work/badging" || fail 'package/version mismatch'
+  /usr/bin/grep -Fq "launchable-activity: name='android.app.NativeActivity'" "$work/badging" || fail 'launcher is not framework NativeActivity'
+  "$aapt" dump xmltree "$apk" --file AndroidManifest.xml > "$work/xmltree"
+  var stem = $(/usr/bin/basename "$libname" .so | /usr/bin/sed 's/^lib//')
+  /usr/bin/awk -v stem="$stem" '
+    /E: application / {applications++; context="application"}
+    /E: activity / {activities++; context="activity"}
+    /E: (activity-alias|service|receiver|provider) / {bad=1}
+    /E: meta-data / {context="metadata"; named=0}
+    /E: intent-filter / {context="intent"}
+    /:hasCode\(/ && context=="application" && /=false$/ {hascode++}
+    /:name\(/ && context=="application" {bad=1}
+    /:name\(/ && context=="activity" && /=\"android.app.NativeActivity\" / {native++}
+    /:exported\(/ && context=="activity" && /=true$/ {exported++}
+    /:name\(/ && context=="metadata" && /=\"android.app.lib_name\" / {named=1; metadata++}
+    /:value\(/ && named {wanted="=\"" stem "\" "; if(index($0,wanted)) matched++}
+    END {if(bad || applications!=1 || activities!=1 || hascode!=1 || native!=1 || exported!=1 || metadata!=1 || matched!=1) exit 1}
+  ' "$work/xmltree" || fail 'NativeActivity hasCode/library/component metadata mismatch'
+  "$ANDROID_JAVA_HOME/bin/java" -jar "$ANDROID_SDK_ROOT/build-tools/35.0.0/lib/apksigner.jar" verify --verbose --print-certs "$apk" > "$work/signature"
+  var certificate = $(/usr/bin/sed -n 's/^Signer #[0-9]* certificate SHA-256 digest: //p' "$work/signature")
+  var expected_signer = $(signer "$package")
+  test "$certificate" = "$expected_signer" || fail 'finished APK has an unregistered signer'
+  "$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign" -c 4 "$apk" >/dev/null || fail 'finished APK is not aligned'
+  digest "$work/native.so"
+  /usr/bin/rm -r "$work"
+}

@@ -1,0 +1,8 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+var script_path = $(/usr/bin/readlink -f "$0")
+var apk_root = $(/usr/bin/dirname "$script_path")
+source "$apk_root/common.ysh"
+test "$#" = 5 || fail 'expected APK ABI LIBRARY PACKAGE VERSION'
+tools
+inspect "$1" "$2" "$3" "$4" "$5"

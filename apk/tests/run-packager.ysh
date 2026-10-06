@@ -1,0 +1,98 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+var script_path = $(/usr/bin/readlink -f "$0")
+var test_root = $(/usr/bin/dirname "$script_path")
+var apk_root = $(/usr/bin/dirname "$test_root")
+var GREASE = ENV.GREASE_BIN
+var ndk = ENV.ANDROID_NDK_ROOT
+var work = $(/usr/bin/mktemp -d /tmp/packager-qualification.XXXXXXXX)
+trap --add EXIT { /usr/bin/rm -r "$work" }
+var cc = "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/clang-18"
+var linker = "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+"$cc" --target=armv7a-linux-androideabi21 --ld-path="$linker" -shared -fPIC "$test_root/fixtures/native_activity.c" -Wl,-soname,libfixture.so -landroid -llog -o "$work/libfixture.so"
+"$cc" --target=x86_64-linux-android21 --ld-path="$linker" -shared -fPIC "$test_root/fixtures/native_activity.c" -Wl,-soname,libfixture.so -landroid -llog -o "$work/wrong-abi.so"
+setglobal ENV.ANDROID_PACKAGE_ID = 'org.isomorphisms.crystal.halite'
+setglobal ENV.ANDROID_MIN_SDK = '21'
+setglobal ENV.ANDROID_TARGET_SDK = '34'
+setglobal ENV.ANDROID_VERSION_NAME = 'qualification'
+setglobal ENV.ANDROID_VERSION_CODE = '4'
+"$GREASE" "$apk_root/build-nativeactivity-apk.ysh" "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so" armeabi-v7a "$work/A.apk"
+setglobal ENV.ANDROID_VERSION_CODE = '5'
+"$GREASE" "$apk_root/build-nativeactivity-apk.ysh" "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so" armeabi-v7a "$work/B.apk"
+var A = $(/usr/bin/sha256sum "$work/A.apk" | /usr/bin/awk '{print $1}')
+var B = $(/usr/bin/sha256sum "$work/B.apk" | /usr/bin/awk '{print $1}')
+test "$A" != "$B"
+proc rejected(id, needle, manifest, native) {
+  if "$GREASE" "$apk_root/build-nativeactivity-apk.ysh" "$manifest" "$native" armeabi-v7a "$work/$id.apk" > "$work/$id.log" 2>&1; then
+    echo "unexpected package success: $id" >&2
+    exit 1
+  fi
+  /usr/bin/grep -Fq "$needle" "$work/$id.log"
+  test ! -e "$work/$id.apk"
+  test ! -e "$work/$id.apk.receipt.tsv"
+  printf '%s\tPASS\n' "$id"
+}
+rejected wrong-ELF 'ELF class mismatch' "$test_root/fixtures/AndroidManifest.xml" "$work/wrong-abi.so"
+/usr/bin/sed 's/hasCode="false"/hasCode="true"/' "$test_root/fixtures/AndroidManifest.xml" > "$work/hascode.xml"
+rejected application-code 'NativeActivity hasCode/library/component metadata mismatch' "$work/hascode.xml" "$work/libfixture.so"
+/usr/bin/sed 's/android:value="fixture"/android:value="wrong"/' "$test_root/fixtures/AndroidManifest.xml" > "$work/lib.xml"
+rejected library-metadata 'NativeActivity hasCode/library/component metadata mismatch' "$work/lib.xml" "$work/libfixture.so"
+setglobal ENV.ANDROID_EXPECTED_CERT_SHA256 = 'de9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9'
+rejected caller-fingerprint 'caller fingerprint is forbidden' "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so"
+setglobal ENV.ANDROID_EXPECTED_CERT_SHA256 = ''
+setglobal ENV.ANDROID_REQUIRE_NO_DEX = '0'
+rejected no-DEX-disabled 'no-DEX cannot be disabled' "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so"
+setglobal ENV.ANDROID_REQUIRE_NO_DEX = '1'
+setglobal ENV.ANDROID_PACKAGE_ID = 'org.isomorphisms.crystal.inspect.halite'
+rejected identity-workaround '' "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so"
+setglobal ENV.ANDROID_PACKAGE_ID = 'org.isomorphisms.crystal.halite'
+var saved_key = ENV.ANDROID_KEYSTORE
+setglobal ENV.ANDROID_KEYSTORE = "$work/missing.p12"
+rejected missing-key 'not a regular non-symlink input' "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so"
+setglobal ENV.ANDROID_KEYSTORE = saved_key
+# Fresh keys are adversarial fixtures only, never a packager fallback.
+"$[ENV.ANDROID_JAVA_HOME]/bin/keytool" -genkeypair -alias wrong -keyalg RSA -keystore "$work/wrong.p12" -storetype PKCS12 -storepass fixture-password -keypass fixture-password -dname CN=HostileFixture -validity 1 > "$work/key.log" 2>&1
+setglobal ENV.ANDROID_KEYSTORE = "$work/wrong.p12"
+setglobal ENV.ANDROID_KEY_ALIAS = 'wrong'
+setglobal ENV.ANDROID_STORE_PASSWORD = 'fixture-password'
+rejected wrong-key 'keystore certificate is not the registered signer' "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so"
+setglobal ENV.ANDROID_KEYSTORE = saved_key
+setglobal ENV.ANDROID_KEY_ALIAS = 'wegert-debug'
+setglobal ENV.ANDROID_STORE_PASSWORD = 'wegert-debug'
+setglobal ENV.JAVA_TOOL_OPTIONS = '-Dforged=1'
+rejected injection 'inherited injection variable' "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so"
+setglobal ENV.JAVA_TOOL_OPTIONS = ''
+setglobal ENV.ANDROID_BUILD_TOOLS = '/fake/latest'
+rejected tool-override 'caller tool override is forbidden' "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so"
+setglobal ENV.ANDROID_BUILD_TOOLS = ''
+# Resources are compiled and the actual Android label is observed independently.
+/usr/bin/mkdir -p "$work/res/values"
+printf '<resources><string name="app_name">Qualified fixture label</string></resources>\n' > "$work/res/values/strings.xml"
+/usr/bin/sed 's/android:label="android-NDK fixture"/android:label="@string\/app_name"/' "$test_root/fixtures/AndroidManifest.xml" > "$work/resources.xml"
+setglobal ENV.ANDROID_RESOURCE_DIR = "$work/res"
+"$GREASE" "$apk_root/build-nativeactivity-apk.ysh" "$work/resources.xml" "$work/libfixture.so" armeabi-v7a "$work/resources.apk"
+"$[ENV.ANDROID_SDK_ROOT]/build-tools/35.0.0/aapt2" dump badging "$work/resources.apk" > "$work/resources.badging"
+/usr/bin/grep -Fq "application-label:'Qualified fixture label'" "$work/resources.badging"
+setglobal ENV.ANDROID_RESOURCE_DIR = ''
+# Existing output is immutable across an attempted rerun.
+if "$GREASE" "$apk_root/build-nativeactivity-apk.ysh" "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so" armeabi-v7a "$work/A.apk" > "$work/rerun.log" 2>&1; then
+  exit 1
+fi
+/usr/bin/grep -Fq 'output already exists' "$work/rerun.log"
+var unchanged = $(/usr/bin/sha256sum "$work/A.apk" | /usr/bin/awk '{print $1}')
+test "$unchanged" = "$A"
+/usr/bin/cp "$work/A.apk" "$work/dex.apk"
+printf 'hostile DEX payload\n' > "$work/classes.dex"
+cd "$work" { /usr/bin/zip -q dex.apk classes.dex }
+if "$GREASE" "$apk_root/inspect-nativeactivity-apk.ysh" "$work/dex.apk" armeabi-v7a libfixture.so org.isomorphisms.crystal.halite 4 > "$work/dex.log" 2>&1; then
+  exit 1
+fi
+/usr/bin/grep -Fq 'escaping or DEX payload' "$work/dex.log"
+if /usr/bin/timeout --signal=TERM --kill-after=1s 0.2s "$GREASE" "$apk_root/build-nativeactivity-apk.ysh" "$test_root/fixtures/AndroidManifest.xml" "$work/libfixture.so" armeabi-v7a "$work/interrupted.apk" > "$work/interrupted.log" 2>&1; then
+  echo 'interruption fixture unexpectedly completed' >&2
+  exit 1
+fi
+test ! -e "$work/interrupted.apk"
+test ! -e "$work/interrupted.apk.receipt.tsv"
+printf 'DEX-payload\tPASS\ninterrupted-attempt-no-output\tPASS\n'
+printf 'real-APK-A\t%s\nreal-APK-B\t%s\nresources\tPASS\nrerun-preserves-output\tPASS\nreplacement-install\tNOT_RUN\nphysical-device\tNOT_RUN\n' "$A" "$B"

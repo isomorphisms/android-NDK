@@ -48,17 +48,29 @@ levels.
 
 ## Maintained direct NativeActivity packager
 
-`build-nativeactivity-apk.sh` is the maintained generic path for a framework
-`android.app.NativeActivity` package whose application code is already an
-NDK-built shared library. It invokes Android build-tools directly: `aapt2`,
-`zipalign`, and `apksigner`. It does not invoke Gradle, Java, Kotlin, or
-`d8`, and by default rejects a finished APK containing DEX.
+`build-nativeactivity-apk.ysh` is the maintained Grease route for framework
+NativeActivity. It invokes aapt2, zipalign and apksigner directly. SDK signing
+tools use an explicit JRE; no application Java/Kotlin, Gradle or d8 is generated.
 
-The consumer supplies its own manifest, package/version identity, SDK bounds,
-ABI, signing key metadata, and expected certificate digest. The script never
-creates a key and never chooses a fallback signer. It verifies the keystore
-certificate before packaging and the finished APK signer, package ID,
-`versionCode`, NativeActivity launcher, ABI payload, and APK digest afterward.
+The candidate pins NDK r27c inspection, SDK build-tools 35.0.0, platform 34 and
+minimum API 21. The central AICI registry determines the signer. Caller
+fingerprints, tool overrides and disabling no-DEX fail. Keys are never created
+or selected as a fallback. Application-owned metadata, resources and assets
+remain explicit inputs.
 
-Run `apk/tests/run-packager.sh` with the Android SDK/NDK and an explicit test
-keystore to exercise the positive path plus missing/wrong-signer hostile cases.
+Inspection checks the signed APK's package/version, single framework activity,
+hasCode=false, exported=true, library metadata, exact native payload, actual
+ELF class/machine/byte order/DYN/export, alignment and registered signer.
+Private staging precedes publication; existing attempt outputs are never replaced.
+The .sh entrypoint is only a compatibility exec to Grease.
+
+Tests compile actual NDK libraries and create real APKs, covering resources,
+wrong ELF/metadata/key, DEX injection, caller overrides, interruption and rerun.
+Set pinned SDK/NDK roots, signing-tools JRE, AICI_ROOT and the registered test
+keystore; run the maintained Grease tests.
+
+The v2 receipt is **package-inspection** evidence with
+producer_execution=NOT_VERIFIED. A qualified independent AICI supervisor must
+own execution and authenticate its decision. Packaging cannot establish
+delivery, replacement, pinch-zoom, wireframe or physical acceptance.
+See [FP3 qualification](qualification/fp3.tsv).

@@ -1,0 +1,26 @@
+ANDROID_NDK_PACKAGE_INSPECTION	PASS
+APK_SHA256	aa14967bafcb37fd2d6ac42eb1a99b40ab823670801561dae513609fe6db6552
+ANDROID_NDK_PACKAGE_INSPECTION	PASS
+APK_SHA256	e00d1c1593e85728d51edb801e6337859e42355949d2144bd426bcb65d5cb05d
+wrong-ELF	PASS
+application-code	PASS
+library-metadata	PASS
+caller-fingerprint	PASS
+no-DEX-disabled	PASS
+identity-workaround	PASS
+missing-key	PASS
+wrong-key	PASS
+injection	PASS
+tool-override	PASS
+Picked up JAVA_TOOL_OPTIONS:
+Picked up JAVA_TOOL_OPTIONS:
+ANDROID_NDK_PACKAGE_INSPECTION	PASS
+APK_SHA256	6fa1c1037e184a965b6ffa72889473786db221c69348b6cfba60646032b8114c
+DEX-payload	PASS
+interrupted-attempt-no-output	PASS
+real-APK-A	aa14967bafcb37fd2d6ac42eb1a99b40ab823670801561dae513609fe6db6552
+real-APK-B	e00d1c1593e85728d51edb801e6337859e42355949d2144bd426bcb65d5cb05d
+resources	PASS
+rerun-preserves-output	PASS
+replacement-install	NOT_RUN
+physical-device	NOT_RUN
