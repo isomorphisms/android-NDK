@@ -49,12 +49,14 @@ done
 [[ "$ANDROID_MIN_SDK" =~ ^[0-9]+$ ]] || fail "ANDROID_MIN_SDK must be numeric"
 [[ "$ANDROID_TARGET_SDK" =~ ^[0-9]+$ ]] || fail "ANDROID_TARGET_SDK must be numeric"
 signing_options=()
+zip_options=()
 if [[ -n ${SOURCE_DATE_EPOCH:-} ]]; then
     [[ "$SOURCE_DATE_EPOCH" =~ ^[0-9]{1,10}$ ]] || fail "SOURCE_DATE_EPOCH must be an integer"
     (( SOURCE_DATE_EPOCH >= 315532800 )) || fail "SOURCE_DATE_EPOCH predates ZIP timestamps"
     (( ANDROID_MIN_SDK >= 24 )) || fail "reproducible signing requires API 24 or newer (APK signature v2)"
     export TZ=UTC
     signing_options=(--v1-signing-enabled false)
+    zip_options=(-X)
 fi
 [[ "$ANDROID_PACKAGE_ID" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] ||
     fail "invalid package id: $ANDROID_PACKAGE_ID"
@@ -116,6 +118,7 @@ mkdir -p "$work/payload/lib/$abi"
 cp "$native_library" "$work/payload/lib/$abi/$libname"
 if [[ -n ${SOURCE_DATE_EPOCH:-} ]]; then
     touch -d "@$SOURCE_DATE_EPOCH" "$work/payload/lib/$abi/$libname"
+    chmod 0644 "$work/payload/lib/$abi/$libname"
 fi
 
 manifest_apk="$work/manifest.apk"
@@ -135,15 +138,17 @@ aligned="$work/aligned.apk"
 cp "$manifest_apk" "$unaligned"
 (
     cd "$work/payload"
-    zip -q -u "$unaligned" "lib/$abi/$libname"
+    zip -q -u "${zip_options[@]}" "$unaligned" "lib/$abi/$libname"
     if [[ -n ${ANDROID_ASSET_DIR:-} ]]; then
         [[ -d "$ANDROID_ASSET_DIR" ]] || fail "ANDROID_ASSET_DIR is not a directory: $ANDROID_ASSET_DIR"
         mkdir -p assets
         cp -R "$ANDROID_ASSET_DIR"/. assets/
         if [[ -n ${SOURCE_DATE_EPOCH:-} ]]; then
             find assets -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+            find assets -type f -exec chmod 0644 {} +
+            find assets -type d -exec chmod 0755 {} +
         fi
-        find assets -print | LC_ALL=C sort | zip -q -u "$unaligned" -@
+        find assets -print | LC_ALL=C sort | zip -q -u "${zip_options[@]}" "$unaligned" -@
     fi
 )
 

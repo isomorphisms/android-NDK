@@ -65,12 +65,14 @@ keystore to exercise the positive path plus missing/wrong-signer hostile cases.
 
 For byte-reproducible packages, supply `SOURCE_DATE_EPOCH` from the consumer's
 source commit. The maintained packager normalizes payload times to UTC and
-sorts asset entries. This opt-in mode requires a minimum SDK of 24 or newer
+sorts asset entries, normalizes copied file modes and omits ZIP user/group extra
+fields. This opt-in mode requires a minimum SDK of 24 or newer
 and uses APK signature v2 or newer, disabling timestamp-bearing v1 signing.
 The consumer still supplies the signer; no new signing or build authority is
 introduced. Ordinary calls retain their existing signing defaults.
 
 `apk/tests/reproducible.grease MANIFEST NATIVE ABI OUTPUT` exercises identical
-APK bytes across two time zones and rejects invalid epochs and incompatible
+APK bytes across two time zones/file modes, refuses builder UID/GID metadata,
+and rejects invalid epochs and incompatible
 API floors. It requires the same explicit SDK and test-signer environment as
 the maintained packager. This is a hosted packaging check, not device acceptance.

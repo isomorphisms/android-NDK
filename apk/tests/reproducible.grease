@@ -9,9 +9,16 @@ var native = ARGV[1]
 var abi = ARGV[2]
 var output = ARGV[3]
 mkdir -p "$output"
-env TZ=UTC SOURCE_DATE_EPOCH=1710200000 bash "$packager" "$manifest" "$native" "$abi" "$output/first.apk" > "$output/first.log" 2>&1
-env TZ=Pacific/Kiritimati SOURCE_DATE_EPOCH=1710200000 bash "$packager" "$manifest" "$native" "$abi" "$output/second.apk" > "$output/second.log" 2>&1
+mkdir -p "$output/input"
+var staged_native = "$output/input/" ++ $(basename "$native")
+cp "$native" "$staged_native"
+chmod 0755 "$staged_native"
+env TZ=UTC SOURCE_DATE_EPOCH=1710200000 bash "$packager" "$manifest" "$staged_native" "$abi" "$output/first.apk" > "$output/first.log" 2>&1
+chmod 0644 "$staged_native"
+env TZ=Pacific/Kiritimati SOURCE_DATE_EPOCH=1710200000 bash "$packager" "$manifest" "$staged_native" "$abi" "$output/second.apk" > "$output/second.log" 2>&1
 if ! cmp -s "$output/first.apk" "$output/second.apk" { echo 'FAIL reproducible APK bytes'; exit 1 }
+zipinfo -v "$output/first.apk" > "$output/archive.txt"
+if rg -q 'Unix UID/GID' "$output/archive.txt" { echo 'FAIL builder-identity ZIP metadata'; exit 1 }
 if env SOURCE_DATE_EPOCH=invalid bash "$packager" "$manifest" "$native" "$abi" "$output/invalid.apk" > "$output/invalid.log" 2>&1 {
   echo 'FAIL accepted invalid source epoch'; exit 1
 }
@@ -21,4 +28,4 @@ if env SOURCE_DATE_EPOCH=1710200000 ANDROID_MIN_SDK=23 bash "$packager" "$manife
 }
 rg -q 'reproducible signing requires API 24' "$output/old-api.log"
 sha256sum "$output/first.apk" "$output/second.apk"
-echo 'PASS identical APK bytes across time zones, invalid epoch rejection and incompatible API-floor rejection'
+echo 'PASS identical APK bytes across time zones/modes, no builder UID/GID metadata, invalid epoch and API-floor rejection'
