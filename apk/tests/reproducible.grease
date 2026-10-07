@@ -1,0 +1,24 @@
+#!/usr/bin/env grease
+# This tests the maintained foreign Bash/SDK interface; it does not package itself.
+set -eu -o pipefail
+if (len(ARGV) !== 4) { echo 'usage: reproducible.grease MANIFEST NATIVE ABI OUTPUT'; exit 2 }
+var directory = $(dirname "$0")
+var packager = $(realpath "$directory/../build-nativeactivity-apk.sh")
+var manifest = ARGV[0]
+var native = ARGV[1]
+var abi = ARGV[2]
+var output = ARGV[3]
+mkdir -p "$output"
+env TZ=UTC SOURCE_DATE_EPOCH=1710200000 bash "$packager" "$manifest" "$native" "$abi" "$output/first.apk" > "$output/first.log" 2>&1
+env TZ=Pacific/Kiritimati SOURCE_DATE_EPOCH=1710200000 bash "$packager" "$manifest" "$native" "$abi" "$output/second.apk" > "$output/second.log" 2>&1
+if ! cmp -s "$output/first.apk" "$output/second.apk" { echo 'FAIL reproducible APK bytes'; exit 1 }
+if env SOURCE_DATE_EPOCH=invalid bash "$packager" "$manifest" "$native" "$abi" "$output/invalid.apk" > "$output/invalid.log" 2>&1 {
+  echo 'FAIL accepted invalid source epoch'; exit 1
+}
+rg -q 'SOURCE_DATE_EPOCH must be an integer' "$output/invalid.log"
+if env SOURCE_DATE_EPOCH=1710200000 ANDROID_MIN_SDK=23 bash "$packager" "$manifest" "$native" "$abi" "$output/old-api.apk" > "$output/old-api.log" 2>&1 {
+  echo 'FAIL reproducible signer accepted an incompatible API floor'; exit 1
+}
+rg -q 'reproducible signing requires API 24' "$output/old-api.log"
+sha256sum "$output/first.apk" "$output/second.apk"
+echo 'PASS identical APK bytes across time zones, invalid epoch rejection and incompatible API-floor rejection'
