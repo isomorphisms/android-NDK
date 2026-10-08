@@ -101,7 +101,7 @@ keystore_cert=$(
 output_dir=$(dirname -- "$output")
 mkdir -p "$output_dir"
 work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/android-ndk-apk.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; if [[ -n ${publish_stage:-} ]]; then rm -rf "$publish_stage"; fi' EXIT
 
 libname=$(basename -- "$native_library")
 mkdir -p "$work/payload/lib/$abi"
@@ -230,7 +230,14 @@ apk_sha=$(sha256sum "$signed" | awk '{print $1}')
 manifest_sha=$(sha256sum "$manifest" | awk '{print $1}')
 native_sha=$(sha256sum "$native_library" | awk '{print $1}')
 receipt="${output%.apk}.receipt.tsv"
-mv -f "$signed" "$output"
+# Prepare both publications on the output filesystem. The signed candidate may
+# have been built under RUNNER_TEMP on another mount; moving it directly into
+# place would then degrade to a non-atomic, destructive copy.
+publish_stage=$(mktemp -d "$output_dir/.android-ndk-publish.XXXXXXXX")
+cp -- "$signed" "$publish_stage/artifact.apk"
+staged_sha=$(sha256sum "$publish_stage/artifact.apk" | awk '{print $1}')
+[[ "$staged_sha" == "$apk_sha" ]] ||
+    fail "publication staging changed signed APK content"
 
 {
     printf 'schema\tandroid-ndk-nativeactivity-apk-v1\n'
@@ -246,7 +253,13 @@ mv -f "$signed" "$output"
     printf 'apk_sha256\t%s\n' "$apk_sha"
     printf 'signer_cert_sha256\t%s\n' "$apk_cert"
     printf 'source_commit\t%s\n' "${ANDROID_SOURCE_COMMIT:-unknown}"
-} > "$receipt"
+} > "$publish_stage/receipt.tsv"
+
+# Both renames stay on one filesystem. A failed or interrupted stage/copy
+# cannot damage the previous output. Consumers must still compare the receipt
+# apk_sha256 with the finished APK: two paths are not jointly atomic.
+mv -f -- "$publish_stage/artifact.apk" "$output"
+mv -f -- "$publish_stage/receipt.tsv" "$receipt"
 
 printf 'ANDROID_NDK_APK\tPASS\n'
 printf 'PACKAGE\t%s\n' "$observed_package"
