@@ -60,6 +60,19 @@ fi
 grep -Fq 'finished APK launcher label changed' "$work/wrong-name.log"
 test ! -e "$work/wrong-name.apk"
 
+# An activity-level label may override the correct application-level label.
+sed 's/<activity/<activity android:label="Wrong Activity Name"/' \
+    "$repo_root/apk/tests/fixtures/AndroidManifest.xml" > "$work/activity-name.xml"
+if bash "$repo_root/apk/build-nativeactivity-apk.sh" \
+      "$work/activity-name.xml" "$work/libfixture.so" armeabi-v7a \
+      "$work/wrong-activity-name.apk" >"$work/wrong-activity-name.log" 2>&1
+then
+    echo "activity launcher name override unexpectedly passed" >&2
+    exit 1
+fi
+grep -Fq 'finished APK launcher label changed' "$work/wrong-activity-name.log"
+test ! -e "$work/wrong-activity-name.apk"
+
 # Verify packaging can compile application-owned resources, not only bare manifests.
 mkdir -p "$work/res/values"
 printf '%s\n' '<resources><string name="app_name">android-NDK fixture</string></resources>' \
