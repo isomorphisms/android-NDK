@@ -1,0 +1,38 @@
+name: NativeActivity packager identity and resources
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: isomorphismes/wegert
+          ref: dfa3751f0282cdf6a2083c97063b0e8e996d0d92
+          path: signing/wegert
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: ''
+      - name: Install Android platform, NDK, packaging tools
+        run: sdkmanager "platforms;android-34" "build-tools;36.0.0" "ndk;29.0.14206865"
+      - name: Execute good and hostile APK fixtures
+        env:
+          ANDROID_TEST_KEYSTORE: ${{ github.workspace }}/signing/wegert/_/build/app/wegert-debug.keystore
+          ANDROID_NDK_VERSION: 29.0.14206865
+        run: bash apk/tests/run-packager.sh

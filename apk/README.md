@@ -62,3 +62,21 @@ certificate before packaging and the finished APK signer, package ID,
 
 Run `apk/tests/run-packager.sh` with the Android SDK/NDK and an explicit test
 keystore to exercise the positive path plus missing/wrong-signer hostile cases.
+
+
+## Resource and launcher identity continuity
+
+An application may set ANDROID_RES_DIR to an application-owned Android res/
+tree; the packager compiles it with aapt2 before linking the manifest. This
+preserves launcher icons and string resources without introducing Gradle.
+
+When ANDROID_EXPECTED_LABEL is supplied, the packager extracts
+application-label from the finished signed APK and fails if it differs. The
+expected label must be supplied from an independently approved application
+identity contract, not from a new build's self-description. The observed label
+is included in the packager receipt. Other mandatory package ID, signer and
+NativeActivity checks remain in force. To prevent delivery of a bad candidate,
+the APK is first signed and checked in temporary storage; only then does it
+replace the designated output. The caller must still run the independent AICI
+producer and version/update gate before publication. The optional identity
+input here is defense in depth, not shared policy authorization.

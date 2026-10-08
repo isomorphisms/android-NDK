@@ -101,7 +101,7 @@ keystore_cert=$(
 output_dir=$(dirname -- "$output")
 mkdir -p "$output_dir"
 work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/android-ndk-apk.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; if [[ -n ${publish_stage:-} ]]; then rm -rf "$publish_stage"; fi' EXIT
 
 libname=$(basename -- "$native_library")
 mkdir -p "$work/payload/lib/$abi"
@@ -110,6 +110,17 @@ cp "$native_library" "$work/payload/lib/$abi/$libname"
 manifest_apk="$work/manifest.apk"
 unaligned="$work/unaligned.apk"
 aligned="$work/aligned.apk"
+signed="$work/verified.apk"
+
+# Application-specific icons, strings and other resources are supplied as a
+# read-only input. An application without resources preserves the old route.
+resources=()
+if [[ -n ${ANDROID_RES_DIR:-} ]]; then
+    [[ -d "$ANDROID_RES_DIR" ]] ||
+        fail "ANDROID_RES_DIR is not a directory: $ANDROID_RES_DIR"
+    "$aapt2" compile --dir "$ANDROID_RES_DIR" -o "$work/resources.zip"
+    resources+=("$work/resources.zip")
+fi
 
 "$aapt2" link \
     -I "$android_jar" \
@@ -119,7 +130,8 @@ aligned="$work/aligned.apk"
     --version-name "$ANDROID_VERSION_NAME" \
     --min-sdk-version "$ANDROID_MIN_SDK" \
     --target-sdk-version "$ANDROID_TARGET_SDK" \
-    -o "$manifest_apk"
+    -o "$manifest_apk" \
+    "${resources[@]}"
 
 cp "$manifest_apk" "$unaligned"
 (
@@ -134,18 +146,19 @@ cp "$manifest_apk" "$unaligned"
 )
 
 "$zipalign" -f 4 "$unaligned" "$aligned"
-rm -f "$output" "${output%.apk}.receipt.tsv"
 
+# Publish only once every finished-APK check passes. A failed candidate never
+# replaces a previously verified output and never leaves a new unsigned APK.
 "$apksigner" sign \
     --ks "$ANDROID_KEYSTORE" \
     --ks-type "$ANDROID_KEYSTORE_TYPE" \
     --ks-pass "pass:$ANDROID_STORE_PASSWORD" \
     --key-pass "pass:$ANDROID_KEY_PASSWORD" \
     --ks-key-alias "$ANDROID_KEY_ALIAS" \
-    --out "$output" \
+    --out "$signed" \
     "$aligned"
 
-cert_report=$("$apksigner" verify --verbose --print-certs "$output" 2>&1)
+cert_report=$("$apksigner" verify --verbose --print-certs "$signed" 2>&1)
 printf '%s\n' "$cert_report"
 
 apk_cert=$(
@@ -160,7 +173,7 @@ apk_cert=$(
 [[ "$apk_cert" == "$expected_cert" ]] ||
     fail "finished APK signer changed: expected $expected_cert got $apk_cert"
 
-badging=$("$aapt2" dump badging "$output")
+badging=$("$aapt2" dump badging "$signed")
 observed_package=$(
     printf '%s\n' "$badging" |
         sed -n "s/^package: name='\([^']*\)'.*/\1/p" |
@@ -176,6 +189,17 @@ observed_activity=$(
         sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" |
         head -n 1
 )
+observed_label=$(
+    printf '%s\n' "$badging" |
+        sed -n -e "s/^application-label:'\(.*\)'$/\1/p" \
+               -e "s/^application: label='\([^']*\)'.*/\1/p" |
+        head -n 1
+)
+observed_launcher_label=$(
+    printf '%s\n' "$badging" |
+        sed -n "s/^launchable-activity:.* label='\([^']*\)'.*/\1/p" |
+        head -n 1
+)
 
 [[ "$observed_package" == "$ANDROID_PACKAGE_ID" ]] ||
     fail "finished APK package changed: expected $ANDROID_PACKAGE_ID got ${observed_package:-missing}"
@@ -183,9 +207,18 @@ observed_activity=$(
     fail "finished APK versionCode changed: expected $ANDROID_VERSION_CODE got ${observed_version_code:-missing}"
 [[ "$observed_activity" == "android.app.NativeActivity" ]] ||
     fail "finished APK launcher is not android.app.NativeActivity: ${observed_activity:-missing}"
+if [[ -n ${ANDROID_EXPECTED_LABEL:-} ]]; then
+    # aapt2 reports label='' for an activity that inherits the app label.
+    # Only an explicit, nonempty activity label can override that default.
+    if [[ "$observed_label" != "$ANDROID_EXPECTED_LABEL" ||
+          ( -n "$observed_launcher_label" && "$observed_launcher_label" != "$ANDROID_EXPECTED_LABEL" ) ]]; then
+        printf '%s\n' "$badging" >&2
+        fail "finished APK launcher label changed: expected $ANDROID_EXPECTED_LABEL got application=${observed_label:-missing} activity=${observed_launcher_label:-missing}"
+    fi
+fi
 
 contents="$work/contents.txt"
-unzip -l "$output" > "$contents"
+unzip -l "$signed" > "$contents"
 grep -Eq "[[:space:]]lib/$abi/$libname$" "$contents" ||
     fail "finished APK is missing lib/$abi/$libname"
 if [[ ${ANDROID_REQUIRE_NO_DEX:-1} == 1 ]] &&
@@ -193,16 +226,26 @@ if [[ ${ANDROID_REQUIRE_NO_DEX:-1} == 1 ]] &&
     fail "finished NativeActivity APK unexpectedly contains DEX"
 fi
 
-apk_sha=$(sha256sum "$output" | awk '{print $1}')
+apk_sha=$(sha256sum "$signed" | awk '{print $1}')
 manifest_sha=$(sha256sum "$manifest" | awk '{print $1}')
 native_sha=$(sha256sum "$native_library" | awk '{print $1}')
 receipt="${output%.apk}.receipt.tsv"
+# Prepare both publications on the output filesystem. The signed candidate may
+# have been built under RUNNER_TEMP on another mount; moving it directly into
+# place would then degrade to a non-atomic, destructive copy.
+publish_stage=$(mktemp -d "$output_dir/.android-ndk-publish.XXXXXXXX")
+cp -- "$signed" "$publish_stage/artifact.apk"
+staged_sha=$(sha256sum "$publish_stage/artifact.apk" | awk '{print $1}')
+[[ "$staged_sha" == "$apk_sha" ]] ||
+    fail "publication staging changed signed APK content"
 
 {
     printf 'schema\tandroid-ndk-nativeactivity-apk-v1\n'
     printf 'package\t%s\n' "$observed_package"
     printf 'version_code\t%s\n' "$observed_version_code"
     printf 'version_name\t%s\n' "$ANDROID_VERSION_NAME"
+    printf 'launcher_label\t%s\n' "$observed_label"
+    printf 'launcher_activity_label\t%s\n' "${observed_launcher_label:-$observed_label}"
     printf 'abi\t%s\n' "$abi"
     printf 'native_library\t%s\n' "$libname"
     printf 'native_sha256\t%s\n' "$native_sha"
@@ -210,7 +253,13 @@ receipt="${output%.apk}.receipt.tsv"
     printf 'apk_sha256\t%s\n' "$apk_sha"
     printf 'signer_cert_sha256\t%s\n' "$apk_cert"
     printf 'source_commit\t%s\n' "${ANDROID_SOURCE_COMMIT:-unknown}"
-} > "$receipt"
+} > "$publish_stage/receipt.tsv"
+
+# Both renames stay on one filesystem. A failed or interrupted stage/copy
+# cannot damage the previous output. Consumers must still compare the receipt
+# apk_sha256 with the finished APK: two paths are not jointly atomic.
+mv -f -- "$publish_stage/artifact.apk" "$output"
+mv -f -- "$publish_stage/receipt.tsv" "$receipt"
 
 printf 'ANDROID_NDK_APK\tPASS\n'
 printf 'PACKAGE\t%s\n' "$observed_package"
