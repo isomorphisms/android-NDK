@@ -195,6 +195,11 @@ observed_label=$(
                -e "s/^application: label='\([^']*\)'.*/\1/p" |
         head -n 1
 )
+observed_launcher_label=$(
+    printf '%s\n' "$badging" |
+        sed -n "s/^launchable-activity:.* label='\([^']*\)'.*/\1/p" |
+        head -n 1
+)
 
 [[ "$observed_package" == "$ANDROID_PACKAGE_ID" ]] ||
     fail "finished APK package changed: expected $ANDROID_PACKAGE_ID got ${observed_package:-missing}"
@@ -203,9 +208,10 @@ observed_label=$(
 [[ "$observed_activity" == "android.app.NativeActivity" ]] ||
     fail "finished APK launcher is not android.app.NativeActivity: ${observed_activity:-missing}"
 if [[ -n ${ANDROID_EXPECTED_LABEL:-} ]]; then
-    if [[ "$observed_label" != "$ANDROID_EXPECTED_LABEL" ]]; then
+    if [[ "$observed_label" != "$ANDROID_EXPECTED_LABEL" || 
+          "$observed_launcher_label" != "$ANDROID_EXPECTED_LABEL" ]]; then
         printf '%s\n' "$badging" >&2
-        fail "finished APK launcher label changed: expected $ANDROID_EXPECTED_LABEL got ${observed_label:-missing}"
+        fail "finished APK launcher label changed: expected $ANDROID_EXPECTED_LABEL got application=${observed_label:-missing} activity=${observed_launcher_label:-missing}"
     fi
 fi
 
@@ -230,6 +236,7 @@ mv -f "$signed" "$output"
     printf 'version_code\t%s\n' "$observed_version_code"
     printf 'version_name\t%s\n' "$ANDROID_VERSION_NAME"
     printf 'launcher_label\t%s\n' "$observed_label"
+    printf 'launcher_activity_label\t%s\n' "$observed_launcher_label"
     printf 'abi\t%s\n' "$abi"
     printf 'native_library\t%s\n' "$libname"
     printf 'native_sha256\t%s\n' "$native_sha"
