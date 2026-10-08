@@ -45,73 +45,7 @@ test -s "$work/fixture.apk"
 test -s "$work/fixture.receipt.tsv"
 grep -Fq $'launcher_label\tandroid-NDK fixture' "$work/fixture.receipt.tsv"
 grep -Fq $'package\torg.isomorphisms.androidndk.fixture' "$work/fixture.receipt.tsv"
-grep -Fq # The same signed app with a changed expected name must fail.
-if ANDROID_EXPECTED_LABEL='Wegert' \
-    bash "$repo_root/apk/build-nativeactivity-apk.sh" \
-      "$repo_root/apk/tests/fixtures/AndroidManifest.xml" \
-      "$work/libfixture.so" armeabi-v7a \
-      "$work/wrong-name.apk" >"$work/wrong-name.log" 2>&1
-then
-    echo "launcher identity drift unexpectedly passed" >&2
-    exit 1
-fi
-grep -Fq 'finished APK launcher label changed' "$work/wrong-name.log"
-test ! -e "$work/wrong-name.apk"
-
-# An activity-level label may override the correct application-level label.
-sed 's/<activity/<activity android:label="Wrong Activity Name"/' \
-    "$repo_root/apk/tests/fixtures/AndroidManifest.xml" > "$work/activity-name.xml"
-if bash "$repo_root/apk/build-nativeactivity-apk.sh" \
-      "$work/activity-name.xml" "$work/libfixture.so" armeabi-v7a \
-      "$work/wrong-activity-name.apk" >"$work/wrong-activity-name.log" 2>&1
-then
-    echo "activity launcher name override unexpectedly passed" >&2
-    exit 1
-fi
-grep -Fq 'finished APK launcher label changed' "$work/wrong-activity-name.log"
-test ! -e "$work/wrong-activity-name.apk"
-
-# Verify packaging can compile application-owned resources, not only bare manifests.
-mkdir -p "$work/res/values"
-printf '%s\n' '<resources><string name="app_name">android-NDK fixture</string></resources>' \
-    > "$work/res/values/strings.xml"
-sed 's/android:label="android-NDK fixture"/android:label="@string\/app_name"/' \
-    "$repo_root/apk/tests/fixtures/AndroidManifest.xml" > "$work/resource-manifest.xml"
-ANDROID_RES_DIR="$work/res" \
-    bash "$repo_root/apk/build-nativeactivity-apk.sh" \
-      "$work/resource-manifest.xml" "$work/libfixture.so" armeabi-v7a \
-      "$work/with-resources.apk" > "$work/resource-build.log"
-unzip -Z1 "$work/with-resources.apk" | grep -Fxq resources.arsc
-test -s "$work/with-resources.receipt.tsv"
-
-if ANDROID_EXPECTED_CERT_SHA256=0000000000000000000000000000000000000000000000000000000000000000 \
-    bash "$repo_root/apk/build-nativeactivity-apk.sh" \
-      "$repo_root/apk/tests/fixtures/AndroidManifest.xml" \
-      "$work/libfixture.so" \
-      armeabi-v7a \
-      "$work/wrong.apk" >"$work/wrong.log" 2>&1
-then
-    echo "wrong certificate unexpectedly passed" >&2
-    exit 1
-fi
-grep -Fq "keystore certificate changed" "$work/wrong.log"
-test ! -e "$work/wrong.apk"
-
-if env -u ANDROID_KEYSTORE \
-    bash "$repo_root/apk/build-nativeactivity-apk.sh" \
-      "$repo_root/apk/tests/fixtures/AndroidManifest.xml" \
-      "$work/libfixture.so" \
-      armeabi-v7a \
-      "$work/missing.apk" >"$work/missing.log" 2>&1
-then
-    echo "missing signer unexpectedly passed" >&2
-    exit 1
-fi
-grep -Fq "required value is unset: ANDROID_KEYSTORE" "$work/missing.log"
-test ! -e "$work/missing.apk"
-
-printf 'android-NDK NativeActivity packager tests: PASS\n'
-signer_cert_sha256\tde9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9' "$work/fixture.receipt.tsv"
+grep -Fq $'signer_cert_sha256\tde9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9' "$work/fixture.receipt.tsv"
 
 # A truncated copy into publication staging must never replace a previously
 # verified APK (or its receipt). This simulates an interrupted copy after the
@@ -142,6 +76,7 @@ cmp "$work/fixture.receipt.tsv" "$work/previous.receipt.tsv" || fail "previous r
 if find "$work" -mindepth 1 -maxdepth 1 -type d -name '.android-ndk-publish.*' | grep -q .; then
     fail "failed publication left its staging directory"
 fi
+
 
 # The same signed app with a changed expected name must fail.
 if ANDROID_EXPECTED_LABEL='Wegert' \
