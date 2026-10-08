@@ -55,8 +55,16 @@ cp "$work/fixture.receipt.tsv" "$work/previous.receipt.tsv"
 mkdir -p "$work/fault-bin"
 cat > "$work/fault-bin/cp" <<'EOF'
 #!/usr/bin/env bash
-if [[ ${1:-} == */verified.apk && ${2:-} == */.android-ndk-publish.*/artifact.apk ]]; then
-    printf 'truncated candidate' > "$2"
+# The packager uses "cp -- SOURCE DEST"; keep the original argv for real cp.
+if [[ ${1:-} == -- ]]; then
+    source=${2:-}
+    destination=${3:-}
+else
+    source=${1:-}
+    destination=${2:-}
+fi
+if [[ "$source" == */verified.apk && "$destination" == */.android-ndk-publish.*/artifact.apk ]]; then
+    printf 'truncated candidate' > "$destination"
     exit 0
 fi
 exec /bin/cp "$@"
