@@ -208,8 +208,10 @@ observed_launcher_label=$(
 [[ "$observed_activity" == "android.app.NativeActivity" ]] ||
     fail "finished APK launcher is not android.app.NativeActivity: ${observed_activity:-missing}"
 if [[ -n ${ANDROID_EXPECTED_LABEL:-} ]]; then
-    if [[ "$observed_label" != "$ANDROID_EXPECTED_LABEL" || 
-          "$observed_launcher_label" != "$ANDROID_EXPECTED_LABEL" ]]; then
+    # aapt2 reports label='' for an activity that inherits the app label.
+    # Only an explicit, nonempty activity label can override that default.
+    if [[ "$observed_label" != "$ANDROID_EXPECTED_LABEL" ||
+          ( -n "$observed_launcher_label" && "$observed_launcher_label" != "$ANDROID_EXPECTED_LABEL" ) ]]; then
         printf '%s\n' "$badging" >&2
         fail "finished APK launcher label changed: expected $ANDROID_EXPECTED_LABEL got application=${observed_label:-missing} activity=${observed_launcher_label:-missing}"
     fi
@@ -236,7 +238,7 @@ mv -f "$signed" "$output"
     printf 'version_code\t%s\n' "$observed_version_code"
     printf 'version_name\t%s\n' "$ANDROID_VERSION_NAME"
     printf 'launcher_label\t%s\n' "$observed_label"
-    printf 'launcher_activity_label\t%s\n' "$observed_launcher_label"
+    printf 'launcher_activity_label\t%s\n' "${observed_launcher_label:-$observed_label}"
     printf 'abi\t%s\n' "$abi"
     printf 'native_library\t%s\n' "$libname"
     printf 'native_sha256\t%s\n' "$native_sha"
