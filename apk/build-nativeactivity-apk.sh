@@ -191,7 +191,8 @@ observed_activity=$(
 )
 observed_label=$(
     printf '%s\n' "$badging" |
-        sed -n "s/^application-label:'\(.*\)'$/\1/p" |
+        sed -n -e "s/^application-label:'\(.*\)'$/\1/p" \
+               -e "s/^application: label='\([^']*\)'.*/\1/p" |
         head -n 1
 )
 
@@ -202,8 +203,10 @@ observed_label=$(
 [[ "$observed_activity" == "android.app.NativeActivity" ]] ||
     fail "finished APK launcher is not android.app.NativeActivity: ${observed_activity:-missing}"
 if [[ -n ${ANDROID_EXPECTED_LABEL:-} ]]; then
-    [[ "$observed_label" == "$ANDROID_EXPECTED_LABEL" ]] ||
+    if [[ "$observed_label" != "$ANDROID_EXPECTED_LABEL" ]]; then
+        printf '%s\n' "$badging" >&2
         fail "finished APK launcher label changed: expected $ANDROID_EXPECTED_LABEL got ${observed_label:-missing}"
+    fi
 fi
 
 contents="$work/contents.txt"
