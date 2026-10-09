@@ -1,0 +1,49 @@
+module Android.QuickSettings.References
+
+||| Raw framework references. The Android-facing adapter supplies them;
+||| Idriç code cannot construct them as ordinary data. Reference types do not
+||| prove non-nullness, lifecycle validity, or the current Android API level.
+||| See quick-settings/README.md for acquisition and nullable values.
+public export
+data Tile : Type where [external]
+
+public export
+data TileService : Type where [external]
+
+public export
+data StatusBarManager : Type where [external]
+
+public export
+data Context : Type where [external]
+
+public export
+data ComponentName : Type where [external]
+
+public export
+data CharSequence : Type where [external]
+
+public export
+data Icon : Type where [external]
+
+public export
+data Dialog : Type where [external]
+
+public export
+data Intent : Type where [external]
+
+public export
+data PendingIntent : Type where [external]
+
+public export
+data Runnable : Type where [external]
+
+public export
+data Executor : Type where [external]
+
+||| A framework Consumer<Integer> object, not an Idriç function closure.
+||| Its callback has the erased descriptor accept(Ljava/lang/Object;)V.
+public export
+data TileAddResultConsumer : Type where [external]
+
+public export
+data BoxedInteger : Type where [external]

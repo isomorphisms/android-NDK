@@ -1,0 +1,77 @@
+module QuickSettingsBindings
+
+import Android.QuickSettings
+
+-- These proofs normalize the public SDK's fixed state/result values during
+-- source checking. They neither call Android nor generate an application.
+
+state_codes_match_android :
+  map Android.QuickSettings.state_code [Unavailable, Inactive, Active] = [0, 1, 2]
+state_codes_match_android = Refl
+
+state_decoding_matches_android :
+  map Android.QuickSettings.decode_state [0, 1, 2] = [Just Unavailable, Just Inactive, Just Active]
+state_decoding_matches_android = Refl
+
+unknown_states_are_refused :
+  map Android.QuickSettings.decode_state [-1, 3, 1005] = [Nothing, Nothing, Nothing]
+unknown_states_are_refused = Refl
+
+state_round_trip : (state : TileState) → decode_state (state_code state) = Just state
+state_round_trip Unavailable = Refl
+state_round_trip Inactive = Refl
+state_round_trip Active = Refl
+
+addition_results_match_android :
+  map Android.QuickSettings.decode_add_result [0, 1, 2, 1000, 1001, 1002, 1003, 1004, 1005] =
+    [ TileNotAdded
+    , TileAlreadyAdded
+    , TileAdded
+    , MismatchedPackage
+    , RequestInProgress
+    , BadComponent
+    , NotCurrentUser
+    , AppNotInForeground
+    , NoStatusBarService
+    ]
+addition_results_match_android = Refl
+
+unknown_addition_results_are_preserved :
+  map Android.QuickSettings.decode_add_result [3, 1006, -1] =
+    [UnrecognizedAddResult 3, UnrecognizedAddResult 1006, UnrecognizedAddResult (-1)]
+unknown_addition_results_are_preserved = Refl
+
+-- These aliases check the imported public signatures without evaluating IO.
+-- A service is distinct from its tile; callbacks remain framework objects.
+
+service_tile_binding : TileService → IO Tile
+service_tile_binding = tile_for_service
+
+tile_state_read_binding : Tile → IO (Maybe TileState)
+tile_state_read_binding = get_tile_state
+
+tile_state_write_binding : Tile → TileState → IO ()
+tile_state_write_binding = set_tile_state
+
+tile_update_binding : Tile → IO ()
+tile_update_binding = update_tile
+
+listening_request_binding : Context → ComponentName → IO ()
+listening_request_binding = request_listening
+
+unlock_callback_binding : TileService → Runnable → IO ()
+unlock_callback_binding = unlock_and_run
+
+activity_binding : TileService → PendingIntent → IO ()
+activity_binding = start_activity
+
+legacy_activity_binding : TileService → Intent → IO ()
+legacy_activity_binding = start_activity_legacy
+
+addition_request_binding :
+  StatusBarManager → ComponentName → CharSequence → Icon →
+  Executor → TileAddResultConsumer → IO ()
+addition_request_binding = request_add_tile
+
+addition_callback_value_binding : BoxedInteger → IO AddTileResult
+addition_callback_value_binding = read_add_result
