@@ -1,0 +1,193 @@
+module Android.QuickSettings
+
+import public Android.QuickSettings.References
+import Android.QuickSettings.Foreign as Platform
+import Data.Text
+
+||| The three public Android Tile states. An unavailable tile cannot be tapped.
+public export
+data TileState = Unavailable | Inactive | Active
+
+public export
+state_code : TileState → Int32
+state_code Unavailable = 0
+state_code Inactive = 1
+state_code Active = 2
+
+public export
+decode_state : Int32 → Maybe TileState
+decode_state 0 = Just Unavailable
+decode_state 1 = Just Inactive
+decode_state 2 = Just Active
+decode_state _ = Nothing
+
+||| Preserve platform errors and future result values separately from success.
+public export
+data AddTileResult
+  = TileNotAdded
+  | TileAlreadyAdded
+  | TileAdded
+  | MismatchedPackage
+  | RequestInProgress
+  | BadComponent
+  | NotCurrentUser
+  | AppNotInForeground
+  | NoStatusBarService
+  | UnrecognizedAddResult Int32
+
+public export
+decode_add_result : Int32 → AddTileResult
+decode_add_result 0 = TileNotAdded
+decode_add_result 1 = TileAlreadyAdded
+decode_add_result 2 = TileAdded
+decode_add_result 1000 = MismatchedPackage
+decode_add_result 1001 = RequestInProgress
+decode_add_result 1002 = BadComponent
+decode_add_result 1003 = NotCurrentUser
+decode_add_result 1004 = AppNotInForeground
+decode_add_result 1005 = NoStatusBarService
+decode_add_result value = UnrecognizedAddResult value
+
+||| Manifest/service lookup names only; importing these changes no manifest.
+public export
+tile_service_action : Text
+tile_service_action = "android.service.quicksettings.action.QS_TILE"
+
+public export
+tile_preferences_action : Text
+tile_preferences_action = "android.service.quicksettings.action.QS_TILE_PREFERENCES"
+
+public export
+tile_binding_permission : Text
+tile_binding_permission = "android.permission.BIND_QUICK_SETTINGS_TILE"
+
+public export
+active_tile_metadata : Text
+active_tile_metadata = "android.service.quicksettings.ACTIVE_TILE"
+
+public export
+toggleable_tile_metadata : Text
+toggleable_tile_metadata = "android.service.quicksettings.TOGGLEABLE_TILE"
+
+public export
+status_bar_service_name : Text
+status_bar_service_name = "statusbar"
+
+||| API 24. May return a null framework reference when the tile is unavailable.
+export
+tile_for_service : TileService → IO Tile
+tile_for_service service = primIO (Platform.tile_for_service service)
+
+||| API 24. Unknown state values remain distinguishable from inactive.
+export
+get_tile_state : Tile → IO (Maybe TileState)
+get_tile_state tile = map decode_state (primIO (Platform.get_state tile))
+
+export
+set_tile_state : Tile → TileState → IO ()
+set_tile_state tile state = primIO (Platform.set_state tile (state_code state))
+
+export
+get_tile_icon : Tile → IO Icon
+get_tile_icon tile = primIO (Platform.get_icon tile)
+
+export
+set_tile_icon : Tile → Icon → IO ()
+set_tile_icon tile icon = primIO (Platform.set_icon tile icon)
+
+export
+get_tile_label : Tile → IO CharSequence
+get_tile_label tile = primIO (Platform.get_label tile)
+
+export
+set_tile_label : Tile → CharSequence → IO ()
+set_tile_label tile label = primIO (Platform.set_label tile label)
+
+export
+get_content_description : Tile → IO CharSequence
+get_content_description tile = primIO (Platform.get_content_description tile)
+
+export
+set_content_description : Tile → CharSequence → IO ()
+set_content_description tile description = primIO (Platform.set_content_description tile description)
+
+||| API 29. The returned framework reference may be null.
+export
+get_tile_subtitle : Tile → IO CharSequence
+get_tile_subtitle tile = primIO (Platform.get_subtitle tile)
+
+||| API 29.
+export
+set_tile_subtitle : Tile → CharSequence → IO ()
+set_tile_subtitle tile subtitle = primIO (Platform.set_subtitle tile subtitle)
+
+||| API 30. The returned framework reference may be null.
+export
+get_state_description : Tile → IO CharSequence
+get_state_description tile = primIO (Platform.get_state_description tile)
+
+||| API 30.
+export
+set_state_description : Tile → CharSequence → IO ()
+set_state_description tile description = primIO (Platform.set_state_description tile description)
+
+||| API 24. Call in a valid listening interval. A void return does not prove
+||| that SystemUI has displayed the update.
+export
+update_tile : Tile → IO ()
+update_tile tile = primIO (Platform.update_tile tile)
+
+export
+is_locked : TileService → IO Bool
+is_locked service = map (≟ 1) (primIO (Platform.is_locked service))
+
+export
+is_secure : TileService → IO Bool
+is_secure service = map (≟ 1) (primIO (Platform.is_secure service))
+
+export
+show_dialog : TileService → Dialog → IO ()
+show_dialog service dialog = primIO (Platform.show_dialog service dialog)
+
+export
+unlock_and_run : TileService → Runnable → IO ()
+unlock_and_run service action = primIO (Platform.unlock_and_run service action)
+
+export
+request_listening : Context → ComponentName → IO ()
+request_listening context component = primIO (Platform.request_listening context component)
+
+||| API 34. The PendingIntent must launch an Activity.
+export
+start_activity : TileService → PendingIntent → IO ()
+start_activity service intent = primIO (Platform.start_activity service intent)
+
+||| API 24 legacy overload, deprecated in API 34. Android 14 rejects it when
+||| targetSdk is 34 or greater; the binding never selects it automatically.
+export
+start_activity_legacy : TileService → Intent → IO ()
+start_activity_legacy service intent = primIO (Platform.start_activity_legacy service intent)
+
+||| API 34. Null means no direct Activity launch was assigned.
+export
+get_click_activity : Tile → IO PendingIntent
+get_click_activity tile = primIO (Platform.get_click_activity tile)
+
+||| API 34. A non-null Activity PendingIntent replaces onClick dispatch;
+||| null restores it. The adapter must preserve nullable reference semantics.
+export
+set_click_activity : Tile → PendingIntent → IO ()
+set_click_activity tile intent = primIO (Platform.set_click_activity tile intent)
+
+||| API 33. The app must be foreground, current-user, and own the component;
+||| every argument must be non-null. The user decides whether to add the tile.
+||| The result arrives asynchronously through the supplied Consumer<Integer>.
+export
+request_add_tile : StatusBarManager → ComponentName → CharSequence → Icon → Executor → TileAddResultConsumer → IO ()
+request_add_tile manager component label icon executor consumer =
+  primIO (Platform.request_add_tile manager component label icon executor consumer)
+
+||| For a correctly typed Integer supplied by the addition-result callback.
+export
+read_add_result : BoxedInteger → IO AddTileResult
+read_add_result value = map decode_add_result (primIO (Platform.read_add_result_code value))

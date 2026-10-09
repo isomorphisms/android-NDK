@@ -1,0 +1,8 @@
+module WrongTileReceiver
+
+import Android.QuickSettings
+
+-- Deliberate source refusal: update_tile requires a Tile, not a TileService.
+-- Successful checking of this file would violate the public receiver boundary.
+wrong_receiver : TileService → IO ()
+wrong_receiver service = update_tile service

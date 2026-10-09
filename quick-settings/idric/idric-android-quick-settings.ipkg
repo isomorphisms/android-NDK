@@ -1,0 +1,9 @@
+package idric_android_quick_settings
+version = 0.1.0
+
+sourcedir = "src"
+
+modules =
+  Android.QuickSettings.References,
+  Android.QuickSettings.Foreign,
+  Android.QuickSettings
