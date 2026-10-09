@@ -1,0 +1,109 @@
+module Android.QuickSettings.Foreign
+
+import Android.QuickSettings.References
+
+-- Exact public SDK calls, with raw ABI types and effectful reads.
+-- Foreign declarations do not register a service or generate callbacks.
+-- The supported API floor for each method is in api.tsv.
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/TileService;:getQsTile:()Landroid/service/quicksettings/Tile;"
+tile_for_service : TileService → PrimIO Tile
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/TileService;:isLocked:()Z"
+is_locked : TileService → PrimIO Int32
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/TileService;:isSecure:()Z"
+is_secure : TileService → PrimIO Int32
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/TileService;:showDialog:(Landroid/app/Dialog;)V"
+show_dialog : TileService → Dialog → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/TileService;:unlockAndRun:(Ljava/lang/Runnable;)V"
+unlock_and_run : TileService → Runnable → PrimIO ()
+
+export
+%foreign "dex:static:Landroid/service/quicksettings/TileService;:requestListeningState:(Landroid/content/Context;Landroid/content/ComponentName;)V"
+request_listening : Context → ComponentName → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/TileService;:startActivityAndCollapse:(Landroid/app/PendingIntent;)V"
+start_activity : TileService → PendingIntent → PrimIO ()
+
+-- API 24 legacy overload; deprecated in 34 and rejected on Android 14 when
+-- the app targets API 34+. It remains explicitly named, never a fallback.
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/TileService;:startActivityAndCollapse:(Landroid/content/Intent;)V"
+start_activity_legacy : TileService → Intent → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:getState:()I"
+get_state : Tile → PrimIO Int32
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:setState:(I)V"
+set_state : Tile → Int32 → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:getIcon:()Landroid/graphics/drawable/Icon;"
+get_icon : Tile → PrimIO Icon
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:setIcon:(Landroid/graphics/drawable/Icon;)V"
+set_icon : Tile → Icon → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:getLabel:()Ljava/lang/CharSequence;"
+get_label : Tile → PrimIO CharSequence
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:setLabel:(Ljava/lang/CharSequence;)V"
+set_label : Tile → CharSequence → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:getContentDescription:()Ljava/lang/CharSequence;"
+get_content_description : Tile → PrimIO CharSequence
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:setContentDescription:(Ljava/lang/CharSequence;)V"
+set_content_description : Tile → CharSequence → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:getSubtitle:()Ljava/lang/CharSequence;"
+get_subtitle : Tile → PrimIO CharSequence
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:setSubtitle:(Ljava/lang/CharSequence;)V"
+set_subtitle : Tile → CharSequence → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:getStateDescription:()Ljava/lang/CharSequence;"
+get_state_description : Tile → PrimIO CharSequence
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:setStateDescription:(Ljava/lang/CharSequence;)V"
+set_state_description : Tile → CharSequence → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:updateTile:()V"
+update_tile : Tile → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:getActivityLaunchForClick:()Landroid/app/PendingIntent;"
+get_click_activity : Tile → PrimIO PendingIntent
+
+export
+%foreign "dex:virtual:Landroid/service/quicksettings/Tile;:setActivityLaunchForClick:(Landroid/app/PendingIntent;)V"
+set_click_activity : Tile → PendingIntent → PrimIO ()
+
+export
+%foreign "dex:virtual:Landroid/app/StatusBarManager;:requestAddTileService:(Landroid/content/ComponentName;Ljava/lang/CharSequence;Landroid/graphics/drawable/Icon;Ljava/util/concurrent/Executor;Ljava/util/function/Consumer;)V"
+request_add_tile : StatusBarManager → ComponentName → CharSequence → Icon → Executor → TileAddResultConsumer → PrimIO ()
+
+export
+%foreign "dex:virtual:Ljava/lang/Integer;:intValue:()I"
+read_add_result_code : BoxedInteger → PrimIO Int32

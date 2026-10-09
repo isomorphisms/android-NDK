@@ -62,6 +62,12 @@ The DEX backend neither generates Java nor passes application semantics through
 `javac`, Kotlin, Gradle, or `d8`.  Smali remains an external oracle/harness,
 not a candidate-producing fallback.
 
+[`quick-settings/`](quick-settings/README.md) exposes typed Idriç source
+bindings for the public Quick Settings SDK surface. Consumers can import the
+interface independently of any tile purpose. Object/IO lowering, service
+subclasses, and callbacks still need separate DEX runtime qualification; the
+binding package registers no component and changes no application manifest.
+
 ### JNI
 
 JNI bridges an Android/framework-facing class to a native method only when an

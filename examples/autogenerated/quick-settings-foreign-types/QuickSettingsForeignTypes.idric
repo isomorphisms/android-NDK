@@ -1,0 +1,27 @@
+module QuickSettingsForeignTypes
+
+public export
+data TileService : Type where [external]
+
+public export
+data Tile : Type where [external]
+
+public export
+data NullableTile : Type where [external]
+
+public export
+data NullableReference : Type → Type where [external]
+
+%foreign "dex:virtual:Landroid/service/quicksettings/TileService;:getQsTile:()Landroid/service/quicksettings/Tile;"
+read_tile_reference : TileService → PrimIO NullableTile
+
+export
+read_tile : TileService → IO NullableTile
+read_tile service = primIO (read_tile_reference service)
+
+%foreign "dex:virtual:Landroid/service/quicksettings/TileService;:getQsTile:()Landroid/service/quicksettings/Tile;"
+read_indexed_tile_reference : TileService → PrimIO (NullableReference Tile)
+
+export
+read_indexed_tile : TileService → IO (NullableReference Tile)
+read_indexed_tile service = primIO (read_indexed_tile_reference service)
