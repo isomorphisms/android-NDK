@@ -732,31 +732,40 @@ lower_copy destination destination_type variable state =
                 state)
 
 private
+constant_tag : Constant -> Maybe Int
+constant_tag (I8 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag (I16 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag (I32 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag (I64 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag (I value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag (BI value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag (B8 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag (B16 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag (B32 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag (B64 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
+constant_tag constant = Nothing
+
+private
 lower_literal :
   Register -> FrameworkValueType -> Constant -> LowerState -> Either String LowerState
 lower_literal destination destination_type constant state =
-  case constant of
-    I32 value =>
-      if destination_type == ExistingValue IntegerValue
-        then Right (emit (IntegerConstant destination (cast value)) state)
-        else if destination_type == ExistingValue BooleanValue
-          then if value == 0 || value == 1
-            then Right (emit (IntegerConstant destination (cast value)) state)
-            else Left "Checked Boolean result has a non-Boolean Int32 literal"
+  if destination_type == ExistingValue BooleanValue
+    then case constant_tag constant of
+      Just tag => Right (emit (IntegerConstant destination tag) state)
+      Nothing => Left "Checked Boolean result has a non-Boolean compiler enum tag"
+    else case constant of
+      I32 value =>
+        if destination_type == ExistingValue IntegerValue
+          then Right (emit (IntegerConstant destination (cast value)) state)
           else unsupported
-    I value =>
-      if destination_type == ExistingValue BooleanValue
-        then if value == 0 || value == 1
-          then Right (emit (IntegerConstant destination value) state)
-          else Left "Checked Boolean result has a non-Boolean compiler enum tag"
-        else Left
+      I value => Left
           ("Idriç Int is 64-bit in the current compiler; the DEX checked slice " ++
            "accepts Int32 or Text (got literal " ++ show value ++ ")")
-    Str value =>
-      if destination_type == ExistingValue TextValue
-        then Right (emit (TextConstant destination value) state)
-        else unsupported
-    _ => unsupported
+      Str value =>
+        if destination_type == ExistingValue TextValue
+          then Right (emit (TextConstant destination value) state)
+          else unsupported
+      _ => unsupported
   where
     unsupported : Either String LowerState
     unsupported = Left ("Unsupported checked DEX literal " ++ show constant ++
@@ -928,21 +937,11 @@ mutual
       then Right value
       else Left "DEX compiler enum case tag exceeds an Int32 register"
   constant_case_integer constant =
-    Left ("Unsupported DEX case constant " ++ show constant)
-
-  private
-  constant_tag : Constant -> Maybe Int
-  constant_tag (I8 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag (I16 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag (I32 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag (I64 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag (I value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag (BI value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag (B8 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag (B16 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag (B32 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag (B64 value) = if value == 0 || value == 1 then Just (cast value) else Nothing
-  constant_tag constant = Nothing
+    -- Constructor optimization represents Bool tags as B8. Only zero/one
+    -- from other integer representations can enter this Boolean fallback.
+    case constant_tag constant of
+      Just tag => Right tag
+      Nothing => Left ("Unsupported DEX case constant " ++ show constant)
 
   private
   find_constant_tag :

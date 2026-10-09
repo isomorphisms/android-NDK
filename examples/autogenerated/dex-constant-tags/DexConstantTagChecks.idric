@@ -1,0 +1,92 @@
+module DexConstantTagChecks
+
+import Backend.DEX.Foreign
+import Backend.DEX.IR
+import Backend.DEX.Lower
+import Compiler.ANF
+import Core.FC
+import Core.Name
+import Core.TT.Primitive
+import Data.List
+import System
+
+-- The lowerer is deliberately covering and failures terminate this host check.
+%default covering
+
+integer_type : FrameworkValueType
+integer_type = ExistingValue IntegerValue
+
+boolean_type : FrameworkValueType
+boolean_type = ExistingValue BooleanValue
+
+checked_name : Name
+checked_name = UN (Basic "constant_tag_check")
+
+literal : Constant → Administrative_Normal_Form
+literal = Administrative_Normal_Form_Primitive_Value emptyFC
+
+case_plan : Constant → Either Text MethodPlan
+case_plan tag =
+  lower_method checked_name [] [] PureForeign "tag_case" "tag_case"
+    [integer_type] integer_type
+    (Make_Administrative_Normal_Form_Function [0]
+      (Administrative_Normal_Form_Constant_Case emptyFC
+        (Administrative_Normal_Form_Local_Variable 0)
+        [Make_Administrative_Normal_Form_Constant_Alternative tag (literal (I32 41))]
+        (Just (literal (I32 99)))))
+
+literal_plan : FrameworkValueType → Constant → Either Text MethodPlan
+literal_plan result_type value =
+  lower_method checked_name [] [] PureForeign "tag_literal" "tag_literal"
+    [] result_type (Make_Administrative_Normal_Form_Function [] (literal value))
+
+constants : List Instruction → List Int
+constants [] = []
+constants (IntegerConstant _ value :: rest) = value :: constants rest
+constants (_ :: rest) = constants rest
+
+fail : Text → IO a
+fail message = do
+  putStrLn ("FAIL: " ++ message)
+  exitFailure
+
+expect_case : Text → Constant → Int → IO ()
+expect_case label tag expected =
+  case case_plan tag of
+    Left explanation ⇒ fail (label ++ ": " ++ explanation)
+    Right plan ⇒
+      if elem expected (constants plan.instructions)
+        then pure ()
+        else fail (label ++ ": comparison constant changed")
+
+expect_literal : Text → Constant → Int → IO ()
+expect_literal label tag expected =
+  case literal_plan boolean_type tag of
+    Left explanation ⇒ fail (label ++ ": " ++ explanation)
+    Right plan ⇒
+      if constants plan.instructions ≟ [expected]
+        then pure ()
+        else fail (label ++ ": Boolean literal changed")
+
+expect_refusal : Text → Either Text MethodPlan → IO ()
+expect_refusal label (Left _) = pure ()
+expect_refusal label (Right _) = fail (label ++ ": unsupported constant accepted")
+
+main : IO ()
+main = do
+  expect_case "compiler B8 false branch" (B8 0) 0
+  expect_case "compiler B8 true branch" (B8 1) 1
+  expect_case "bounded B16 Boolean tag" (B16 1) 1
+  expect_case "bounded B32 Boolean tag" (B32 1) 1
+  expect_case "signed Int32 minimum" (I32 (-2147483648)) (-2147483648)
+  expect_case "signed Int32 maximum" (I32 2147483647) 2147483647
+  expect_case "ordinary callback error code" (I32 1005) 1005
+  expect_literal "compiler B8 false result" (B8 0) 0
+  expect_literal "compiler B8 true result" (B8 1) 1
+  expect_refusal "B8 non-Boolean tag" (case_plan (B8 2))
+  expect_refusal "unsigned value outside signed Int32" (case_plan (B32 2147483648))
+  expect_refusal "unbounded integer cannot narrow" (case_plan (BI 999999999999999999999))
+  expect_refusal "machine integer outside signed Int32" (case_plan (I 2147483648))
+  expect_refusal "Bool cannot return enum tag2" (literal_plan boolean_type (B8 2))
+  expect_refusal "Bool tag is not an Int32 literal ABI" (literal_plan integer_type (B8 1))
+  putStrLn "PASS: DEX bounded compiler Boolean tags"
