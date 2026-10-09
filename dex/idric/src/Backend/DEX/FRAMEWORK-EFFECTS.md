@@ -93,7 +93,12 @@ from the current candidate's evidence.
 `dex/idric/verify-effects.grease` accepts five absolute paths: the android-NDK
 repository, the Idriç repository, the actual Chez executable, AOSP `dexdump`,
 and a new output directory. It requires the pinned compiler API installed into
-the compiler's bootstrap prefix. It builds a fresh DEX driver, runs the host
+the compiler's bootstrap prefix. The compiler API and source consumers use
+the matching installed bootstrap prelude/base modules. Bootstrap compiles the
+API before rebuilding the source-tree libraries; mixing the later library
+TTCs with that API can leave imported private helpers unresolved in generated
+Scheme. The verifier records the selected module paths before building.
+It builds a fresh DEX driver, runs the host
 checks, emits the source fixtures, checks refusals, compares repeated output,
 and independently parses every positive candidate with AOSP `dexdump`.
 

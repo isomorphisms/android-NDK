@@ -151,6 +151,21 @@ effect signatures, and complete result projection. It does not show that the
 dedicated backend can lower those checked functions. No runtime value or
 Android reference was fabricated to obtain this source result.
 
+### First hosted driver build
+
+[The hosted run for `3fb6a75`](https://github.com/isomorphisms/android-NDK/actions/runs/37884929917)
+built the pinned compiler and source-checked all ten backend modules, then
+Chez rejected the generated driver with status 255: an imported
+`Data.String.linesHelp` identifier was unbound. The retained artifact contains
+the exact driver build diagnostic; no candidate DEX or ART result was produced.
+
+The verifier had combined compiler API modules built against the installed
+bootstrap libraries with the subsequently rebuilt source-tree libraries.
+The next attempt selects the installed bootstrap prelude/base roots throughout
+driver construction, host tests, and candidate compilation. It also records
+those module paths before building. This repairs the inconsistent dependency
+selection; successful linking and runtime behavior still require a fresh run.
+
 ## Fallback
 
 None. No Java, JNI, Gradle, generated-C, or handwritten candidate DEX replaces
