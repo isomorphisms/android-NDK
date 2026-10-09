@@ -1,0 +1,44 @@
+module QuickSettingsBoolean
+
+import Android.QuickSettings
+
+%foreign "dex:virtual:Ljava/lang/Integer;:intValue:()I"
+read_boxed_integer : BoxedInteger → PrimIO Int32
+
+%export "dex:service_locked"
+service_locked : TileService → IO Bool
+service_locked = is_locked
+
+%export "dex:service_secure"
+service_secure : TileService → IO Bool
+service_secure = is_secure
+
+%export "dex:boolean_true"
+boolean_true : Bool
+boolean_true = True
+
+%export "dex:boolean_false"
+boolean_false : Bool
+boolean_false = False
+
+%export "dex:boolean_identity"
+boolean_identity : Bool → Bool
+boolean_identity value = value
+
+%export "dex:boolean_negate"
+boolean_negate : Bool → Bool
+boolean_negate True = False
+boolean_negate False = True
+
+%export "dex:integer_is_one"
+integer_is_one : Int32 → Bool
+integer_is_one value = value ≟ 1
+
+%export "dex:boxed_is_one"
+boxed_is_one : BoxedInteger → IO Bool
+boxed_is_one boxed = do
+  value ← primIO (read_boxed_integer boxed)
+  pure (value ≟ 1)
+
+main : IO ()
+main = pure ()

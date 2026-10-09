@@ -64,8 +64,10 @@ not a candidate-producing fallback.
 
 [`quick-settings/`](quick-settings/README.md) exposes typed Idriç source
 bindings for the public Quick Settings SDK surface. Consumers can import the
-interface independently of any tile purpose. Object/IO lowering, service
-subclasses, and callbacks still need separate DEX runtime qualification; the
+interface independently of any tile purpose. The checked DEX backend now has a
+bounded outbound reference/IO path, with
+[purpose-neutral qualification](dex/idric/src/Backend/DEX/FRAMEWORK-EFFECTS.md).
+Service subclasses and callback dispatch remain separate capabilities. The
 binding package registers no component and changes no application manifest.
 
 ### JNI

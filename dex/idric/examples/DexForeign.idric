@@ -1,0 +1,13 @@
+module DexForeign
+
+-- A pure checked-source platform-library call. Separate source fixtures
+-- cover primitive IO and ordered effects.
+%foreign "dex:static:Ljava/lang/Integer;:bitCount:(I)I"
+java_integer_bit_count : Int32 → Int32
+
+%export "dex:count_bits"
+count_bits : Int32 → Int32
+count_bits value = java_integer_bit_count value
+
+main : IO ()
+main = pure ()

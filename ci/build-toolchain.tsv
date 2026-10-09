@@ -1,0 +1,3 @@
+build_id	target	toolchain	ick_revision	ick_status	ick_evidence
+audio-input-c	host-and-android-api26-three-abis	ick	c61e448251744a2f40ad743ebef1a027bdcd2f9d	qualified	native/audio/README.md
+audio-input-assembly-link	android-api26-three-abis	ndk	c61e448251744a2f40ad743ebef1a027bdcd2f9d	gap:standalone Android assembler linker and AAudio Bionic runtime	native/audio/README.md
