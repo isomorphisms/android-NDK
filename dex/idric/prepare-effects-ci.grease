@@ -1,0 +1,21 @@
+#!/usr/bin/env grease
+
+# This small host preparation is separate from candidate compilation/execution.
+if (len(ARGV) !== 2) {
+  echo 'usage: grease prepare-effects-ci.grease REPOSITORY ORACLE_DIRECTORY'
+  exit 2
+}
+var repository = ARGV[0]
+var oracles = ARGV[1]
+var smali_digest = '32fa0e88a6c397b3922201adf5f3e534fbaed5a663c71d0c558c3ddce0af844a'
+mkdir -p "$oracles"
+curl -fsSL --retry 3 --max-time 120 \
+  https://github.com/baksmali/smali/releases/download/3.0.10/smali-3.0.10-fat-release.jar \
+  -o "$oracles/smali-3.0.10.jar"
+printf '%s  %s\n' "$smali_digest" "$oracles/smali-3.0.10.jar" | sha256sum -c -
+git -C "$repository" rev-parse HEAD
+
+# Permission is scoped to the ephemeral GitHub runner's emulator device.
+echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --name-match=kvm

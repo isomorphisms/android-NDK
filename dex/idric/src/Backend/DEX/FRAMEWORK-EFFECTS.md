@@ -1,0 +1,123 @@
+# Checked DEX framework calls and effects
+
+This extension makes the public Quick Settings wrappers lowerable through the
+existing checked Idriç → ANF → typed plan → direct DEX path. It supplies an
+outbound call capability. It does not choose a tile action or generate an
+application service, callback implementation, or manifest.
+
+The implementation reuses the foreign-convention work preserved at
+`8e5458d5baad066bc365347717c56d6836eba362`, then adds the reference, effect,
+specialization, and register-placement support required by actual consumers.
+The unrelated Binder/Shizuku and exception-handler experiments stay on their
+historical branch.
+
+## Source ABI
+
+Exports still use `%export "dex:<method_name>"`. Every ordinary parameter is
+explicit. The target is one static utility class, `LIdric/Generated;`.
+
+| Source value | DEX representation |
+| --- | --- |
+| `Int32` | `I`, one register word |
+| `Text` | `Ljava/lang/String;`, one reference word |
+| `Bool` | `Z`, one register word |
+| Concrete checked `[external]` domain | Its validated class descriptor, one reference word |
+| `()` as a result | `V`, no result register |
+| `IO value` or `PrimIO value` result | The value representation above; the checked trailing World token is not a DEX parameter |
+
+An external domain receives its descriptor from reachable checked foreign
+declarations. The code generator checks the domain's actual `TCon.external`
+flag and rejects conflicting mappings. An arbitrary algebraic source value is
+not an Android object. Matching descriptors are preserved in method signatures,
+argument registers, results, and object moves. These raw references can contain
+Java null; the type does not establish non-nullness or lifecycle validity.
+
+The source lowerer does not allocate wide source values. The lower-level
+invocation encoder and placement pass understand long register pairs and are
+tested independently; that is not a source-level `Int64` claim.
+
+## Checked wrappers and ordered effects
+
+The lowerer consumes actual `Compiler.ANF`. It specializes acyclic checked
+helpers, applies statically known partial applications, and folds cases of
+known constructors. When a helper returns a source sum that the caller
+immediately projects, specialization distributes the continuation into the
+checked branches. No external ABI is invented for that sum.
+
+This lets a consumer project the public `Maybe TileState` or `AddTileResult`
+wrapper result to an explicit `Int32` export. Exporting the unprojected source
+sum remains a rejection. Unknown runtime closures, recursive helpers, and
+source constructors escaping into a raw foreign call also remain unsupported.
+
+The pass keeps residual calls in their original evaluation order, including
+void calls whose result is unused. It removes only the validated trailing
+World argument at the foreign boundary. Framework exceptions propagate through
+the generated call; this change adds no catch or success substitution.
+
+## Invocation placement
+
+The emitter selects the compact 35c form when its argument words fit, or the
+3rc range form for a contiguous interval. A noncontiguous call is staged into
+fresh consecutive registers. Receiver words precede declared arguments.
+
+Staging reserves low scratch registers, shifts the original frame uniformly,
+and copies incoming parameters from the new frame tail to their original
+logical slots. Reference and wide moves retain their own opcodes. Result moves
+stay immediately after the invoke. Frame overflow, more than 255 argument
+words, invalid register pairs, and invalid result destinations are rejected.
+
+The public addition request has a receiver and five reference arguments. The
+range path therefore matters even though the source declaration itself is
+small. DEX format details are specified by Android's
+[bytecode reference](https://source.android.com/docs/core/runtime/dalvik-bytecode).
+
+## Qualification fixtures
+
+| Fixture | Boundary exercised |
+| --- | --- |
+| `DexInvocationChecks.idric` | Host execution of byte, frame, word-count, alias, return, and malformed-plan checks |
+| `QuickSettingsSourceEffects.idric` | Checked Parcel reference return, primitive/IO reads, ordered write/seek/read, and void recycle |
+| `QuickSettingsBoolean.idric` | Boolean constants/parameters/comparisons, boxed-input IO conversion, and public lock/security-wrapper emission |
+| `DexInvokeRange.idric` | Real six-word `String.regionMatches` calls with original and reordered source parameters |
+| `QuickSettingsRuntime.idric` | Direct import of public wrappers, typed reference return, state/result projections, ordered tile setters, and addition-request emission |
+| `OrdinaryReferenceRefusal.idric` | Checked algebraic data cannot masquerade as a platform reference |
+| `ConflictingReferenceRefusal.idric` | One external domain cannot acquire incompatible class descriptors |
+| `UnprojectedTileState.idric` | A source sum cannot escape through an undeclared DEX ABI |
+
+Each autogenerated program has a preceding attempt record under
+`examples/autogenerated/`. Those records distinguish the old driver rejection
+from the current candidate's evidence.
+
+## Reproducible verification
+
+`dex/idric/verify-effects.grease` accepts five absolute paths: the android-NDK
+repository, the Idriç repository, the actual Chez executable, AOSP `dexdump`,
+and a new output directory. It requires the pinned compiler API installed into
+the compiler's bootstrap prefix. It builds a fresh DEX driver, runs the host
+checks, emits the source fixtures, checks refusals, compares repeated output,
+and independently parses every positive candidate with AOSP `dexdump`.
+
+Compiler exit status alone is insufficient: the current driver can print a
+rejection and return zero. Positive checks reject error logs and require new,
+nonempty DEX, checked-ANF, plan, and smali artifacts. Negative checks require a
+successful source check, the expected backend rejection, and no DEX artifact.
+
+`dex/idric/verify-effects-art.grease` runs the resulting candidates separately
+on the explicitly selected `emulator-5554`. The generated class name is shared,
+so the candidate DEX files must not be loaded together. Smali assembles only
+the external observation runners. Candidate bytecode always comes from the
+checked backend. The verifier compares the bytes received by the emulator
+before invoking each runner and requires its exact success marker.
+
+The pinned hosted workflow is `.github/workflows/dex-framework-effects.yml`.
+It uses Idriç `ff4d852862a3942592f8ade9afde8d409d9803be`, actual Grease
+`f19c94c6df18cddbdc1e81463e5bd689533e3c13` built through Cat Food
+`609a9628d5a52860f956bf62e0914a0cd03292ae`, AOSP build-tools 35.0.0,
+and a separate Android 14 x86_64 emulator. Source revisions, candidate hashes,
+disassembly, and runtime receipts are retained for the exact workflow head.
+
+The emulator runners use real Parcel, Integer, and String objects. They check
+effect order, public callback-payload decoding including unknown/boundary
+values, Boolean results, and invocation argument order. They do not dispatch a callback from
+Android or create a TileService. Tile registration, SystemUI behavior, APK
+packaging, and physical-device acceptance remain separate work.
