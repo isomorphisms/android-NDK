@@ -72,11 +72,15 @@ integer return. The direct encoder implements these concrete formats:
 | move | `move` 12x, `move/from16` 22x, `move/16` 32x |
 | arithmetic | `add-int`, `sub-int`, `mul-int` 23x |
 | comparison branch | `if-eq` through `if-le` 22t |
-| jump | `goto` 10t |
+| jump | `goto` 10t, `goto/16` 20t, `goto/32` 30t |
 | result | `return` 11x |
 
 Format selection checks register and signed-literal ranges. Branch labels are
-resolved in code units; zero and out-of-range 10t/22t offsets are rejected.
+resolved in 16-bit code units. Unconditional jumps are widened monotonically
+from 10t to 20t or 30t until no later promotion changes another jump's
+address. Signed 8/16/32-bit ranges and the forbidden zero offset are checked;
+conditional 22t branches retain their separate signed 16-bit range check.
+A target that remains outside a supported range is refused, not wrapped.
 Parameters occupy the last virtual registers as required by DEX. There is no
 physical CPU register allocator.
 
