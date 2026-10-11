@@ -67,6 +67,8 @@ instruction_registers (InvokeMethod invocation) = do
   Right (words ++ result_registers invocation)
 instruction_registers (IntegerBranch _ left right _) = Right [left, right]
 instruction_registers (Goto _) = Right []
+instruction_registers (Goto16 _) = Right []
+instruction_registers (Goto32 _) = Right []
 instruction_registers (Mark _) = Right []
 instruction_registers (ReturnInteger register) = Right [register]
 instruction_registers (ReturnObject register) = Right [register]
@@ -233,6 +235,8 @@ place_instruction scratch_start (IntegerBranch condition left right target) =
       , IntegerBranch condition scratch_zero scratch_one target
       ]
 place_instruction scratch_start instruction@(Goto _) = Right [instruction]
+place_instruction scratch_start instruction@(Goto16 _) = Right [instruction]
+place_instruction scratch_start instruction@(Goto32 _) = Right [instruction]
 place_instruction scratch_start instruction@(Mark _) = Right [instruction]
 place_instruction scratch_start (ReturnInteger register) =
   let target = shift_register register in
