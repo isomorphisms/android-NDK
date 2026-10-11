@@ -277,6 +277,8 @@ data Instruction
   | InvokeMethod InvocationPlan
   | IntegerBranch IntegerCondition Register Register Label
   | Goto Label
+  | Goto16 Label
+  | Goto32 Label
   | Mark Label
   | ReturnInteger Register
   | ReturnObject Register
@@ -318,6 +320,8 @@ Show Instruction where
     show condition ++ " " ++ show left ++ ", " ++
     show right ++ ", " ++ show target
   show (Goto target) = "goto " ++ show target
+  show (Goto16 target) = "goto/16 " ++ show target
+  show (Goto32 target) = "goto/32 " ++ show target
   show (Mark label) = show label
   show (ReturnInteger register) = "return " ++ show register
   show (ReturnObject register) = "return-object " ++ show register

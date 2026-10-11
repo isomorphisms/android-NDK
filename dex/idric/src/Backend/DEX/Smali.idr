@@ -91,6 +91,8 @@ render_instruction (InvokeMethod invocation) =
 render_instruction (IntegerBranch condition left right target) =
   show condition ++ " " ++ show left ++ ", " ++ show right ++ ", " ++ show target
 render_instruction (Goto target) = "goto " ++ show target
+render_instruction (Goto16 target) = "goto/16 " ++ show target
+render_instruction (Goto32 target) = "goto/32 " ++ show target
 render_instruction (Mark label) = show label
 render_instruction (ReturnInteger register) = "return " ++ show register
 render_instruction (ReturnObject register) = "return-object " ++ show register

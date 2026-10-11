@@ -27,6 +27,13 @@ expect_left label (Left explanation) = pure ()
 expect_left label (Right value) = fail (label ++ ": malformed plan was accepted")
 
 private
+encoded_stream : String -> List Instruction -> IO (List Int)
+encoded_stream label instructions =
+  case encode_instructions [] [] instructions of
+    Left explanation => fail (label ++ ": " ++ explanation)
+    Right bytes => pure bytes
+
+private
 edge_method : MethodPlan
 edge_method =
   MkMethodPlan "selftest" "edge_constants" 0 [] (ExistingValue IntegerValue) 1
@@ -115,6 +122,55 @@ main = do
     (encode_dex (single_method_file bad_arithmetic_method))
   expect_left "format 22t register limit"
     (encode_dex (single_method_file bad_branch_method))
-  expect_left "format 10t branch range"
-    (encode_dex (single_method_file long_goto_method))
+  -- Short forward offsets keep compact 10t encoding (1 code unit).
+  let r0 = MkRegister 0
+  let destination = MkLabel 0
+  short <- encoded_stream "short goto"
+    [ Goto destination, IntegerConstant r0 0, Mark destination
+    , ReturnInteger r0 ]
+  expect_equal "short goto byte encoding"
+    [0x28, 0x02, 0x12, 0x00, 0x0f, 0x00] short
+
+  -- The earlier 10t overflow now becomes valid signed 20t, not a refusal.
+  medium <- encoded_stream "forward goto/16"
+    (Goto destination :: replicate 128 (IntegerConstant r0 0) ++
+      [Mark destination, ReturnInteger r0])
+  expect_equal "promoted forward goto/16 bytes" [0x29, 0x00, 0x82, 0x00]
+    (take 4 medium)
+  case encode_dex (single_method_file long_goto_method) of
+    Left explanation => fail ("long goto is still rejected: " ++ explanation)
+    Right bytes => expect_equal "long goto DEX signature"
+                     [100, 101, 120, 10] (take 4 bytes)
+
+  -- Backward offsets are relative to the jump's own address and signed.
+  backward <- encoded_stream "backward goto/16"
+    ([Mark destination] ++ replicate 129 (IntegerConstant r0 0) ++
+     [Goto destination])
+  expect_equal "negative goto/16 bytes" [0x29, 0x00, 0x7f, 0xff]
+    (drop 258 backward)
+
+  -- One promotion can push a previously short forward branch out of 10t.
+  -- A single one-shot widening pass would encode a wrong instruction width.
+  cascade <- encoded_stream "cascading goto widening"
+    ([Goto (MkLabel 1), Goto (MkLabel 2)] ++
+      replicate 125 (IntegerConstant r0 0) ++
+     [Mark (MkLabel 1), ReturnInteger r0] ++
+      replicate 5 (IntegerConstant r0 0) ++
+     [Mark (MkLabel 2), ReturnInteger r0])
+  expect_equal "cascading first and second /16 offsets"
+    [0x29, 0x00, 0x81, 0x00, 0x29, 0x00, 0x85, 0x00]
+    (take 8 cascade)
+
+  -- Direct 30t uses the prescribed signed 32-bit little-endian offset.
+  wide <- encoded_stream "explicit goto/32"
+    [Goto32 destination, IntegerConstant r0 0, Mark destination]
+  expect_equal "goto/32 opcode and offset"
+    [0x2a, 0x00, 0x04, 0x00, 0x00, 0x00, 0x12, 0x00] wide
+
+  expect_left "zero-offset goto is forbidden"
+    (encode_instructions [] [] [Mark destination, Goto destination])
+  expect_left "undefined goto label is forbidden"
+    (encode_instructions [] [] [Goto (MkLabel 12)])
+  expect_left "duplicate goto label is forbidden"
+    (encode_instructions [] [] [Mark destination, Mark destination])
   putStrLn "PASS: DEX encoder self-test"

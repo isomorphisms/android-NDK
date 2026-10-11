@@ -137,6 +137,8 @@ instruction_width (IntegerBranch _ left right target) =
     then Right 2
     else Left "DEX format 22t integer branches require registers v0..v15"
 instruction_width (Goto target) = Right 1
+instruction_width (Goto16 target) = Right 2
+instruction_width (Goto32 target) = Right 3
 instruction_width (ReturnInteger register) =
   if valid_register 255 register
     then Right 1
@@ -173,6 +175,62 @@ label_addresses_from address labels (instruction :: rest) = do
 private
 label_addresses : List Instruction -> Either String (List (Label, Int))
 label_addresses = label_addresses_from 0 []
+
+-- Widen jumps after instruction placement. Offsets are in 16-bit code
+-- units relative to the jump itself. A widening can move another target, so
+-- layout must be recomputed until no jump changes. Widening is monotone:
+-- short -> 16 -> 32, never the reverse. There are at most two promotions
+-- per goto; the explicit fuel guards against an implementation regression.
+private
+checked_goto_offset : Int -> Either String ()
+checked_goto_offset offset =
+  if offset == 0 || offset < signed32_min || offset > signed32_max
+    then Left ("DEX goto offset is zero or outside signed 32-bit code-unit range: " ++ show offset)
+    else Right ()
+
+private
+widen_goto : List (Label, Int) -> Int -> Instruction -> Either String (Instruction, Bool)
+widen_goto labels address (Goto target) = do
+  target_address <- find_label target labels
+  let offset = target_address - address
+  checked_goto_offset offset
+  if offset >= -128 && offset <= 127
+    then Right (Goto target, False)
+    else if offset >= -32768 && offset <= 32767
+      then Right (Goto16 target, True)
+      else Right (Goto32 target, True)
+widen_goto labels address (Goto16 target) = do
+  target_address <- find_label target labels
+  let offset = target_address - address
+  checked_goto_offset offset
+  if offset >= -32768 && offset <= 32767
+    then Right (Goto16 target, False)
+    else Right (Goto32 target, True)
+widen_goto labels address (Goto32 target) = do
+  target_address <- find_label target labels
+  checked_goto_offset (target_address - address)
+  Right (Goto32 target, False)
+widen_goto labels address instruction = Right (instruction, False)
+
+private
+widen_goto_stream :
+  List (Label, Int) -> Int -> List Instruction ->
+  Either String (List Instruction, Bool)
+widen_goto_stream labels address [] = Right ([], False)
+widen_goto_stream labels address (instruction :: rest) = do
+  (widened, changed) <- widen_goto labels address instruction
+  width <- instruction_width instruction
+  (remaining, rest_changed) <- widen_goto_stream labels (address + width) rest
+  Right (widened :: remaining, changed || rest_changed)
+
+private
+relax_gotos : Nat -> List Instruction -> Either String (List Instruction)
+relax_gotos Z instructions =
+  Left "DEX goto layout failed to stabilize within monotone widening bound"
+relax_gotos (S remaining) instructions = do
+  labels <- label_addresses instructions
+  (widened, changed) <- widen_goto_stream labels 0 instructions
+  if changed then relax_gotos remaining widened else Right widened
 
 private
 binary_opcode : IntegerBinaryOperation -> Integer
@@ -291,11 +349,23 @@ encode_instruction strings method_ids labels address instruction@(Goto target) =
   target_address <- find_label target labels
   let offset = target_address - address
   if offset == 0 || offset < -128 || offset > 127
-    then
-      Left
-        ("First DEX goto format 10t offset is zero or out of range at code unit " ++
-         show address ++ ": " ++ show offset)
+    then Left ("DEX goto/8 offset is zero or out of range at code unit " ++
+               show address ++ ": " ++ show offset)
     else Right (u16le (0x28 + unsigned_mod (cast offset) 256 * 256))
+encode_instruction strings method_ids labels address instruction@(Goto16 target) = do
+  _ <- instruction_width instruction
+  target_address <- find_label target labels
+  let offset = target_address - address
+  if offset == 0 || offset < -32768 || offset > 32767
+    then Left ("DEX goto/16 offset is zero or out of range at code unit " ++
+               show address ++ ": " ++ show offset)
+    else Right (u16le 0x29 ++ u16le (cast offset))
+encode_instruction strings method_ids labels address instruction@(Goto32 target) = do
+  _ <- instruction_width instruction
+  target_address <- find_label target labels
+  let offset = target_address - address
+  checked_goto_offset offset
+  Right (u16le 0x2a ++ u32le (cast offset))
 encode_instruction strings method_ids labels address
   instruction@(ReturnInteger register) = do
   _ <- instruction_width instruction
@@ -323,12 +393,13 @@ encode_instruction_stream strings method_ids labels address (instruction :: rest
     encode_instruction_stream strings method_ids labels (address + width) rest
   Right (encoded ++ more)
 
-private
+public export
 encode_instructions :
   List String -> List MethodReference -> List Instruction -> Either String (List Int)
 encode_instructions strings method_ids instructions = do
-  labels <- label_addresses instructions
-  encode_instruction_stream strings method_ids labels 0 instructions
+  widened <- relax_gotos (S (2 * length instructions)) instructions
+  labels <- label_addresses widened
+  encode_instruction_stream strings method_ids labels 0 widened
 
 private
 record Prototype where
