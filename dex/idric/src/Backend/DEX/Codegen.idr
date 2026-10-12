@@ -1,6 +1,7 @@
 module Backend.DEX.Codegen
 
 import Backend.DEX.Encode
+import Backend.DEX.Callback
 import Backend.DEX.Foreign
 import Backend.DEX.IR
 import Backend.DEX.Lower
@@ -11,6 +12,7 @@ import Compiler.Common
 import Core.Context
 import Core.Env
 import Core.Name.Namespace
+import Core.Options
 import Core.Normalise
 import Core.TT
 import Idris.Syntax
@@ -284,7 +286,10 @@ compile_dex definitions syntax temporary_directory output_directory
       Left explanation =>
         throw (UserError ("dex rejected checked program: " ++ explanation))
       Right accepted => pure accepted
-  let plan = MkFilePlan "LIdric/Generated;" methods
+  directives <- getDirectives (Other backend_name)
+  plan <- case with_interface_callbacks "LIdric/Generated;" methods directives of
+    Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
+    Right accepted => pure accepted
   finalized <-
     case finalize_file_plan plan of
       Left explanation => throw (UserError ("dex layout rejected plan: " ++ explanation))

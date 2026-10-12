@@ -1,0 +1,38 @@
+module ViewCallbackSource
+
+import Data.Text
+
+-- A bounded source/compiler qualification fixture. The observer constructs
+-- the real framework view; these exports own the tested text/action behavior.
+[external]
+data ViewReference : Type where
+
+%foreign "dex:virtual:Landroid/view/View;:getId:()I"
+view_identity : ViewReference → PrimIO Int32
+
+%foreign "dex:virtual:Landroid/view/View;:setTransitionName:(Ljava/lang/String;)V"
+write_view_text : ViewReference → Text → PrimIO ()
+
+%foreign "dex:virtual:Landroid/view/View;:getTransitionName:()Ljava/lang/String;"
+read_view_text : ViewReference → PrimIO Text
+
+%cg dex "callback Landroid/view/View$OnClickListener; onClick (Landroid/view/View;)V click_action"
+
+%export "dex:present_text"
+present_text : ViewReference → Text → IO ()
+present_text view text = primIO (write_view_text view text)
+
+%export "dex:read_text"
+read_text : ViewReference → IO Text
+read_text view = primIO (read_view_text view)
+
+%export "dex:click_action"
+click_action : ViewReference → IO ()
+click_action view = do
+  identity ← primIO (view_identity view)
+  if identity ≟ 101
+    then primIO (write_view_text view "Clicked retained action")
+    else pure ()
+
+main : IO ()
+main = pure ()

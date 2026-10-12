@@ -284,7 +284,7 @@ copy_incoming source destination (value :: rest) =
 public export
 prepare_method_invocations : MethodPlan -> Either String MethodPlan
 prepare_method_invocations method = do
-  incoming_words <- parameter_register_words method.parameter_types
+  incoming_words <- parameter_register_words (incoming_parameter_types method)
   if method.parameter_count /= cast (length method.parameter_types) ||
      method.parameter_count < 0 || method.register_count < incoming_words ||
      method.register_count < 0 || method.register_count > 65535
@@ -305,7 +305,7 @@ prepare_method_invocations method = do
       placed <- place_instructions scratch_start method.instructions
       let prologue =
             copy_incoming incoming_start
-              (method.register_count - incoming_words + 2) method.parameter_types
+              (method.register_count - incoming_words + 2) (incoming_parameter_types method)
       Right ({ register_count := register_count
              , instructions := prologue ++ placed
              } method)

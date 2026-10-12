@@ -5,6 +5,10 @@ existing checked Idriç → ANF → typed plan → direct DEX path. It supplies 
 outbound call capability. It does not choose a tile action or generate an
 application service, callback implementation, or manifest.
 
+The subsequent [interface callback extension](INTERFACE-CALLBACKS.md) adds
+bounded stateless forwarding to checked exports. Its framework dispatch and
+Material presentation evidence are separate from this outbound qualification.
+
 The implementation reuses the foreign-convention work preserved at
 `8e5458d5baad066bc365347717c56d6836eba362`, then adds the reference, effect,
 specialization, and register-placement support required by actual consumers.
