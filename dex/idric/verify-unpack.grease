@@ -36,7 +36,10 @@ sha256sum "$repository/dex/idric/src/Backend/DEX/Unpack.idr" "$source/UnpackSour
   "$driver" "$upstream/backend/exec/idric-dex_app/idric-dex.so" > "$evidence/input-sha256.txt"
 
 proc clean_log(path) {
-  if rg -n '^[[:space:]]*(Error:|INTERNAL ERROR)' "$path" { return 1 }
+  try { rg -n '^[[:space:]]*(Error:|INTERNAL ERROR)' "$path" }
+  var search_status = _error.code
+  if (search_status === 0) { return 1 }
+  if (search_status !== 1) { echo 'FAIL could not inspect compiler diagnostics' >&2; return 2 }
 }
 
 mkdir -p "$evidence/host"
@@ -64,7 +67,14 @@ proc compile_candidate(directory, file, name) {
   printf 'compiler_exit=%s\n' "$status" > "$output/result.txt"
   cat "$output/compile.txt"
   if (status !== 0) { echo 'BLOCKED_COMPILER_GAP' >> "$output/result.txt"; return 1 }
-  if ! clean_log "$output/compile.txt" { echo 'BLOCKED_COMPILER_GAP' >> "$output/result.txt"; return 1 }
+  # A proc must run with errexit active. `if ! clean_log` disables it and
+  # Grease correctly refuses the call; try captures the real failure instead.
+  try { clean_log "$output/compile.txt" }
+  var diagnostic_status = _error.code
+  if (diagnostic_status !== 0) {
+    echo 'BLOCKED_COMPILER_GAP' >> "$output/result.txt"
+    return 1
+  }
   for suffix in dex dex.plan checked.anf smali {
     if ! test -s "$output/candidate.$suffix" { echo "FAIL missing $suffix" >&2; return 1 }
   }
@@ -101,7 +111,9 @@ require_refusal UnpackNonTail.idric non-tail 'non-tail/mutual recursion'
 
 # The original consumer is not edited. Its result remains a separate gate;
 # standalone runtime tests may still run if this compilation is blocked.
-if compile_candidate "$ib/src" LongViewAndroid.idric ib {
+try { compile_candidate "$ib/src" LongViewAndroid.idric ib }
+var ib_compile_status = _error.code
+if (ib_compile_status === 0) {
   echo 'compiled' > "$evidence/ib-compiled.txt"
   for mutation in separator wrong-host {
     var directory = "$evidence/ib-$mutation-source"
