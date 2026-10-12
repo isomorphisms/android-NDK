@@ -306,7 +306,9 @@ compile_dex definitions syntax temporary_directory output_directory
   case write_result of
     Left explanation => throw (UserError ("Could not write DEX: " ++ explanation))
     Right () => pure ()
-  Core.writeFile checked_file (render_checked_exports export_abis (anf resolved_compile_data))
+  Core.writeFile checked_file
+    ("directives:\n" ++ unlines directives ++ "\n" ++
+     render_checked_exports export_abis (anf resolved_compile_data))
   Core.writeFile plan_file (render_file_plan (finalized_plan finalized))
   Core.writeFile smali_file (render_finalized_smali finalized)
   pure (Just dex_file)

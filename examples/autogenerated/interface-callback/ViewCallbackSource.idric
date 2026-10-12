@@ -15,7 +15,7 @@ write_view_text : ViewReference → Text → PrimIO ()
 %foreign "dex:virtual:Landroid/view/View;:getTransitionName:()Ljava/lang/String;"
 read_view_text : ViewReference → PrimIO Text
 
-%cg dex "callback Landroid/view/View$OnClickListener; onClick (Landroid/view/View;)V click_action"
+%cg dex callback Landroid/view/View$OnClickListener; onClick (Landroid/view/View;)V click_action
 
 %export "dex:present_text"
 present_text : ViewReference → Text → IO ()

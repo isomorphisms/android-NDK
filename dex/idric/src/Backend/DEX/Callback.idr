@@ -31,7 +31,8 @@ parse_callback directive = case words directive of
                           method_name signature checked_export))
   "callback" :: _ =>
     Left "DEX callback requires interface, method, JVM signature and checked export"
-  _ => Right Nothing
+  [] => Right Nothing
+  _ => Left "Unsupported DEX directive; expected unquoted callback declaration"
 
 private
 argument_registers : Int -> List FrameworkValueType -> List Register

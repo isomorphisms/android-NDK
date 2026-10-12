@@ -94,6 +94,9 @@ callback_cases =
          ["callback not_a_descriptor onAction (I)V receive_action"]))
   , ("malformed-callback-refuses", refuses_plan
        (with_interface_callbacks "LIdric/Generated;" [source_method] ["callback missing"]))
+  , ("quoted-directive-cannot-disappear", refuses_plan
+       (with_interface_callbacks "LIdric/Generated;" [source_method]
+         ["\"callback LFixture/ActionListener; onAction (I)V receive_action\""]))
   , ("duplicate-virtual-signature-refuses", duplicate_virtual_method_refuses)
   , ("one-finalized-plan-emits-interface-and-methods", callback_plan_encodes)
   ]

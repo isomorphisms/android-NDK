@@ -74,3 +74,18 @@ No DEX or ART acceptance came from that failed attempt.
 Retained artifact 11762926374 was downloaded and independently inspected.
 ZIP SHA-256:
 `52786be71d031c20ad80a11fc0ec3a6ddc2f1545c81ff71bf8016956d9eab57a`.
+
+## Source directive integration repair
+
+Run [38285865193](https://github.com/isomorphisms/android-NDK/actions/runs/38285865193)
+at `7947ab72242ff3856b6a5e1aa87f8baaa9d7224c` accepted the corrected source
+and emitted DEX, then the independent interface-presence requirement failed.
+The pinned lexer passes `%cg` content as raw text: surrounding quotes reached
+the backend unchanged. The callback parser had ignored that unrecognized
+directive, so the candidate contained only the old static exports.
+
+The source now uses the actual unquoted directive grammar. Unknown/quoted
+directives refuse instead of silently disappearing, with a dedicated host
+control. Checked-ANF evidence also records the received directive text.
+The interface-presence requirement stays unchanged. ART remains NOT_RUN for
+this failed head.
