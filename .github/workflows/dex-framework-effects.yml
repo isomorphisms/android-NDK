@@ -113,6 +113,9 @@ jobs:
       - name: Prepare external oracle and ephemeral KVM access
         shell: sh
         run: .tools/runtime/.build/grease/bin/grease dex/idric/prepare-effects-ci.grease "$GITHUB_WORKSPACE" "$RUNNER_TEMP/dex-effects-oracles"
+      - name: Compare final plans and smali with independently decoded candidate bytes
+        shell: sh
+        run: .tools/runtime/.build/grease/bin/grease dex/idric/verify-layout.grease "$GITHUB_WORKSPACE" "$RUNNER_TEMP/dex-effects-evidence" "$RUNNER_TEMP/dex-effects-oracles/smali-3.0.10.jar" "$ANDROID_HOME/build-tools/35.0.0/dexdump"
       - name: Run purpose-neutral candidates on Android 14 ART
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -135,4 +138,5 @@ jobs:
             ${{ runner.temp }}/dex-effects-evidence/*.smali
             ${{ runner.temp }}/dex-effects-evidence/*.dex
             ${{ runner.temp }}/dex-effects-evidence/art/
+            ${{ runner.temp }}/dex-effects-evidence/layout-consistency/
           if-no-files-found: warn

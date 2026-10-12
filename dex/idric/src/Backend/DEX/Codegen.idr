@@ -278,8 +278,12 @@ compile_dex definitions syntax temporary_directory output_directory
         throw (UserError ("dex rejected checked program: " ++ explanation))
       Right accepted => pure accepted
   let plan = MkFilePlan "LIdric/Generated;" methods
+  finalized <-
+    case finalize_file_plan plan of
+      Left explanation => throw (UserError ("dex layout rejected plan: " ++ explanation))
+      Right accepted => pure accepted
   bytes <-
-    case encode_dex plan of
+    case encode_finalized_dex finalized of
       Left explanation => throw (UserError ("dex encoder rejected plan: " ++ explanation))
       Right encoded => pure encoded
   let dex_file = output_directory </> (requested_output_name ++ ".dex")
@@ -291,8 +295,8 @@ compile_dex definitions syntax temporary_directory output_directory
     Left explanation => throw (UserError ("Could not write DEX: " ++ explanation))
     Right () => pure ()
   Core.writeFile checked_file (render_checked_exports export_abis (anf resolved_compile_data))
-  Core.writeFile plan_file (render_file_plan plan)
-  Core.writeFile smali_file (render_smali plan)
+  Core.writeFile plan_file (render_file_plan (finalized_plan finalized))
+  Core.writeFile smali_file (render_finalized_smali finalized)
   pure (Just dex_file)
 
 private

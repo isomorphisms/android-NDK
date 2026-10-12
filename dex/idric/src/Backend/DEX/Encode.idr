@@ -393,13 +393,21 @@ encode_instruction_stream strings method_ids labels address (instruction :: rest
     encode_instruction_stream strings method_ids labels (address + width) rest
   Right (encoded ++ more)
 
+-- Strict emission of already finalized instruction widths. Unlike the
+-- compatibility entry below, this does not silently promote a stale goto.
+private
+encode_final_instructions :
+  List String -> List MethodReference -> List Instruction -> Either String (List Int)
+encode_final_instructions strings method_ids instructions = do
+  labels <- label_addresses instructions
+  encode_instruction_stream strings method_ids labels 0 instructions
+
 public export
 encode_instructions :
   List String -> List MethodReference -> List Instruction -> Either String (List Int)
 encode_instructions strings method_ids instructions = do
   widened <- relax_gotos (S (2 * length instructions)) instructions
-  labels <- label_addresses widened
-  encode_instruction_stream strings method_ids labels 0 widened
+  encode_final_instructions strings method_ids widened
 
 private
 record Prototype where
@@ -709,8 +717,7 @@ prepare_methods :
   List String -> List Prototype -> List MethodReference -> String ->
   List MethodPlan -> Either String (List PreparedMethod)
 prepare_methods strings prototypes method_ids class_descriptor [] = Right []
-prepare_methods strings prototypes method_ids class_descriptor (original :: rest) = do
-  method <- prepare_method_invocations original
+prepare_methods strings prototypes method_ids class_descriptor (method :: rest) = do
   incoming_words <- parameter_register_words method.parameter_types
   outgoing_words <- outgoing_register_count method.instructions
   prototype_index <-
@@ -718,7 +725,7 @@ prepare_methods strings prototypes method_ids class_descriptor (original :: rest
   method_index <-
     lookup_index "generated method"
       (generated_method_reference class_descriptor method) method_ids
-  bytes <- encode_instructions strings method_ids method.instructions
+  bytes <- encode_final_instructions strings method_ids method.instructions
   more <-
     prepare_methods strings prototypes method_ids class_descriptor rest
   Right
@@ -852,20 +859,43 @@ prototype_bytes strings descriptors type_lists prototype = do
     (u32le (cast shorty_index) ++ u32le (cast return_type_index) ++
      u32le (cast parameters_off))
 
-||| Encode a deliberately small but structurally complete DEX 035 file.
-||| The result owns its header, identifiers, class/method/code/data items,
-||| map, SHA-1 signature, and Adler-32 checksum directly.
-public export
-encode_dex : FilePlan -> Either String (List Int)
-encode_dex file_plan = do
+-- Constructor is not exported: consumers cannot label an unplaced,
+-- pre-relaxation plan as finalized. Binary and readable outputs share this
+-- exact value, including invocation staging and method ordering.
+export
+data FinalizedFilePlan = FrozenFilePlan FilePlan
+
+export
+finalized_plan : FinalizedFilePlan -> FilePlan
+finalized_plan (FrozenFilePlan plan) = plan
+
+private
+finalize_method : MethodPlan -> Either String MethodPlan
+finalize_method original = do
+  placed <- prepare_method_invocations original
+  widened <- relax_gotos (S (2 * length placed.instructions)) placed.instructions
+  Right ({ instructions := widened } placed)
+
+export
+finalize_file_plan : FilePlan -> Either String FinalizedFilePlan
+finalize_file_plan file_plan = do
   validate_class_descriptor file_plan.class_descriptor
   if null file_plan.methods
     then Left "A DEX file must contain at least one checked Idriç method"
     else Right ()
-  let methods = sort_methods file_plan.methods
-  case find_duplicate_method methods of
+  let ordered = sort_methods file_plan.methods
+  case find_duplicate_method ordered of
     Just duplicate => Left ("Duplicate DEX method signature " ++ duplicate)
     Nothing => Right ()
+  finalized <- traverse finalize_method ordered
+  Right (FrozenFilePlan ({ methods := finalized } file_plan))
+
+||| Encode the already finalized plan without repeating placement, sorting,
+||| or relaxation. The readable plan and smali must consume this same value.
+export
+encode_finalized_dex : FinalizedFilePlan -> Either String (List Int)
+encode_finalized_dex (FrozenFilePlan file_plan) = do
+  let methods = file_plan.methods
   let method_ids = all_method_references file_plan.class_descriptor methods
   _ <- traverse
     (\method => validate_class_descriptor method.owner.descriptor)
@@ -977,6 +1007,14 @@ encode_dex file_plan = do
   let signed_file = replace_range 12 signature unsigned_file
   let checksum = adler32 (drop 12 signed_file)
   Right (replace_range 8 (u32le checksum) signed_file)
+
+||| Compatibility entry for callers needing only bytes. The compiler consumer
+||| uses finalize_file_plan once, then shares it with all output producers.
+public export
+encode_dex : FilePlan -> Either String (List Int)
+encode_dex plan = do
+  finalized <- finalize_file_plan plan
+  encode_finalized_dex finalized
 
 private
 fill_buffer : Buffer -> Int -> List Int -> IO ()
