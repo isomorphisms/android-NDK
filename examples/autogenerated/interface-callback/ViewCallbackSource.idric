@@ -4,8 +4,7 @@ import Data.Text
 
 -- A bounded source/compiler qualification fixture. The observer constructs
 -- the real framework view; these exports own the tested text/action behavior.
-[external]
-data ViewReference : Type where
+data ViewReference : Type where [external]
 
 %foreign "dex:virtual:Landroid/view/View;:getId:()I"
 view_identity : ViewReference → PrimIO Int32

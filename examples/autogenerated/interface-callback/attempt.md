@@ -58,3 +58,19 @@ Calling the raw historical binary by a new `grease` basename refused with
 `Invalid applet 'grease'`; it was not an execution pass. Parsing used that
 fork's existing entry inside the Grease/Oils boundary. The application/CI
 interface remains Grease. Host assertions and ART are still NOT_RUN here.
+
+## First hosted result
+
+At `cfcd6b4e32484a64a1ecd659f9403e78925f2219`, run
+[38282256242](https://github.com/isomorphisms/android-NDK/actions/runs/38282256242)
+built the pinned compiler and backend. All nine typed-plan assertions passed.
+The receiver and signature production mutants both compiled successfully and
+failed their exact intended host assertion with process status 1. The actual
+View source then failed to parse: `[external]` must follow `where`, as in the
+existing admitted reference declarations. Its placement was corrected, and
+candidate compiler status/diagnostics are now printed as well as retained.
+No DEX or ART acceptance came from that failed attempt.
+
+Retained artifact 11762926374 was downloaded and independently inspected.
+ZIP SHA-256:
+`52786be71d031c20ad80a11fc0ec3a6ddc2f1545c81ff71bf8016956d9eab57a`.
