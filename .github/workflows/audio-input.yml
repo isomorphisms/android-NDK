@@ -1,0 +1,59 @@
+name: Reusable native audio input
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: ick
+        uses: isomorphisms/ai-ci/ick-host@903b2cb27ea572c9c6cb2ffa9f39e0fbf06ec9f8
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: isomorphisms/ai-ci
+          ref: 903b2cb27ea572c9c6cb2ffa9f39e0fbf06ec9f8
+          path: .aici-host
+          persist-credentials: false
+      - name: Verify the C-stage contract
+        run: make -f ci/Makefile verify ICK="${{ steps.ick.outputs.compiler }}"
+      - name: Execute the retained fake-AAudio model
+        run: make -f native/audio/Makefile host ICK="${{ steps.ick.outputs.compiler }}"
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [armeabi-v7a, arm64-v8a, x86_64]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: isomorphisms/ai-ci
+          ref: 903b2cb27ea572c9c6cb2ffa9f39e0fbf06ec9f8
+          path: .ai-ci-ick
+          persist-credentials: false
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
+      - run: sdkmanager "ndk;29.0.14206865"
+      - uses: isomorphisms/ai-ci/ick-android@903b2cb27ea572c9c6cb2ffa9f39e0fbf06ec9f8
+        with:
+          abi: ${{ matrix.abi }}
+          ndk: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
+          fortify-source: '2'
+      - name: Link the complete reusable AAudio library
+        run: make -f native/audio/Makefile android ABI="${{ matrix.abi }}" NDK="${{ env.ANDROID_HOME }}/ndk/29.0.14206865" ICK_STAGE="${{ runner.temp }}/ick-android-${{ matrix.abi }}-stage" FORTIFY_SOURCE=2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: audio-input-${{ matrix.abi }}
+          path: native/audio/build/libandroid-audio-input.so
+          if-no-files-found: error
