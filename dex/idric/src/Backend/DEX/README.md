@@ -27,6 +27,11 @@ compiler path.
 
 ## Checked compiler handoff
 
+The original arithmetic boundary below is retained as history. The current
+reference/effect extension, its supported source ABI, and its separate source,
+emission, and runtime checks are described in
+[`FRAMEWORK-EFFECTS.md`](FRAMEWORK-EFFECTS.md).
+
 The custom code generator uses `getCompileDataWith ["dex"] False ANF` from the
 Idriç revision resolved from the declared `Idriç` branch. The first green
 historical revision was `081b9cde0591154839fb5d80d76e5570e0436300`. It accepts only
@@ -103,9 +108,9 @@ job; it does not require a permanently attached phone.
 See [`AUDIT.md`](./AUDIT.md) for the starting boundary and
 [`OPCODES.md`](./OPCODES.md) for the complete opcode inventory.
 
-## Current generic compiler boundary
+## Original generic compiler boundary
 
-The checked-ANF compiler slice does not yet claim general calls, recursion,
+The initial checked-ANF compiler slice did not claim general calls, recursion,
 constructors, objects, arrays, fields, strings, exceptions, monitors,
 annotations, debug data, wide 64-bit values, floats, Float16, Android framework
 calls, lifecycle classes, resources, APK packaging, signing, or source-level
