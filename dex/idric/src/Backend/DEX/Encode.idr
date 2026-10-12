@@ -605,11 +605,11 @@ prototype_descriptors prototype =
 
 private
 type_descriptors :
-  String -> List Prototype -> List MethodReference -> List String
-type_descriptors class_descriptor prototypes method_ids =
+  String -> List Prototype -> List MethodReference -> List TypeReference -> List String
+type_descriptors class_descriptor prototypes method_ids interfaces =
   sort
     (nub
-      ([class_descriptor, "Ljava/lang/Object;"] ++
+      ([class_descriptor, "Ljava/lang/Object;"] ++ map descriptor interfaces ++
        map (\method => method.owner.descriptor) method_ids ++
        concat (map prototype_descriptors prototypes)))
 
@@ -632,6 +632,7 @@ record TypeListLayout where
   first_offset : Maybe Int
   next_offset : Int
   item_count : Int
+  interfaces_offset : Int
 
 private
 encode_parameter_types :
@@ -647,7 +648,7 @@ layout_type_lists_from :
   List String -> Int -> List Prototype -> List Int ->
   List (Prototype, Int) -> Maybe Int -> Int -> Either String TypeListLayout
 layout_type_lists_from descriptors current [] accumulated offsets first count =
-  Right (MkTypeListLayout accumulated offsets first current count)
+  Right (MkTypeListLayout accumulated offsets first current count 0)
 layout_type_lists_from descriptors current (prototype :: rest)
                        accumulated offsets first count =
   if null prototype.parameter_descriptors
@@ -675,6 +676,21 @@ layout_type_lists :
   List String -> Int -> List Prototype -> Either String TypeListLayout
 layout_type_lists descriptors start prototypes =
   layout_type_lists_from descriptors start prototypes [] [] Nothing 0
+
+private
+layout_interfaces : List String -> TypeListLayout -> List TypeReference ->
+  Either String TypeListLayout
+layout_interfaces descriptors layout [] = Right layout
+layout_interfaces descriptors layout interfaces = do
+  encoded <- encode_parameter_types descriptors (map descriptor interfaces)
+  let start = align_up layout.next_offset 4
+  let item = u32le (cast (length interfaces)) ++ encoded
+  Right ({ bytes := layout.bytes ++ padding layout.next_offset 4 ++ item
+         , first_offset := Just (fromMaybe start layout.first_offset)
+         , next_offset := start + cast (length item)
+         , item_count := layout.item_count + 1
+         , interfaces_offset := start
+         } layout)
 
 private
 find_prototype_offset :
@@ -718,7 +734,7 @@ prepare_methods :
   List MethodPlan -> Either String (List PreparedMethod)
 prepare_methods strings prototypes method_ids class_descriptor [] = Right []
 prepare_methods strings prototypes method_ids class_descriptor (method :: rest) = do
-  incoming_words <- parameter_register_words method.parameter_types
+  incoming_words <- parameter_register_words (incoming_parameter_types method)
   outgoing_words <- outgoing_register_count method.instructions
   prototype_index <-
     lookup_index "prototype" (prototype_of_method method) prototypes
@@ -807,14 +823,17 @@ encode_class_methods : Int -> List PreparedMethod -> List Int
 encode_class_methods previous [] = []
 encode_class_methods previous (method :: rest) =
   uleb128 (cast (method.method_index - previous)) ++
-  uleb128 9 ++ uleb128 (cast method.code_offset) ++
+  uleb128 (method_access_flags method.plan.mode) ++ uleb128 (cast method.code_offset) ++
   encode_class_methods method.method_index rest
 
 private
 class_data : List PreparedMethod -> List Int
 class_data methods =
-  uleb128 0 ++ uleb128 0 ++ uleb128 (cast (length methods)) ++ uleb128 0 ++
-  encode_class_methods 0 methods
+  let direct = filter (\method => method.plan.mode /= InstanceMethod) methods
+      virtual = filter (\method => method.plan.mode == InstanceMethod) methods in
+  uleb128 0 ++ uleb128 0 ++ uleb128 (cast (length direct)) ++
+  uleb128 (cast (length virtual)) ++
+  encode_class_methods 0 direct ++ encode_class_methods 0 virtual
 
 private
 map_item : Integer -> Int -> Int -> List Int
@@ -872,6 +891,16 @@ finalized_plan (FrozenFilePlan plan) = plan
 private
 finalize_method : MethodPlan -> Either String MethodPlan
 finalize_method original = do
+  case original.mode of
+    ConstructorMethod =>
+      if original.method_name == "<init>" && null original.parameter_types &&
+         original.result_type == VoidValue
+        then Right ()
+        else Left "DEX callback constructor must be <init>()V"
+    _ =>
+      if original.method_name == "<init>" || original.method_name == "<clinit>"
+        then Left "DEX initializer cannot use static or virtual method mode"
+        else Right ()
   placed <- prepare_method_invocations original
   widened <- relax_gotos (S (2 * length placed.instructions)) placed.instructions
   Right ({ instructions := widened } placed)
@@ -880,6 +909,10 @@ export
 finalize_file_plan : FilePlan -> Either String FinalizedFilePlan
 finalize_file_plan file_plan = do
   validate_class_descriptor file_plan.class_descriptor
+  _ <- traverse (validate_class_descriptor . descriptor) file_plan.interfaces
+  if elem (MkTypeReference file_plan.class_descriptor) file_plan.interfaces
+    then Left "A DEX class cannot implement itself"
+    else Right ()
   if null file_plan.methods
     then Left "A DEX file must contain at least one checked Idriç method"
     else Right ()
@@ -888,7 +921,9 @@ finalize_file_plan file_plan = do
     Just duplicate => Left ("Duplicate DEX method signature " ++ duplicate)
     Nothing => Right ()
   finalized <- traverse finalize_method ordered
-  Right (FrozenFilePlan ({ methods := finalized } file_plan))
+  let interfaces = sortBy (\left, right => compare left.descriptor right.descriptor)
+                         (nub file_plan.interfaces)
+  Right (FrozenFilePlan ({ methods := finalized, interfaces := interfaces } file_plan))
 
 ||| Encode the already finalized plan without repeating placement, sorting,
 ||| or relaxation. The readable plan and smali must consume this same value.
@@ -903,7 +938,7 @@ encode_finalized_dex (FrozenFilePlan file_plan) = do
   let prototypes =
         unique_prototypes (map prototype_of_reference method_ids)
   let descriptors =
-        type_descriptors file_plan.class_descriptor prototypes method_ids
+        type_descriptors file_plan.class_descriptor prototypes method_ids file_plan.interfaces
   let strings =
         all_strings methods method_ids prototypes descriptors
   let method_id_count : Int = cast (length method_ids)
@@ -917,7 +952,8 @@ encode_finalized_dex (FrozenFilePlan file_plan) = do
     lookup_index "generated class type" file_plan.class_descriptor descriptors
   object_type_index <-
     lookup_index "Object type" "Ljava/lang/Object;" descriptors
-  type_lists <- layout_type_lists descriptors data_off prototypes
+  parameter_lists <- layout_type_lists descriptors data_off prototypes
+  type_lists <- layout_interfaces descriptors parameter_lists file_plan.interfaces
   prepared <-
     prepare_methods strings prototypes method_ids file_plan.class_descriptor methods
   let code = layout_code type_lists.next_offset prepared
@@ -955,7 +991,7 @@ encode_finalized_dex (FrozenFilePlan file_plan) = do
       method_ids
   let class_def_bytes =
         u32le (cast class_type_index) ++ u32le 0x11 ++
-        u32le (cast object_type_index) ++ u32le 0 ++
+        u32le (cast object_type_index) ++ u32le (cast type_lists.interfaces_offset) ++
         u32le 0xffffffff ++ u32le 0 ++ u32le (cast class_data_off) ++ u32le 0
   let map_entries_before_optional =
         [ map_item 0x0000 1 0

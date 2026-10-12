@@ -29,6 +29,8 @@ invocation_argument_types invocation =
       ReferenceValue invocation.method.owner :: invocation.method.argument_types
     InvokeInterface =>
       ReferenceValue invocation.method.owner :: invocation.method.argument_types
+    InvokeDirect =>
+      ReferenceValue invocation.method.owner :: invocation.method.argument_types
 
 private
 expand_argument :
@@ -197,12 +199,14 @@ invoke_opcode : InvokeKind -> Integer
 invoke_opcode InvokeVirtual = 0x6e
 invoke_opcode InvokeStatic = 0x71
 invoke_opcode InvokeInterface = 0x72
+invoke_opcode InvokeDirect = 0x70
 
 private
 invoke_range_opcode : InvokeKind -> Integer
 invoke_range_opcode InvokeVirtual = 0x74
 invoke_range_opcode InvokeStatic = 0x77
 invoke_range_opcode InvokeInterface = 0x78
+invoke_range_opcode InvokeDirect = 0x76
 
 private
 fifth_register : List Register -> Integer

@@ -1,6 +1,7 @@
 module Backend.DEX.Codegen
 
 import Backend.DEX.Encode
+import Backend.DEX.Callback
 import Backend.DEX.Foreign
 import Backend.DEX.IR
 import Backend.DEX.Lower
@@ -11,8 +12,10 @@ import Compiler.Common
 import Core.Context
 import Core.Env
 import Core.Name.Namespace
+import Core.Options
 import Core.Normalise
 import Core.TT
+import Data.String
 import Idris.Syntax
 import Libraries.Utils.Path
 
@@ -284,7 +287,10 @@ compile_dex definitions syntax temporary_directory output_directory
       Left explanation =>
         throw (UserError ("dex rejected checked program: " ++ explanation))
       Right accepted => pure accepted
-  let plan = MkFilePlan "LIdric/Generated;" methods
+  directives <- getDirectives (Other backend_name)
+  plan <- case with_interface_callbacks "LIdric/Generated;" methods directives of
+    Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
+    Right accepted => pure accepted
   finalized <-
     case finalize_file_plan plan of
       Left explanation => throw (UserError ("dex layout rejected plan: " ++ explanation))
@@ -301,7 +307,9 @@ compile_dex definitions syntax temporary_directory output_directory
   case write_result of
     Left explanation => throw (UserError ("Could not write DEX: " ++ explanation))
     Right () => pure ()
-  Core.writeFile checked_file (render_checked_exports export_abis (anf resolved_compile_data))
+  Core.writeFile checked_file
+    ("directives:\n" ++ unlines directives ++ "\n" ++
+     render_checked_exports export_abis (anf resolved_compile_data))
   Core.writeFile plan_file (render_file_plan (finalized_plan finalized))
   Core.writeFile smali_file (render_finalized_smali finalized)
   pure (Just dex_file)

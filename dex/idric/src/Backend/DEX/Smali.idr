@@ -130,8 +130,13 @@ parameter_descriptor = concat . map framework_descriptor
 private
 render_method : MethodPlan -> String
 render_method method =
+  let access = case method.mode of
+        StaticMethod => "public static "
+        InstanceMethod => "public "
+        ConstructorMethod => "public constructor "
+  in
   unlines
-    ([ ".method public static " ++ method.method_name ++
+    ([ ".method " ++ access ++ method.method_name ++
        "(" ++ parameter_descriptor method.parameter_types ++ ")" ++
        framework_descriptor method.result_type
      , "    .registers " ++ show method.register_count
@@ -154,7 +159,8 @@ render_finalized_smali finalized =
     [ ".class public final " ++ plan.class_descriptor
     , ".super Ljava/lang/Object;"
     , ""
-    ] ++ concat (map render_method plan.methods)
+    ] ++ unlines (map (\implemented => ".implements " ++ show implemented) plan.interfaces) ++
+    concat (map render_method plan.methods)
 
 -- Compatibility API invokes the encoder's bounded layout pass; rendering
 -- an already finalized plan above remains a structurally total operation.
