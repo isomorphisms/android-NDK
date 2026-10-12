@@ -1,8 +1,8 @@
 module Backend.DEX.Smali
 
+import Backend.DEX.Encode
 import Backend.DEX.IR
 import Backend.DEX.Invoke
-import Backend.DEX.Placement
 import Data.String
 
 %default total
@@ -26,6 +26,30 @@ render_move_with stem destination source =
       else stem ++ "/16 " ++ show destination ++ ", " ++ show source
 
 private
+hex_digit : Int -> Char
+hex_digit digit = chr (if digit < 10 then ord '0' + digit else ord 'a' + digit - 10)
+
+-- Rendering raw LF/CR/quotes here made the evidence unassemblable even
+-- though the binary was valid. Preserve every currently supported ASCII
+-- literal exactly, including control characters and backslashes.
+private
+escape_literal_character : Char -> String
+escape_literal_character '\\' = "\\\\"
+escape_literal_character '"' = "\\\""
+escape_literal_character '\n' = "\\n"
+escape_literal_character '\r' = "\\r"
+escape_literal_character '\t' = "\\t"
+escape_literal_character character =
+  let code = ord character in
+  if code < 32 || code == 127
+    then pack ['\\', 'u', '0', '0', hex_digit (code `div` 16), hex_digit (code `mod` 16)]
+    else strCons character ""
+
+private
+render_literal : String -> String
+render_literal value = "\"" ++ concat (map escape_literal_character (unpack value)) ++ "\""
+
+private
 render_instruction : Instruction -> String
 render_instruction (Move destination source) =
   render_move_with "move" destination source
@@ -38,7 +62,7 @@ render_instruction (IntegerConstant destination value) =
 render_instruction (NullReference destination) =
   render_constant destination 0
 render_instruction (TextConstant destination value) =
-  "const-string " ++ show destination ++ ", \"" ++ value ++ "\""
+  "const-string " ++ show destination ++ ", " ++ render_literal value
 render_instruction (IntegerBinary operation destination left right) =
   show operation ++ " " ++ show destination ++ ", " ++
   show left ++ ", " ++ show right
@@ -91,6 +115,8 @@ render_instruction (InvokeMethod invocation) =
 render_instruction (IntegerBranch condition left right target) =
   show condition ++ " " ++ show left ++ ", " ++ show right ++ ", " ++ show target
 render_instruction (Goto target) = "goto " ++ show target
+render_instruction (Goto16 target) = "goto/16 " ++ show target
+render_instruction (Goto32 target) = "goto/32 " ++ show target
 render_instruction (Mark label) = show label
 render_instruction (ReturnInteger register) = "return " ++ show register
 render_instruction (ReturnObject register) = "return-object " ++ show register
@@ -118,19 +144,25 @@ render_method method =
     render_line instruction@(Mark _) = render_instruction instruction
     render_line instruction = "    " ++ render_instruction instruction
 
-||| Human-readable oracle generated from the same typed DEX plan as the
-||| binary encoder. Smali is never consumed by the candidate path.
-public export
-render_smali : FilePlan -> String
-render_smali plan =
+||| No placement or relaxation occurs here. The compiler passes the same
+||| finalized value to this renderer, its plan writer, and binary emission.
+export
+render_finalized_smali : FinalizedFilePlan -> String
+render_finalized_smali finalized =
+  let plan = finalized_plan finalized in
   unlines
     [ ".class public final " ++ plan.class_descriptor
     , ".super Ljava/lang/Object;"
     , ""
-    ] ++ concat (map render_placed_method plan.methods)
-  where
-    render_placed_method : MethodPlan -> String
-    render_placed_method method =
-      case prepare_method_invocations method of
-        Left explanation => "# Invalid DEX method plan: " ++ explanation ++ "\n"
-        Right placed => render_method placed
+    ] ++ concat (map render_method plan.methods)
+
+-- Compatibility API invokes the encoder's bounded layout pass; rendering
+-- an already finalized plan above remains a structurally total operation.
+%default covering
+
+public export
+render_smali : FilePlan -> String
+render_smali plan =
+  case finalize_file_plan plan of
+    Left explanation => "# Invalid DEX method plan: " ++ explanation ++ "\n"
+    Right finalized => render_finalized_smali finalized
