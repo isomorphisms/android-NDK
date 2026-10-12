@@ -15,6 +15,7 @@ import Core.Name.Namespace
 import Core.Options
 import Core.Normalise
 import Core.TT
+import Data.String
 import Idris.Syntax
 import Libraries.Utils.Path
 
