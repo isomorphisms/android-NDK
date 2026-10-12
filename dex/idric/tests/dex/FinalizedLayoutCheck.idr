@@ -90,11 +90,11 @@ main = do
   -- Finalized values are opaque. Accessors can inspect the plan but cannot
   -- forge a FinalizedFilePlan or silently feed a stale plan to the encoder.
   case !(getArgs) of
-    [_, prefix] => do
-      Right () <- write_dex (prefix ++ ".dex") bytes
+    [_, output_prefix] => do
+      Right () <- write_dex (output_prefix ++ ".dex") bytes
         | Left explanation => fail explanation
-      write_text (prefix ++ ".dex.plan") listing
-      write_text (prefix ++ ".smali") smali
+      write_text (output_prefix ++ ".dex.plan") listing
+      write_text (output_prefix ++ ".smali") smali
     [_] => pure ()
     _ => fail "usage: finalized-layout-check [absolute-output-prefix]"
   putStrLn "PASS: DEX finalized plan and readable evidence"

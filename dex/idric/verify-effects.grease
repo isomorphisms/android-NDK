@@ -81,10 +81,13 @@ env IDRIS2_PREFIX="$compiler_prefix" "$driver" --version > "$evidence/driver-ver
 
 proc run_host_check(directory, source, name, expected) {
   section "Run $name on the host"
-  env IDRIS2_PREFIX="$compiler_prefix" IDRIS2_CG=chez CHEZ="$chez" \
+  if ! env IDRIS2_PREFIX="$compiler_prefix" IDRIS2_CG=chez CHEZ="$chez" \
     IDRIS2_PATH="$evidence/backend/ttc:$compiler_modules:$base_modules:$prelude_modules" \
     "$compiler" --build-dir "$evidence/check-$name" --source-dir "$directory" \
-    "$directory/$source" -o "$name" > "$evidence/$name.build.txt" 2>&1
+    "$directory/$source" -o "$name" > "$evidence/$name.build.txt" 2>&1 {
+    cat "$evidence/$name.build.txt"
+    exit 1
+  }
   require_clean_log "$evidence/$name.build.txt"
   require_file "$evidence/check-$name/exec/$name"
   require_file "$evidence/check-$name/exec/${name}_app/$name.so"
