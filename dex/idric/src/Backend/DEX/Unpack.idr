@@ -13,11 +13,8 @@ import Data.Vect
 
 %default covering
 
--- This is an extension of the existing checked-ANF backend, not source-text
--- recognition or browser logic. A view denotes a suffix of one immutable
--- code-point array produced by the actual Prelude fastUnpack operation.
--- The original Text permits lossless fastPack of the same suffix. Source
--- constructors/closures are specialized only while their shape is known.
+-- Checked-ANF extension, not source-text recognition or browser logic.
+-- A view denotes a suffix of one immutable runtime code-point array.
 private
 record View where
   constructor CharacterView
@@ -64,7 +61,7 @@ record Loop where
   constructor TailLoop
   function : Name
   entry : Label
-  parameters : List Value
+  loop_values : List Value
 
 private
 Definitions : Type
@@ -150,9 +147,8 @@ validate_intrinsic unpacking name definitions =
 
 private
 emit : Instruction -> State -> State
--- Two compiler-owned low registers are excluded from source temporaries.
--- Comparison instructions require four-bit operands even when every call
--- happens to fit an invoke/range form without triggering later staging.
+-- Reserve r0/r1 for four-bit comparison operands even if calls fit without
+-- triggering the existing invocation-staging pass.
 emit (IntegerBranch condition left right target) state =
   if left.number <= 15 && right.number <= 15
     then { reverse_code := IntegerBranch condition left right target :: state.reverse_code } state
@@ -272,9 +268,7 @@ pack_value (Characters view) state =
 pack_value (Constructor _ NIL _ []) state = Right (Literal (Str ""), state)
 pack_value _ _ = Left "DEX fastPack supports unpack-derived views; arbitrary constructed List Char is not yet lowered"
 
--- Rebuilding the exact head and tail obtained from one list match restores
--- that same view. This is a provenance-checked representation optimization,
--- not a source-name-based replacement of a validator or browser object.
+-- Reconstruct only the exact head/tail from one observed list match.
 private
 constructed : Name -> ConInfo -> Maybe Int -> List Value -> Value
 constructed name CONS tag [CharacterRegister head (Just origin), Characters tail] =
@@ -368,9 +362,8 @@ primitive operation arguments state =
             Nothing => Left ("DEX unpack unsupported dynamic primitive " ++ show operation)
       _ => Left ("DEX unpack unsupported primitive " ++ show operation)
 
--- Loop parameters have fresh private registers: advancing a list scan must
--- not change an outer alias's list position. Tail calls stage ALL arguments
--- before writing any parameter, so swaps and aliases remain simultaneous.
+-- Fresh loop registers protect outer aliases. All call arguments are staged
+-- before assignment to preserve simultaneous parameter substitution.
 private
 clone_value : Value -> State -> Either String (Value, State)
 clone_value (TextRegister source) state =
@@ -525,7 +518,7 @@ mutual
           if active.function == name && tail_position
             then do
               (staged, next) <- clone_values arguments state
-              assigned <- assign_values active.parameters staged next
+              assigned <- assign_values active.loop_values staged next
               Right (emit (Goto active.entry) assigned)
             else Left ("DEX unpack non-tail/mutual recursion remains unsupported: " ++ show name)
         Nothing => Left ("DEX unpack recursive helper has no tail-loop boundary: " ++ show name)
@@ -533,10 +526,10 @@ mutual
       Just (Make_Administrative_Normal_Form_Function formals body) =>
         if elem name (calls body)
           then do
-            (parameters, copied) <- clone_values arguments state
-            bound <- bind_arguments formals parameters []
+            (loop_values, copied) <- clone_values arguments state
+            bound <- bind_arguments formals loop_values []
             let (entry, after_label) = label copied
-            evaluate definitions (name :: stack) (Just (TailLoop name entry parameters)) True bound body continuation (emit (Mark entry) after_label)
+            evaluate definitions (name :: stack) (Just (TailLoop name entry loop_values)) True bound body continuation (emit (Mark entry) after_label)
           else do
             bound <- bind_arguments formals arguments []
             evaluate definitions (name :: stack) Nothing True bound body continuation state
@@ -585,8 +578,6 @@ mutual
       cons_branch definitions stack loop tail_position environment variable view cons otherwise continuation state
     else do
       let (nonempty, s1) = label state
-      -- Both source branches end in their continuation or a back edge. No
-      -- branch-local source object is required to escape to a shared join.
       empty_done <- nil_branch definitions stack loop tail_position environment nil otherwise continuation
         (emit (IntegerBranch LessThanInteger view.position view.length nonempty) s1)
       cons_branch definitions stack loop tail_position environment variable view cons otherwise continuation
@@ -609,8 +600,6 @@ mutual
       let (different, s3) = label s2
       accepted <- evaluate definitions stack loop tail_position environment body continuation
         (emit (IntegerBranch NotEqualInteger actual expected different) s3)
-      -- Enum-producing primitives return exactly 0 or 1. The last branch
-      -- may omit a fallback only after the other Boolean value was tested.
       case (value, rest, otherwise) of
         (BooleanRegister _, [Make_Administrative_Normal_Form_Constant_Alternative other other_body], Nothing) =>
           if (number constant == Just 0 && number other == Just 1) ||

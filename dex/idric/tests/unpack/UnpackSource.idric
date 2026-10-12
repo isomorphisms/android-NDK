@@ -43,8 +43,8 @@ record_allowed input = case unpack input of
   first :: rest ⇒ if contains_separator (first :: rest) then 0 else 1
 
 count_from : Int32 → List Char → Int32
-count_from total [] = total
-count_from total (first :: rest) = count_from (total + 1) rest
+count_from count_so_far [] = count_so_far
+count_from count_so_far (first :: rest) = count_from (count_so_far + 1) rest
 
 %export "dex:codepoint_count"
 export
