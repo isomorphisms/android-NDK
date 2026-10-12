@@ -63,7 +63,7 @@ record Loop where
   entry : Label
   loop_values : List Value
 
-private
+public export
 Definitions : Type
 Definitions = List (Name, Administrative_Normal_Form_Definition)
 
@@ -574,14 +574,14 @@ mutual
     if all list_shape alternatives then Right () else Left "DEX unpack view cannot be matched as a different source data type"
     let cons = list_alternative CONS alternatives
     let nil = list_alternative NIL alternatives
-    if view.known_nonempty then
-      cons_branch definitions stack loop tail_position environment variable view cons otherwise continuation state
-    else do
-      let (nonempty, s1) = label state
-      empty_done <- nil_branch definitions stack loop tail_position environment nil otherwise continuation
-        (emit (IntegerBranch LessThanInteger view.position view.length nonempty) s1)
-      cons_branch definitions stack loop tail_position environment variable view cons otherwise continuation
-        (emit (Mark nonempty) empty_done)
+    case view.known_nonempty of
+      True => cons_branch definitions stack loop tail_position environment variable view cons otherwise continuation state
+      False => do
+        let (nonempty, s1) = label state
+        empty_done <- nil_branch definitions stack loop tail_position environment nil otherwise continuation
+          (emit (IntegerBranch LessThanInteger view.position view.length nonempty) s1)
+        cons_branch definitions stack loop tail_position environment variable view cons otherwise continuation
+          (emit (Mark nonempty) empty_done)
     where
       list_shape : Administrative_Normal_Form_Constructor_Alternative -> Bool
       list_shape (Make_Administrative_Normal_Form_Constructor_Alternative _ NIL _ [] _) = True
