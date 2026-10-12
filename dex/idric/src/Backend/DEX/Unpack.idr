@@ -102,6 +102,19 @@ mutual
   constant_calls : Administrative_Normal_Form_Constant_Alternative -> List Name
   constant_calls (Make_Administrative_Normal_Form_Constant_Alternative _ body) = calls body
 
+-- A helper with no named calls or partial-application creation may invoke a
+-- supplied, statically known closure. Its reappearance in an inlining stack
+-- is not by itself recursion: successive Maybe binds use distinct source
+-- closures. Closure bodies still cross the ordinary recursion check, and
+-- unknown runtime closures remain unsupported. No Prelude/helper name is
+-- specially exempted. The application depth bound also applies to this case.
+private
+is_leaf_helper : Name -> Definitions -> Bool
+is_leaf_helper name definitions =
+  case lookup name definitions of
+    Just (Make_Administrative_Normal_Form_Function _ body) => null (calls body)
+    _ => False
+
 private
 reachable_unpack : Definitions -> List Name -> List Name -> Bool
 reachable_unpack definitions visited [] = False
@@ -498,7 +511,8 @@ mutual
   private
   apply : Definitions -> List Name -> Maybe Loop -> Bool -> Name -> List Value -> Continuation -> State -> Result
   apply definitions stack loop tail_position name arguments continuation state =
-    if is_unpack name then do
+    if length stack > 1024 then Left "DEX unpack checked application depth exceeds 1024"
+    else if is_unpack name then do
       validate_intrinsic True name definitions
       case arguments of
         [value] => do
@@ -512,7 +526,7 @@ mutual
           (result, next) <- pack_value value state
           continuation result next
         _ => Left "DEX fastPack call arity mismatch"
-    else if elem name stack then
+    else if elem name stack && not (is_leaf_helper name definitions) then
       case loop of
         Just active =>
           if active.function == name && tail_position
