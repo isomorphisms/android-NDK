@@ -139,7 +139,7 @@ jobs:
             .tools/runtime/.build/grease/bin/grease dex/idric/verify-unpack-art.grease "$GITHUB_WORKSPACE" "$RUNNER_TEMP/dex-unpack-evidence" "$RUNNER_TEMP/dex-effects-oracles/smali-3.0.10.jar" "$ANDROID_HOME/platform-tools/adb"
       - name: Require actual IB target success independently of standalone unpack
         shell: sh
-        run: .tools/runtime/.build/grease/bin/grease -c 'test -s "$RUNNER_TEMP/dex-unpack-evidence/ib-art-success.txt"'
+        run: .tools/runtime/.build/grease/bin/grease dex/idric/require-unpack-acceptance.grease "$RUNNER_TEMP/dex-unpack-evidence"
       - name: Retain source, DEX and scoped ART evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
