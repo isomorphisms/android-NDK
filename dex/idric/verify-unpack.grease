@@ -1,0 +1,127 @@
+#!/usr/bin/env grease
+
+# Runs the actual maintained compiler. Chez is a semantic host control only;
+# every Android candidate is produced by the same checked DEX driver.
+if (len(ARGV) !== 7) {
+  echo 'usage: grease verify-unpack.grease REPOSITORY COMPILER UPSTREAM DEXDUMP IB_REPOSITORY EVIDENCE EXPECTED_HEAD' >&2
+  exit 2
+}
+var repository = ARGV[0]
+var compiler_repository = ARGV[1]
+var upstream = ARGV[2]
+var dexdump = ARGV[3]
+var ib = ARGV[4]
+var evidence = ARGV[5]
+var expected_head = ARGV[6]
+for path in "$repository" "$compiler_repository" "$upstream" "$dexdump" "$ib" "$evidence" {
+  if (path[0] !== '/') { echo 'absolute path required' >&2; exit 2 }
+}
+test "$(git -C "$repository" rev-parse HEAD)" = "$expected_head"
+test "$(git -C "$compiler_repository" rev-parse HEAD)" = ff4d852862a3942592f8ade9afde8d409d9803be
+test "$(git -C "$ib" rev-parse HEAD)" = 446a183e245632608bf2868d4a34eb2f5225bd67
+if test -e "$evidence" { echo 'refusing reused unpack evidence' >&2; exit 1 }
+mkdir -p "$evidence"
+git -C "$repository" rev-parse HEAD 'HEAD^{tree}' > "$evidence/backend-revision.txt"
+git -C "$ib" diff --exit-code HEAD -- src > "$evidence/ib-clean.txt"
+git -C "$ib" rev-parse HEAD > "$evidence/ib-revision.txt"
+var compiler = "$compiler_repository/_/build/exec/idris2"
+var scheme = "$compiler_repository/_/.tools/bin/scheme"
+var compiler_prefix = "$compiler_repository/_/bootstrap-build"
+var libraries = "$compiler_prefix/idris2-0.8.0/base-0.8.0:$compiler_prefix/idris2-0.8.0/prelude-0.8.0"
+var driver = "$upstream/backend/exec/idric-dex"
+var source = "$repository/dex/idric/tests/unpack"
+for program in "$compiler" "$scheme" "$driver" "$dexdump" { test -x "$program" }
+sha256sum "$repository/dex/idric/src/Backend/DEX/Unpack.idr" "$source/UnpackSource.idric" \
+  "$ib/src/IB/LongViewTask.idric" "$ib/src/IB/LongViewLifecycle.idric" "$ib/src/LongViewAndroid.idric" \
+  "$driver" "$upstream/backend/exec/idric-dex_app/idric-dex.so" > "$evidence/input-sha256.txt"
+
+proc clean_log(path) {
+  if rg -n '^[[:space:]]*(Error:|INTERNAL ERROR)' "$path" { return 1 }
+}
+
+mkdir -p "$evidence/host"
+env IDRIS2_PREFIX="$compiler_prefix" IDRIS2_PATH="$libraries" CHEZ="$scheme" \
+  "$compiler" --cg chez --source-dir "$source" --build-dir "$evidence/host/build" \
+  --output-dir "$evidence/host" "$source/UnpackHostCheck.idric" -o unpack-host \
+  > "$evidence/host/compile.txt" 2>&1
+cat "$evidence/host/compile.txt"
+clean_log "$evidence/host/compile.txt"
+test -x "$evidence/host/unpack-host"
+cp "$compiler_repository/_/build/exec/idris2_app/libidris2_support.so" "$evidence/host/unpack-host_app/"
+env CHEZ="$scheme" "$evidence/host/unpack-host" > "$evidence/host/execution.txt" 2>&1
+cat "$evidence/host/execution.txt"
+rg -q -x -F 'PASS actual Idric unpack source semantics' "$evidence/host/execution.txt"
+
+proc compile_candidate(directory, file, name) {
+  var output = "$evidence/$name"
+  mkdir -p "$output"
+  try {
+    env IDRIS2_PREFIX="$compiler_prefix" IDRIS2_PATH="$upstream/backend/ttc:$libraries" CHEZ="$scheme" \
+      "$driver" --cg dex --source-dir "$directory" --build-dir "$output/build" --output-dir "$output" \
+      --dumpanf "$output/source.anf" "$directory/$file" -o candidate > "$output/compile.txt" 2>&1
+  }
+  var status = _error.code
+  printf 'compiler_exit=%s\n' "$status" > "$output/result.txt"
+  cat "$output/compile.txt"
+  if (status !== 0) { echo 'BLOCKED_COMPILER_GAP' >> "$output/result.txt"; return 1 }
+  if ! clean_log "$output/compile.txt" { echo 'BLOCKED_COMPILER_GAP' >> "$output/result.txt"; return 1 }
+  for suffix in dex dex.plan checked.anf smali {
+    if ! test -s "$output/candidate.$suffix" { echo "FAIL missing $suffix" >&2; return 1 }
+  }
+  if ! "$dexdump" -c "$output/candidate.dex" > "$output/checksum.txt" 2>&1 { return 1 }
+  if ! "$dexdump" -d "$output/candidate.dex" > "$output/disassembly.txt" 2>&1 { return 1 }
+  if ! sha256sum "$output/candidate.dex" > "$output/sha256.txt" { return 1 }
+  echo 'PASS fresh checked-source DEX and AOSP parsing; ART NOT_RUN' >> "$output/result.txt"
+}
+compile_candidate "$source" UnpackSource.idric positive
+rg -q 'codePoints' "$evidence/positive/disassembly.txt"
+rg -q 'toArray' "$evidence/positive/disassembly.txt"
+
+# The same runtime oracle must reject a source mutant, not a compiler error.
+mkdir -p "$evidence/mutant-source"
+sed 's/contains_separator \[\] = False/contains_separator [] = True/' \
+  "$source/UnpackSource.idric" > "$evidence/mutant-source/UnpackSource.idric"
+if cmp -s "$source/UnpackSource.idric" "$evidence/mutant-source/UnpackSource.idric" {
+  echo 'FAIL source mutation made no change' >&2; exit 1
+}
+compile_candidate "$evidence/mutant-source" UnpackSource.idric mutant
+
+proc require_refusal(file, name, expected) {
+  env IDRIS2_PREFIX="$compiler_prefix" IDRIS2_PATH="$libraries" CHEZ="$scheme" \
+    "$compiler" --check --source-dir "$source" --build-dir "$evidence/$name-source-check" \
+    "$source/$file" > "$evidence/$name-source-check.txt" 2>&1
+  clean_log "$evidence/$name-source-check.txt"
+  try { compile_candidate "$source" "$file" "$name" }
+  if (_error.code === 0) { echo "FAIL unsupported source accepted: $name" >&2; exit 1 }
+  rg -q -F "$expected" "$evidence/$name/compile.txt"
+  if test -e "$evidence/$name/candidate.dex" { echo "FAIL refused source emitted DEX: $name" >&2; exit 1 }
+}
+require_refusal UnpackEscape.idric escaping 'dex rejected source ABI'
+require_refusal UnpackNonTail.idric non-tail 'non-tail/mutual recursion'
+
+# The original consumer is not edited. Its result remains a separate gate;
+# standalone runtime tests may still run if this compilation is blocked.
+if compile_candidate "$ib/src" LongViewAndroid.idric ib {
+  echo 'compiled' > "$evidence/ib-compiled.txt"
+  for mutation in separator wrong-host {
+    var directory = "$evidence/ib-$mutation-source"
+    mkdir -p "$directory/IB"
+    cp "$ib/src/LongViewAndroid.idric" "$directory/"
+    cp "$ib/src/IB/LongViewTask.idric" "$ib/src/IB/LongViewLifecycle.idric" "$directory/IB/"
+    if (mutation === 'separator') {
+      sed 's/if contains_record_separator (first :: rest)/if False/' \
+        "$ib/src/IB/LongViewTask.idric" > "$directory/IB/LongViewTask.idric"
+      if cmp -s "$ib/src/IB/LongViewTask.idric" "$directory/IB/LongViewTask.idric" { exit 1 }
+    } else {
+      sed 's/then activity_was_recreated task/then host_process_restarted host task/' \
+        "$ib/src/IB/LongViewLifecycle.idric" > "$directory/IB/LongViewLifecycle.idric"
+      if cmp -s "$ib/src/IB/LongViewLifecycle.idric" "$directory/IB/LongViewLifecycle.idric" { exit 1 }
+    }
+    compile_candidate "$directory" LongViewAndroid.idric "ib-$mutation"
+  }
+} else {
+  echo 'BLOCKED full IB source; standalone unpack evidence is separate' > "$evidence/ib-blocked.txt"
+}
+echo 'PASS unpack host controls, candidate emission and supported/refused source boundaries' > "$evidence/host-result.txt"
+echo 'NOT_RUN ART; full IB result is recorded separately and required by the final workflow gate' >> "$evidence/host-result.txt"
+cat "$evidence/host-result.txt"

@@ -4,6 +4,7 @@ import Backend.DEX.Encode
 import Backend.DEX.Foreign
 import Backend.DEX.IR
 import Backend.DEX.Lower
+import Backend.DEX.Unpack
 import Backend.DEX.Smali
 import Compiler.ANF
 import Compiler.Common
@@ -216,10 +217,16 @@ lower_exports integer_less_name foreigns (selected :: rest) definitions = do
           ("No checked ANF definition was produced for DEX export `" ++
            show selected.internal_name ++ "`")
       Just found => Right found
+  -- Select from the actual checked call graph, never a browser/module name.
+  -- Unsupported unpack forms remain errors in this same DEX backend; they
+  -- do not retry another compiler or replace the source with a predicate.
   method <-
-    lower_method integer_less_name foreigns definitions selected.effect
-      (show selected.internal_name) selected.method_name
-      selected.parameter_types selected.result_type definition
+    if requires_unpack_lowering selected.internal_name definitions
+      then lower_unpack_method definitions selected.effect selected.internal_name
+             selected.method_name selected.parameter_types selected.result_type definition
+      else lower_method integer_less_name foreigns definitions selected.effect
+             (show selected.internal_name) selected.method_name
+             selected.parameter_types selected.result_type definition
   if method.parameter_count /= cast (length selected.parameter_types)
     then
       Left
