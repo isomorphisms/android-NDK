@@ -18,21 +18,19 @@
     const/4 v5, 0
     invoke-virtual {v6, v3, v4, v5}, Landroid/app/ActivityThread;->getPackageInfo(Ljava/lang/String;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;
     move-result-object v7
-    # createPackageContext inherits its container's app-ops identity. Use the
-    # real framework app-context initializer with the actual shell LoadedApk.
-    const-string v3, "android.app.ContextImpl"
+    # Bind a real Application for the actual shell package. A bare app Context
+    # has no Application until LoadedApk performs its normal initialization.
+    const-string v3, "android.app.LoadedApk"
     invoke-static {v3}, Ljava/lang/Class;->forName(Ljava/lang/String;)Ljava/lang/Class;
     move-result-object v3
-    const-string v4, "createAppContext"
+    const-string v4, "makeApplicationInner"
     const/4 v5, 2
     new-array v5, v5, [Ljava/lang/Class;
     const/4 v8, 0
-    const-class v9, Landroid/app/ActivityThread;
+    sget-object v9, Ljava/lang/Boolean;->TYPE:Ljava/lang/Class;
     aput-object v9, v5, v8
     const/4 v8, 1
-    const-string v9, "android.app.LoadedApk"
-    invoke-static {v9}, Ljava/lang/Class;->forName(Ljava/lang/String;)Ljava/lang/Class;
-    move-result-object v9
+    const-class v9, Landroid/app/Instrumentation;
     aput-object v9, v5, v8
     invoke-virtual {v3, v4, v5}, Ljava/lang/Class;->getDeclaredMethod(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;
     move-result-object v3
@@ -41,34 +39,33 @@
     const/4 v4, 2
     new-array v4, v4, [Ljava/lang/Object;
     const/4 v5, 0
-    aput-object v6, v4, v5
-    const/4 v5, 1
-    aput-object v7, v4, v5
-    const/4 v5, 0
-    invoke-virtual {v3, v5, v4}, Ljava/lang/reflect/Method;->invoke(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;
+    sget-object v9, Ljava/lang/Boolean;->TRUE:Ljava/lang/Boolean;
+    aput-object v9, v4, v5
+    invoke-virtual {v3, v7, v4}, Ljava/lang/reflect/Method;->invoke(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;
+    move-result-object v7
+    check-cast v7, Landroid/app/Application;
+    invoke-virtual {v7}, Landroid/content/ContextWrapper;->getBaseContext()Landroid/content/Context;
     move-result-object v0
-    check-cast v0, Landroid/content/Context;
     invoke-virtual {v0}, Landroid/content/Context;->getOpPackageName()Ljava/lang/String;
     move-result-object v3
     const-string v4, "com.android.shell"
     invoke-virtual {v4, v3}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
     move-result v3
+    if-eqz v3, :observer_identity_failure
+    invoke-virtual {v0}, Landroid/content/Context;->getApplicationContext()Landroid/content/Context;
+    move-result-object v3
     if-nez v3, :observer_context_ready
+    :observer_identity_failure
     const-string v1, "FAIL observer application attribution"
     goto :failure
     :observer_context_ready
-    # DeviceConfig reads ActivityThread.currentApplication(), independently of
-    # the view Context. Attach the real shell Context to this observer's initial
-    # Application as well; the provider still enforces the actual shell UID.
-    invoke-static {}, Landroid/app/ActivityThread;->currentApplication()Landroid/app/Application;
+    const-class v3, Landroid/app/ActivityThread;
+    const-string v4, "mInitialApplication"
+    invoke-virtual {v3, v4}, Ljava/lang/Class;->getDeclaredField(Ljava/lang/String;)Ljava/lang/reflect/Field;
     move-result-object v3
-    const-class v4, Landroid/content/ContextWrapper;
-    const-string v5, "mBase"
-    invoke-virtual {v4, v5}, Ljava/lang/Class;->getDeclaredField(Ljava/lang/String;)Ljava/lang/reflect/Field;
-    move-result-object v4
-    const/4 v5, 1
-    invoke-virtual {v4, v5}, Ljava/lang/reflect/AccessibleObject;->setAccessible(Z)V
-    invoke-virtual {v4, v3, v0}, Ljava/lang/reflect/Field;->set(Ljava/lang/Object;Ljava/lang/Object;)V
+    const/4 v4, 1
+    invoke-virtual {v3, v4}, Ljava/lang/reflect/AccessibleObject;->setAccessible(Z)V
+    invoke-virtual {v3, v6, v7}, Ljava/lang/reflect/Field;->set(Ljava/lang/Object;Ljava/lang/Object;)V
     const-string v3, "Constructed reader text"
     invoke-static {v0, v3}, LIdric/Generated;->create_reader_view(Landroid/content/Context;Ljava/lang/String;)Landroid/widget/TextView;
     move-result-object v1

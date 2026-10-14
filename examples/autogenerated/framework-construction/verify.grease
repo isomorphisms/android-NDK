@@ -62,6 +62,19 @@ proc source_candidate(name, mode) {
   var output = "$evidence/$name"
   mkdir -p "$directory/IB/Android" "$output"
   cp "$ib/src/IB/Android/ReaderText.idric" "$directory/IB/Android/"
+  if (name === 'text-mutant') {
+    sed 's/platform_characters text 0 character_units/platform_characters text 0 0/' \
+      "$ib/src/IB/Android/ReaderText.idric" > "$directory/IB/Android/ReaderText.idric"
+  } elif (name === 'reflow-mutant') {
+    sed 's/set_reader_horizontal_scrolling view 0/set_reader_horizontal_scrolling view 1/' \
+      "$ib/src/IB/Android/ReaderText.idric" > "$directory/IB/Android/ReaderText.idric"
+  } elif (name === 'selection-mutant') {
+    sed 's/set_reader_selection view 1/set_reader_selection view 0/' \
+      "$ib/src/IB/Android/ReaderText.idric" > "$directory/IB/Android/ReaderText.idric"
+  }
+  if (name === 'text-mutant' or name === 'reflow-mutant' or name === 'selection-mutant') {
+    if cmp -s "$ib/src/IB/Android/ReaderText.idric" "$directory/IB/Android/ReaderText.idric" { echo 'FAIL unchanged reader mutant' >&2; exit 1 }
+  }
   var original = "$fixtures/FrameworkConstructionSource.idric"
   var target = "$directory/FrameworkConstructionSource.idric"
   if (name === 'wrong-name') {
@@ -99,6 +112,12 @@ source_candidate positive accept
 source_candidate wrong-name refuse
 source_candidate nonvoid refuse
 source_candidate recovery accept
+source_candidate text-mutant accept
+source_candidate reflow-mutant accept
+source_candidate selection-mutant accept
+for name in text-mutant reflow-mutant selection-mutant {
+  if cmp -s "$evidence/positive/candidate.dex" "$evidence/$name/candidate.dex" { echo 'FAIL reader mutant DEX unchanged' >&2; exit 1 }
+}
 cmp "$evidence/positive/candidate.dex" "$evidence/recovery/candidate.dex"
 # Compile actual backend mutations without the original backend TTC path.
 for mutation in allocation parent-arguments {

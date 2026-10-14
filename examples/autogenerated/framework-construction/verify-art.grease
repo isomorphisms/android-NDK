@@ -27,7 +27,7 @@ test -s "$evidence/art/observer.dex"
 sha256sum "$observer" "$evidence/art/observer.dex" > "$evidence/art/observer-sha256.txt"
 var remote_base = $("$adb" -s emulator-5554 shell mktemp -d /data/local/tmp/idric-construction-XXXXXXXX)
 if (not remote_base.startsWith('/data/local/tmp/idric-construction-')) { exit 1 }
-for name in positive recovery {
+for name in positive text-mutant reflow-mutant selection-mutant recovery {
   var candidate = "$evidence/$name/candidate.dex"
   sha256sum -c "$evidence/$name/sha256.txt"
   var remote = "$remote_base/$name"
@@ -46,10 +46,17 @@ for name in positive recovery {
   var status = _error.code
   printf '%s\n' "$status" > "$evidence/art/$name.status"
   "$adb" -s emulator-5554 logcat -b all -d > "$evidence/art/$name-logcat.txt"
-  test "$status" = 0
-  rg -q -x -F 'PASS checked TextView construction, exact native text, selection, empty replacement and width reflow' "$evidence/art/$name.txt"
+  if (name === 'positive' or name === 'recovery') {
+    test "$status" = 0
+    rg -q -x -F 'PASS checked TextView construction, exact native text, selection, empty replacement and width reflow' "$evidence/art/$name.txt"
+  } else {
+    test "$status" = 73
+    if (name === 'text-mutant') { rg -q -x -F 'FAIL exact native reader text' "$evidence/art/$name.txt" }
+    if (name === 'reflow-mutant') { rg -q -x -F 'FAIL native reader width reflow' "$evidence/art/$name.txt" }
+    if (name === 'selection-mutant') { rg -q -x -F 'FAIL native reader selection' "$evidence/art/$name.txt" }
+  }
   cat "$evidence/art/$name.txt"
 }
-echo 'PASS checked source constructor original/recovery, native text selection and width reflow on Android 14 x86_64' > "$evidence/art/result.txt"
+echo 'PASS checked source constructor original/recovery, exact text/selection/reflow and three production reader-mutant rejections on Android 14 x86_64' > "$evidence/art/result.txt"
 echo 'App lifecycle/resources, APK, physical devices and arbitrary subclass/heap support remain separate' >> "$evidence/art/result.txt"
 cat "$evidence/art/result.txt"
