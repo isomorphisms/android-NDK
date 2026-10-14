@@ -20,7 +20,9 @@
     move-result-object v7
     # createPackageContext inherits its container's app-ops identity. Use the
     # real framework app-context initializer with the actual shell LoadedApk.
-    const-class v3, Landroid/app/ContextImpl;
+    const-string v3, "android.app.ContextImpl"
+    invoke-static {v3}, Ljava/lang/Class;->forName(Ljava/lang/String;)Ljava/lang/Class;
+    move-result-object v3
     const-string v4, "createAppContext"
     const/4 v5, 2
     new-array v5, v5, [Ljava/lang/Class;
@@ -28,7 +30,9 @@
     const-class v9, Landroid/app/ActivityThread;
     aput-object v9, v5, v8
     const/4 v8, 1
-    const-class v9, Landroid/app/LoadedApk;
+    const-string v9, "android.app.LoadedApk"
+    invoke-static {v9}, Ljava/lang/Class;->forName(Ljava/lang/String;)Ljava/lang/Class;
+    move-result-object v9
     aput-object v9, v5, v8
     invoke-virtual {v3, v4, v5}, Ljava/lang/Class;->getDeclaredMethod(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;
     move-result-object v3
