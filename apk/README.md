@@ -5,6 +5,29 @@ artifacts.  This repository records the generic packaging shape; it does not
 make every application share one manifest, signer, resource set, SDK policy, or
 ABI matrix.
 
+## Checked direct-DEX Activity candidate
+
+IB's native reader needs an `android.app.Activity` subclass and native framework
+Views rather than the NativeActivity/JNI shape. Its manifest declares the actual
+`Idric.Generated` class emitted from checked Idriç. The reviewed source shape is
+bounded to the backend's Activity superclass, original-Bundle superclass
+onCreate call, checked handler and existing interface callbacks.
+
+`build-direct-dex-activity.grease` accepts absolute SDK, manifest, resource,
+checked DEX and explicit public-test keystore paths, an application-owned package
+ID, the expected certificate digest and fresh output. It links SDK34 resources,
+adds exactly those candidate DEX bytes, aligns and test-signs the package, checks
+its certificate/manifest/launcher and compares the extracted DEX before exposing
+the candidate. It refuses missing or mismatched signers and reused output. The
+public Wegert fixture is its explicitly bounded test lane; no production/private
+key support or signing authority is inferred.
+
+This producer is not independent `build-toolchain-v0` promotion. The caller must
+retain checked-source/driver origin and the shared AICI acceptance receipt;
+arbitrary historical hand-encoded DEX is not an accepted application input.
+Installation, behavior, update identity and physical execution are separate.
+The existing NativeActivity packager remains the owner for that different shape.
+
 ## Generic package contents
 
 ```text
