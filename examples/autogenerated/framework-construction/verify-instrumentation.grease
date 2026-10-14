@@ -24,7 +24,8 @@ if test -e "$evidence/instrumentation" { echo 'FAIL refusing reused instrumentat
 var output = "$evidence/instrumentation"
 mkdir -p "$output"
 java -jar "$smali" assemble "$controls" -o "$output/observer.dex"
-sha256sum "$controls/ReaderChecks.smali" "$controls/ReaderInstrumentation.smali" \
+sha256sum "$controls/ReaderChecks.smali" "$controls/ReaderInstrumentation.smali" "$controls/SourceAddressObserver.smali" \
+  "$controls/oracle-manifest.xml" "$controls/target-manifest.xml" \
   "$output/observer.dex" "$keystore" > "$output/observer-inputs-sha256.txt"
 "$adb" -s emulator-5554 emu avd name > "$output/emulator.txt"
 "$adb" -s emulator-5554 shell getprop ro.build.version.sdk > "$output/sdk.txt"
@@ -56,6 +57,24 @@ proc package_fixture(manifest, dex, directory) {
 package_fixture "$controls/oracle-manifest.xml" "$output/observer.dex" "$output/oracle"
 "$adb" -s emulator-5554 install "$output/oracle/fixture.apk" > "$output/oracle-install.txt" 2>&1
 rg -q -x -F Success "$output/oracle-install.txt"
+# Instrumentation runs in the target package, not in its declaring observer
+# package. Explicitly launch the independent receiver without source data so a
+# freshly installed/stopped package is eligible for later implicit dispatch.
+# The initial visible FAIL proves this setup did not seed the success marker.
+"$adb" -s emulator-5554 shell dumpsys package org.isomorphisms.idric.construct.oracle > "$output/oracle-before-start.txt"
+"$adb" -s emulator-5554 shell am start -W -a android.intent.action.MAIN \
+  -n org.isomorphisms.idric.construct.oracle/Idric.SourceAddressObserver > "$output/oracle-start.txt" 2>&1
+rg -q -x -F 'Status: ok' "$output/oracle-start.txt"
+"$adb" -s emulator-5554 shell uiautomator dump /data/local/tmp/idric-source-observer-start.xml > "$output/oracle-start-dump.txt" 2>&1
+"$adb" -s emulator-5554 pull /data/local/tmp/idric-source-observer-start.xml "$output/oracle-start.xml" > "$output/oracle-start-pull.txt" 2>&1
+rg -q -F 'text="FAIL native source address"' "$output/oracle-start.xml"
+"$adb" -s emulator-5554 shell input keyevent KEYCODE_HOME
+"$adb" -s emulator-5554 shell dumpsys package org.isomorphisms.idric.construct.oracle > "$output/oracle-after-start.txt"
+"$adb" -s emulator-5554 shell cmd package query-activities --brief --components --query-flags 0x10000 \
+  -a android.intent.action.VIEW \
+  -d https://github.com/isomorphisms/ib/blob/9027d5ea0ce8718b0337b4cd3d16c0549dc2b2ed/README.md > "$output/source-handlers.txt"
+rg -q -x -F 'org.isomorphisms.idric.construct.oracle/Idric.SourceAddressObserver' "$output/source-handlers.txt"
+test "$(rg -c '/' "$output/source-handlers.txt")" -ge 2
 for name in positive text-mutant reflow-mutant selection-mutant recovery {
   var candidate = "$evidence/$name/candidate.dex"
   sha256sum -c "$evidence/$name/sha256.txt"
