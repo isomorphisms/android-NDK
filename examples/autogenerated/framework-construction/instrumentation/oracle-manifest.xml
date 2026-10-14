@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.isomorphisms.idric.construct.oracle" android:versionCode="1">
+  <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
+  <application android:hasCode="true" android:allowBackup="false" android:label="Independent reader observer" />
+  <instrumentation android:name="Idric.ReaderInstrumentation" android:targetPackage="org.isomorphisms.idric.construct.test" />
+</manifest>
