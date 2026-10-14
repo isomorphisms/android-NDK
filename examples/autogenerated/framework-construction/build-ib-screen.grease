@@ -13,6 +13,9 @@ var ib = ARGV[3]
 var sdk = ARGV[4]
 var oracles = ARGV[5]
 var evidence = ARGV[6]
+var runtime_bin = "$repository/.tools/runtime/.build/grease/bin"
+test -x "$runtime_bin/grease"
+setglobal ENV.PATH = runtime_bin ++ ':' ++ ENV.PATH
 for path in "$repository" "$core" "$upstream" "$ib" "$sdk" "$oracles" "$evidence" {
   if (path[0] !== '/') { exit 2 }
 }
