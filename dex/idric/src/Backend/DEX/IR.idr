@@ -199,6 +199,7 @@ data InvokeKind
   | InvokeVirtual
   | InvokeInterface
   | InvokeDirect
+  | InvokeSuper
 
 public export
 Eq InvokeKind where
@@ -206,6 +207,7 @@ Eq InvokeKind where
   InvokeVirtual == InvokeVirtual = True
   InvokeInterface == InvokeInterface = True
   InvokeDirect == InvokeDirect = True
+  InvokeSuper == InvokeSuper = True
   _ == _ = False
 
 public export
@@ -214,6 +216,7 @@ Show InvokeKind where
   show InvokeVirtual = "invoke-virtual"
   show InvokeInterface = "invoke-interface"
   show InvokeDirect = "invoke-direct"
+  show InvokeSuper = "invoke-super"
 
 ||| A DEX invocation before format selection. For virtual/interface calls,
 ||| the first register is the receiver; method.argument_types describes only
@@ -275,6 +278,7 @@ data Instruction
   | IntegerConstant Register Int
   | NullReference Register
   | TextConstant Register String
+  | CheckCast Register TypeReference
   | IntegerBinary IntegerBinaryOperation Register Register Register
   | TextEqual Register Register Register
   | InvokeMethod InvocationPlan
@@ -307,6 +311,8 @@ Show Instruction where
   show (NullReference destination) = "const-null " ++ show destination
   show (TextConstant destination value) =
     "const-string " ++ show destination ++ ", " ++ show value
+  show (CheckCast register target) =
+    "check-cast " ++ show register ++ ", " ++ show target
   show (IntegerBinary operation destination left right) =
     show operation ++ " " ++ show destination ++ ", " ++
     show left ++ ", " ++ show right
@@ -395,14 +401,17 @@ record FilePlan where
   class_descriptor : String
   methods : List MethodPlan
   interfaces : List TypeReference
+  superclass : TypeReference
 
 public export
 MkFilePlan : String -> List MethodPlan -> FilePlan
-MkFilePlan descriptor methods = MkClassFilePlan descriptor methods []
+MkFilePlan descriptor methods =
+  MkClassFilePlan descriptor methods [] (MkTypeReference "Ljava/lang/Object;")
 
 public export
 render_file_plan : FilePlan -> String
 render_file_plan plan =
   "class " ++ plan.class_descriptor ++ "\n" ++
+  "super " ++ plan.superclass.descriptor ++ "\n" ++
   concat (map (\implemented => "implements " ++ show implemented ++ "\n") plan.interfaces) ++ "\n" ++
   concat (intersperse "\n" (map render_method_plan plan.methods))

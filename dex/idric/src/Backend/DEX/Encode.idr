@@ -116,6 +116,10 @@ instruction_width (IntegerConstant destination value) =
           else Right 3
 instruction_width (NullReference destination) =
   instruction_width (IntegerConstant destination 0)
+instruction_width (CheckCast register _) =
+  if register.number >= 0 && register.number <= 255
+    then Right 2
+    else Left "DEX check-cast requires register v0..v255"
 instruction_width (TextConstant destination value) =
   if valid_register 255 destination
     then Right 2
@@ -277,10 +281,15 @@ encode_move narrow_opcode from16_opcode wide_opcode destination source = do
 
 private
 encode_instruction :
-  List String -> List MethodReference -> List (Label, Int) -> Int -> Instruction ->
+  List String -> List String -> List MethodReference -> List (Label, Int) -> Int -> Instruction ->
   Either String (List Int)
-encode_instruction strings method_ids labels address (Mark label) = Right []
-encode_instruction strings method_ids labels address
+encode_instruction strings descriptors method_ids labels address (Mark label) = Right []
+encode_instruction strings descriptors method_ids labels address instruction@(CheckCast register target) = do
+  _ <- instruction_width instruction
+  index <- lookup_index "check-cast type" target.descriptor descriptors
+  if index > 65535 then Left "DEX check-cast type index exceeds 65535"
+    else Right (u16le (0x1f + cast register.number * 256) ++ u16le (cast index))
+encode_instruction strings descriptors method_ids labels address
   instruction@(IntegerConstant destination value) = do
   width <- instruction_width instruction
   let register = cast destination.number
@@ -292,9 +301,9 @@ encode_instruction strings method_ids labels address
           (0x12 + register * 256 + unsigned_mod literal 16 * 4096))
     2 => Right (u16le (0x13 + register * 256) ++ u16le literal)
     _ => Right (u16le (0x14 + register * 256) ++ u32le literal)
-encode_instruction strings method_ids labels address (NullReference destination) =
-  encode_instruction strings method_ids labels address (IntegerConstant destination 0)
-encode_instruction strings method_ids labels address
+encode_instruction strings descriptors method_ids labels address (NullReference destination) =
+  encode_instruction strings descriptors method_ids labels address (IntegerConstant destination 0)
+encode_instruction strings descriptors method_ids labels address
   instruction@(TextConstant destination value) = do
   _ <- instruction_width instruction
   string_index <- lookup_index "const-string" value strings
@@ -304,31 +313,31 @@ encode_instruction strings method_ids labels address
       Right
         (u16le (0x1a + cast destination.number * 256) ++
          u16le (cast string_index))
-encode_instruction strings method_ids labels address (Move destination source) =
+encode_instruction strings descriptors method_ids labels address (Move destination source) =
   encode_move 0x01 0x02 0x03 destination source
-encode_instruction strings method_ids labels address (MoveWide destination source) = do
+encode_instruction strings descriptors method_ids labels address (MoveWide destination source) = do
   _ <- wide_move_width destination source
   encode_move 0x04 0x05 0x06 destination source
-encode_instruction strings method_ids labels address (MoveObject destination source) =
+encode_instruction strings descriptors method_ids labels address (MoveObject destination source) =
   encode_move 0x07 0x08 0x09 destination source
-encode_instruction strings method_ids labels address
+encode_instruction strings descriptors method_ids labels address
   instruction@(IntegerBinary operation destination left right) = do
   _ <- instruction_width instruction
   Right
     (u16le (binary_opcode operation + cast destination.number * 256) ++
      u16le (cast left.number + cast right.number * 256))
-encode_instruction strings method_ids labels address
+encode_instruction strings descriptors method_ids labels address
   instruction@(TextEqual destination left right) = do
   _ <- instruction_width instruction
   let invocation = text_equal_invocation destination left right
   method_index <- lookup_index "external method" invocation.method method_ids
   encode_invoke method_index invocation
-encode_instruction strings method_ids labels address
+encode_instruction strings descriptors method_ids labels address
   instruction@(InvokeMethod invocation) = do
   _ <- instruction_width instruction
   method_index <- lookup_index "external method" invocation.method method_ids
   encode_invoke method_index invocation
-encode_instruction strings method_ids labels address
+encode_instruction strings descriptors method_ids labels address
   instruction@(IntegerBranch condition left right target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
@@ -344,7 +353,7 @@ encode_instruction strings method_ids labels address
           (branch_opcode condition + cast left.number * 256 +
            cast right.number * 4096) ++
          u16le (cast offset))
-encode_instruction strings method_ids labels address instruction@(Goto target) = do
+encode_instruction strings descriptors method_ids labels address instruction@(Goto target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
   let offset = target_address - address
@@ -352,7 +361,7 @@ encode_instruction strings method_ids labels address instruction@(Goto target) =
     then Left ("DEX goto/8 offset is zero or out of range at code unit " ++
                show address ++ ": " ++ show offset)
     else Right (u16le (0x28 + unsigned_mod (cast offset) 256 * 256))
-encode_instruction strings method_ids labels address instruction@(Goto16 target) = do
+encode_instruction strings descriptors method_ids labels address instruction@(Goto16 target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
   let offset = target_address - address
@@ -360,54 +369,60 @@ encode_instruction strings method_ids labels address instruction@(Goto16 target)
     then Left ("DEX goto/16 offset is zero or out of range at code unit " ++
                show address ++ ": " ++ show offset)
     else Right (u16le 0x29 ++ u16le (cast offset))
-encode_instruction strings method_ids labels address instruction@(Goto32 target) = do
+encode_instruction strings descriptors method_ids labels address instruction@(Goto32 target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
   let offset = target_address - address
   checked_goto_offset offset
   Right (u16le 0x2a ++ u32le (cast offset))
-encode_instruction strings method_ids labels address
+encode_instruction strings descriptors method_ids labels address
   instruction@(ReturnInteger register) = do
   _ <- instruction_width instruction
   Right (u16le (0x0f + cast register.number * 256))
-encode_instruction strings method_ids labels address
+encode_instruction strings descriptors method_ids labels address
   instruction@(ReturnObject register) = do
   _ <- instruction_width instruction
   Right (u16le (0x11 + cast register.number * 256))
-encode_instruction strings method_ids labels address
+encode_instruction strings descriptors method_ids labels address
   instruction@(ReturnWide register) = do
   _ <- instruction_width instruction
   Right (u16le (0x10 + cast register.number * 256))
-encode_instruction strings method_ids labels address ReturnVoid =
+encode_instruction strings descriptors method_ids labels address ReturnVoid =
   Right (u16le 0x0e)
 
 private
 encode_instruction_stream :
-  List String -> List MethodReference -> List (Label, Int) -> Int -> List Instruction ->
+  List String -> List String -> List MethodReference -> List (Label, Int) -> Int -> List Instruction ->
   Either String (List Int)
-encode_instruction_stream strings method_ids labels address [] = Right []
-encode_instruction_stream strings method_ids labels address (instruction :: rest) = do
-  encoded <- encode_instruction strings method_ids labels address instruction
+encode_instruction_stream strings descriptors method_ids labels address [] = Right []
+encode_instruction_stream strings descriptors method_ids labels address (instruction :: rest) = do
+  encoded <- encode_instruction strings descriptors method_ids labels address instruction
   width <- instruction_width instruction
   more <-
-    encode_instruction_stream strings method_ids labels (address + width) rest
+    encode_instruction_stream strings descriptors method_ids labels (address + width) rest
   Right (encoded ++ more)
 
 -- Strict emission of already finalized instruction widths. Unlike the
 -- compatibility entry below, this does not silently promote a stale goto.
 private
 encode_final_instructions :
-  List String -> List MethodReference -> List Instruction -> Either String (List Int)
-encode_final_instructions strings method_ids instructions = do
+  List String -> List String -> List MethodReference -> List Instruction -> Either String (List Int)
+encode_final_instructions strings descriptors method_ids instructions = do
   labels <- label_addresses instructions
-  encode_instruction_stream strings method_ids labels 0 instructions
+  encode_instruction_stream strings descriptors method_ids labels 0 instructions
+
+public export
+encode_instructions_with_types :
+  List String -> List String -> List MethodReference -> List Instruction -> Either String (List Int)
+encode_instructions_with_types strings descriptors method_ids instructions = do
+  widened <- relax_gotos (S (2 * length instructions)) instructions
+  encode_final_instructions strings descriptors method_ids widened
 
 public export
 encode_instructions :
   List String -> List MethodReference -> List Instruction -> Either String (List Int)
-encode_instructions strings method_ids instructions = do
-  widened <- relax_gotos (S (2 * length instructions)) instructions
-  encode_final_instructions strings method_ids widened
+encode_instructions strings method_ids instructions =
+  encode_instructions_with_types strings [] method_ids instructions
 
 private
 record Prototype where
@@ -604,14 +619,23 @@ prototype_descriptors prototype =
   prototype.result_descriptor :: prototype.parameter_descriptors
 
 private
+instruction_type_descriptors : Instruction -> List String
+instruction_type_descriptors (CheckCast register target) = [target.descriptor]
+instruction_type_descriptors _ = []
+
+private
+method_type_descriptors : MethodPlan -> List String
+method_type_descriptors method = concat (map instruction_type_descriptors method.instructions)
+
+private
 type_descriptors :
-  String -> List Prototype -> List MethodReference -> List TypeReference -> List String
-type_descriptors class_descriptor prototypes method_ids interfaces =
+  String -> TypeReference -> List Prototype -> List MethodReference -> List TypeReference -> List MethodPlan -> List String
+type_descriptors class_descriptor superclass prototypes method_ids interfaces methods =
   sort
     (nub
-      ([class_descriptor, "Ljava/lang/Object;"] ++ map descriptor interfaces ++
+      ([class_descriptor, superclass.descriptor] ++ map descriptor interfaces ++
        map (\method => method.owner.descriptor) method_ids ++
-       concat (map prototype_descriptors prototypes)))
+       concat (map prototype_descriptors prototypes) ++ concat (map method_type_descriptors methods)))
 
 private
 all_strings :
@@ -730,10 +754,10 @@ record PreparedMethod where
 
 private
 prepare_methods :
-  List String -> List Prototype -> List MethodReference -> String ->
+  List String -> List String -> List Prototype -> List MethodReference -> String ->
   List MethodPlan -> Either String (List PreparedMethod)
-prepare_methods strings prototypes method_ids class_descriptor [] = Right []
-prepare_methods strings prototypes method_ids class_descriptor (method :: rest) = do
+prepare_methods strings descriptors prototypes method_ids class_descriptor [] = Right []
+prepare_methods strings descriptors prototypes method_ids class_descriptor (method :: rest) = do
   incoming_words <- parameter_register_words (incoming_parameter_types method)
   outgoing_words <- outgoing_register_count method.instructions
   prototype_index <-
@@ -741,9 +765,9 @@ prepare_methods strings prototypes method_ids class_descriptor (method :: rest) 
   method_index <-
     lookup_index "generated method"
       (generated_method_reference class_descriptor method) method_ids
-  bytes <- encode_final_instructions strings method_ids method.instructions
+  bytes <- encode_final_instructions strings descriptors method_ids method.instructions
   more <-
-    prepare_methods strings prototypes method_ids class_descriptor rest
+    prepare_methods strings descriptors prototypes method_ids class_descriptor rest
   Right
     (MkPreparedMethod method incoming_words outgoing_words method_index prototype_index bytes
       (cast (length bytes) `div` 2) 0 :: more)
@@ -909,7 +933,12 @@ export
 finalize_file_plan : FilePlan -> Either String FinalizedFilePlan
 finalize_file_plan file_plan = do
   validate_class_descriptor file_plan.class_descriptor
+  validate_class_descriptor file_plan.superclass.descriptor
+  if file_plan.class_descriptor == file_plan.superclass.descriptor
+    then Left "DEX class cannot extend itself"
+    else Right ()
   _ <- traverse (validate_class_descriptor . descriptor) file_plan.interfaces
+  _ <- traverse validate_class_descriptor (concat (map method_type_descriptors file_plan.methods))
   if elem (MkTypeReference file_plan.class_descriptor) file_plan.interfaces
     then Left "A DEX class cannot implement itself"
     else Right ()
@@ -938,7 +967,7 @@ encode_finalized_dex (FrozenFilePlan file_plan) = do
   let prototypes =
         unique_prototypes (map prototype_of_reference method_ids)
   let descriptors =
-        type_descriptors file_plan.class_descriptor prototypes method_ids file_plan.interfaces
+        type_descriptors file_plan.class_descriptor file_plan.superclass prototypes method_ids file_plan.interfaces methods
   let strings =
         all_strings methods method_ids prototypes descriptors
   let method_id_count : Int = cast (length method_ids)
@@ -951,11 +980,11 @@ encode_finalized_dex (FrozenFilePlan file_plan) = do
   class_type_index <-
     lookup_index "generated class type" file_plan.class_descriptor descriptors
   object_type_index <-
-    lookup_index "Object type" "Ljava/lang/Object;" descriptors
+    lookup_index "superclass type" file_plan.superclass.descriptor descriptors
   parameter_lists <- layout_type_lists descriptors data_off prototypes
   type_lists <- layout_interfaces descriptors parameter_lists file_plan.interfaces
   prepared <-
-    prepare_methods strings prototypes method_ids file_plan.class_descriptor methods
+    prepare_methods strings descriptors prototypes method_ids file_plan.class_descriptor methods
   let code = layout_code type_lists.next_offset prepared
   strings_layout <- layout_strings code.next_offset strings
   let class_data_bytes = class_data code.methods
