@@ -70,6 +70,14 @@ rg -q -x -F 'Status: ok' "$output/oracle-start.txt"
 rg -q -F 'text="FAIL native source address"' "$output/oracle-start.xml"
 "$adb" -s emulator-5554 shell input keyevent KEYCODE_HOME
 "$adb" -s emulator-5554 shell dumpsys package org.isomorphisms.idric.construct.oracle > "$output/oracle-after-start.txt"
+# Android's browser-role preference filters generic web handlers down to Chrome
+# even inside this chooser setup. Qualify dispatch with no preferred browser in
+# the disposable emulator, retaining the role state and live command interface.
+"$adb" -s emulator-5554 shell dumpsys role > "$output/browser-role-before.txt"
+"$adb" -s emulator-5554 shell cmd role help > "$output/role-shell-help.txt"
+rg -q -F 'clear-role-holders' "$output/role-shell-help.txt"
+"$adb" -s emulator-5554 shell cmd role clear-role-holders --user 0 android.app.role.BROWSER > "$output/browser-role-clear.txt" 2>&1
+"$adb" -s emulator-5554 shell dumpsys role > "$output/browser-role-after.txt"
 "$adb" -s emulator-5554 shell cmd package query-activities --brief --components --query-flags 0x10000 \
   -a android.intent.action.VIEW \
   -d https://github.com/isomorphisms/ib/blob/9027d5ea0ce8718b0337b4cd3d16c0549dc2b2ed/README.md > "$output/source-handlers.txt"
