@@ -519,7 +519,7 @@ specialize_body integer_less foreigns definitions arguments body = do
 private
 foreign_result_value_type : DEXForeign -> Either String FrameworkValueType
 foreign_result_value_type foreign =
-  case foreign.method.result of
+  case foreign_result_type foreign of
     ExistingValue BooleanValue => Right (ExistingValue IntegerValue)
     ExistingValue value => Right (ExistingValue value)
     ReferenceValue reference => Right (ReferenceValue reference)
@@ -592,14 +592,19 @@ lower_foreign_call destination destination_type name arguments state =
           registers <-
             foreign_argument_registers
               ("Foreign call " ++ show name)
-              (target_argument_types foreign.invocation_kind foreign.method)
+              (foreign_argument_types foreign)
               ordinary state
-          Right
-            (emit
-              (InvokeMethod
-                (Invoke foreign.invocation_kind foreign.method registers
-                  (if result_type == VoidValue then Nothing else Just destination)))
-              state)
+          case foreign.construction of
+            Just owner => Right
+              (emit (InvokeMethod (Invoke InvokeDirect foreign.method
+                       (destination :: registers) Nothing))
+                (emit (NewObject destination owner) state))
+            Nothing => Right
+              (emit
+                (InvokeMethod
+                  (Invoke foreign.invocation_kind foreign.method registers
+                    (if result_type == VoidValue then Nothing else Just destination)))
+                state)
 
 private
 lower_comparison :

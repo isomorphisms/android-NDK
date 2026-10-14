@@ -1,0 +1,45 @@
+#!/usr/bin/env grease
+# Disposable Ubuntu/x86_64 build-host acquisition; never run on a phone.
+set -eu -o pipefail
+if (len(ARGV) !== 4) {
+  echo 'usage: grease prepare-art-runtime.grease SDKMANAGER SDK_ROOT USER_ROOT FRESH_EVIDENCE' >&2
+  exit 2
+}
+var manager = ARGV[0]
+var sdk = ARGV[1]
+var user_root = ARGV[2]
+var evidence = ARGV[3]
+for path in "$manager" "$sdk" "$user_root" "$evidence" {
+  if (path[0] !== '/') { echo 'FAIL absolute host path required' >&2; exit 2 }
+}
+test "$(uname -s)" = Linux
+test "$(uname -m)" = x86_64
+test -x "$manager"
+if test -e "$evidence" { echo 'FAIL refusing reused acquisition evidence' >&2; exit 1 }
+mkdir -p "$evidence"
+uname -srm > "$evidence/host.txt"
+cat /etc/os-release > "$evidence/os.txt"
+java -version > "$evidence/java.txt" 2>&1
+sha256sum "$manager" > "$evidence/entrypoint-sha256.txt"
+# Finite input avoids a successful consumer being hidden by yes/SIGPIPE.
+for reply in @(seq 1 200) { echo y } | env ANDROID_USER_HOME="$user_root" \
+  "$manager" --sdk_root="$sdk" 'platform-tools' 'emulator' 'platforms;android-34' \
+  'build-tools;35.0.0' 'system-images;android-34;default;x86_64' \
+  > "$evidence/install.txt" 2>&1
+env ANDROID_USER_HOME="$user_root" "$manager" --sdk_root="$sdk" --list_installed \
+  > "$evidence/installed.txt"
+for program in "$sdk/platform-tools/adb" "$sdk/emulator/emulator" \
+  "$sdk/build-tools/35.0.0/aapt2" "$sdk/build-tools/35.0.0/dexdump" \
+  "$sdk/build-tools/35.0.0/apksigner" "$sdk/build-tools/35.0.0/zipalign" {
+  test -x "$program"
+  sha256sum "$program" >> "$evidence/installed-program-sha256.txt"
+}
+test -s "$sdk/platforms/android-34/android.jar"
+test -s "$sdk/system-images/android-34/default/x86_64/system.img"
+sha256sum "$sdk/platforms/android-34/android.jar" \
+  "$sdk/system-images/android-34/default/x86_64/package.xml" \
+  "$sdk/emulator/package.xml" "$sdk/platform-tools/package.xml" \
+  > "$evidence/package-input-sha256.txt"
+echo 'PASS host Android tooling and declared Android 14/x86_64 image acquired' > "$evidence/result.txt"
+echo 'Emulator launch, ART execution, UI behavior and physical target NOT_RUN' >> "$evidence/result.txt"
+cat "$evidence/result.txt"
