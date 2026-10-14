@@ -21,13 +21,22 @@ Eq ForeignEffect where
   _ == _ = False
 
 public export
+data ForeignOperation
+  = MethodInvocation InvokeKind MethodReference
+  | CheckedReferenceCast TypeReference TypeReference
+
+public export
 record DEXForeign where
-  constructor MkDEXForeign
+  constructor DeclareDEXForeign
   effect : ForeignEffect
-  invocation_kind : InvokeKind
-  method : MethodReference
+  operation : ForeignOperation
   source_argument_types : List CFType
   source_result_type : CFType
+
+public export
+MkDEXForeign : ForeignEffect -> InvokeKind -> MethodReference -> List CFType -> CFType -> DEXForeign
+MkDEXForeign effect kind method arguments result =
+  DeclareDEXForeign effect (MethodInvocation kind method) arguments result
 
 private
 starts_with : List Char -> List Char -> Bool
@@ -211,6 +220,8 @@ source_matches_target CFInt32 (ExistingValue IntegerValue) = True
 source_matches_target CFInt32 (ExistingValue BooleanValue) = True
 source_matches_target CFInt64 LongValue = True
 source_matches_target CFString (ExistingValue TextValue) = True
+source_matches_target CFString (ReferenceValue reference) =
+  reference.descriptor == "Ljava/lang/CharSequence;"
 source_matches_target source (ReferenceValue reference) =
   reference_source_type source
 source_matches_target source (ExistingValue ObjectValue) =
@@ -247,6 +258,26 @@ target_argument_types InvokeInterface method =
   reference_type (unpack method.owner.descriptor) :: method.argument_types
 target_argument_types InvokeDirect method =
   reference_type (unpack method.owner.descriptor) :: method.argument_types
+target_argument_types InvokeSuper method =
+  reference_type (unpack method.owner.descriptor) :: method.argument_types
+
+public export
+foreign_target_arguments : DEXForeign -> List FrameworkValueType
+foreign_target_arguments foreign = case foreign.operation of
+  MethodInvocation kind method => target_argument_types kind method
+  CheckedReferenceCast source target => [reference_type (unpack source.descriptor)]
+
+public export
+foreign_target_result : DEXForeign -> FrameworkValueType
+foreign_target_result foreign = case foreign.operation of
+  MethodInvocation kind method => method.result
+  CheckedReferenceCast source target => reference_type (unpack target.descriptor)
+
+public export
+describe_foreign : DEXForeign -> String
+describe_foreign foreign = case foreign.operation of
+  MethodInvocation kind method => show method
+  CheckedReferenceCast source target => "checked cast " ++ show source ++ " to " ++ show target
 
 private
 signatures_match :
@@ -269,7 +300,9 @@ validate_signature kind method source_arguments source_result = do
     else
       Left
         ("dex foreign argument types do not match " ++ show method)
-  if source_matches_target ordinary_result method.result
+  if (case (ordinary_result, method.result) of
+        (CFString, ReferenceValue _) => False
+        _ => source_matches_target ordinary_result method.result)
     then Right effect
     else
       Left
@@ -289,17 +322,38 @@ parse_dex_foreign convention source_arguments source_result = do
     case drop_prefix (unpack "dex:") (unpack convention) of
       Nothing => Left "Foreign convention is not for the dex backend"
       Just value => Right value
-  (kind, owner, name, descriptor) <- parse_fields body
-  (argument_types, result) <- parse_method_descriptor descriptor
-  let method = MkMethodReference owner name argument_types result
-  effect <- validate_signature kind method source_arguments source_result
-  (_, ordinary_arguments, ordinary_result) <-
-    normalise_signature source_arguments source_result
-  Right (MkDEXForeign effect kind method ordinary_arguments ordinary_result)
+  case drop_prefix (unpack "cast:") body of
+    Just cast_fields => do
+      (source_chars, target_chars) <- maybe (Left "DEX cast requires source and target reference descriptors")
+        Right (split_once ':' cast_fields)
+      let source_descriptor = pack source_chars
+      let target_descriptor = pack target_chars
+      validate_reference_descriptor source_descriptor
+      validate_reference_descriptor target_descriptor
+      (effect, ordinary_arguments, ordinary_result) <- normalise_signature source_arguments source_result
+      case ordinary_arguments of
+        [argument] =>
+          if reference_source_type argument && reference_source_type ordinary_result
+            then Right (DeclareDEXForeign effect
+                   (CheckedReferenceCast (MkTypeReference source_descriptor) (MkTypeReference target_descriptor))
+                   ordinary_arguments ordinary_result)
+            else Left "DEX cast requires checked external source and result domains"
+        _ => Left "DEX cast requires exactly one reference argument"
+    Nothing => do
+      (kind, owner, name, descriptor) <- parse_fields body
+      (argument_types, result) <- parse_method_descriptor descriptor
+      let method = MkMethodReference owner name argument_types result
+      effect <- validate_signature kind method source_arguments source_result
+      (_, ordinary_arguments, ordinary_result) <- normalise_signature source_arguments source_result
+      Right (MkDEXForeign effect kind method ordinary_arguments ordinary_result)
 
 private
 reference_constraint :
   CFType -> FrameworkValueType -> Either String (List (Name, TypeReference))
+reference_constraint CFString (ReferenceValue descriptor) =
+  if descriptor.descriptor == "Ljava/lang/CharSequence;"
+    then Right []
+    else Left "DEX Text can widen only to the platform CharSequence interface"
 reference_constraint (CFUser name []) (ReferenceValue descriptor) =
   Right [(name, descriptor)]
 reference_constraint (CFUser name []) (ExistingValue ObjectValue) =
@@ -329,8 +383,8 @@ foreign_reference_constraints :
   DEXForeign -> Either String (List (Name, TypeReference))
 foreign_reference_constraints foreign = do
   arguments <- argument_constraints foreign.source_argument_types
-    (target_argument_types foreign.invocation_kind foreign.method)
-  result <- reference_constraint foreign.source_result_type foreign.method.result
+    (foreign_target_arguments foreign)
+  result <- reference_constraint foreign.source_result_type (foreign_target_result foreign)
   Right (arguments ++ result)
 
 private

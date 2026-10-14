@@ -519,20 +519,22 @@ specialize_body integer_less foreigns definitions arguments body = do
 private
 foreign_result_value_type : DEXForeign -> Either String FrameworkValueType
 foreign_result_value_type foreign =
-  case foreign.method.result of
+  case foreign_target_result foreign of
     ExistingValue BooleanValue => Right (ExistingValue IntegerValue)
     ExistingValue value => Right (ExistingValue value)
     ReferenceValue reference => Right (ReferenceValue reference)
     LongValue =>
       Left
         ("DEX source lowering does not yet allocate a register pair for foreign result " ++
-         show foreign.method)
+         describe_foreign foreign)
     VoidValue => Right VoidValue
 
 private
 same_register_type : FrameworkValueType -> FrameworkValueType -> Bool
 same_register_type (ExistingValue IntegerValue) (ExistingValue BooleanValue) = True
 same_register_type (ExistingValue BooleanValue) (ExistingValue IntegerValue) = True
+same_register_type (ExistingValue TextValue) (ReferenceValue reference) =
+  reference.descriptor == "Ljava/lang/CharSequence;"
 same_register_type left right = framework_descriptor left == framework_descriptor right
 
 private
@@ -584,7 +586,7 @@ lower_foreign_call destination destination_type name arguments state =
           if not (same_register_type result_type destination_type)
             then
               Left
-                ("DEX foreign result type mismatch for " ++ show foreign.method ++
+                ("DEX foreign result type mismatch for " ++ describe_foreign foreign ++
                  ": inferred " ++ show result_type ++
                  ", destination is " ++ show destination_type)
             else Right ()
@@ -592,14 +594,16 @@ lower_foreign_call destination destination_type name arguments state =
           registers <-
             foreign_argument_registers
               ("Foreign call " ++ show name)
-              (target_argument_types foreign.invocation_kind foreign.method)
+              (foreign_target_arguments foreign)
               ordinary state
-          Right
-            (emit
-              (InvokeMethod
-                (Invoke foreign.invocation_kind foreign.method registers
-                  (if result_type == VoidValue then Nothing else Just destination)))
-              state)
+          case foreign.operation of
+            MethodInvocation kind method => Right
+              (emit (InvokeMethod (Invoke kind method registers
+                (if result_type == VoidValue then Nothing else Just destination))) state)
+            CheckedReferenceCast source target => case registers of
+              [source_register] => Right (emit (CheckCast destination target)
+                (emit (MoveObject destination source_register) state))
+              _ => Left "DEX checked cast has no single source reference"
 
 private
 lower_comparison :

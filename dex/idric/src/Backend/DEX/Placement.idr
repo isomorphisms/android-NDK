@@ -58,6 +58,7 @@ instruction_registers (MoveObject destination source) = Right [destination, sour
 instruction_registers (IntegerConstant destination _) = Right [destination]
 instruction_registers (NullReference destination) = Right [destination]
 instruction_registers (TextConstant destination _) = Right [destination]
+instruction_registers (CheckCast register _) = Right [register]
 instruction_registers (IntegerBinary _ destination left right) =
   Right [destination, left, right]
 instruction_registers (TextEqual destination left right) =
@@ -116,6 +117,7 @@ instruction_staging : Instruction -> Either String (Bool, Int)
 instruction_staging (InvokeMethod invocation) = call_staging invocation
 instruction_staging (TextEqual destination left right) =
   call_staging (text_call destination left right)
+instruction_staging (CheckCast register _) = Right (register.number > 255, 0)
 instruction_staging _ = Right (False, 0)
 
 private
@@ -206,6 +208,12 @@ place_instruction scratch_start (TextConstant destination value) =
   if low_byte_register target
     then Right [TextConstant target value]
     else Right [TextConstant scratch_zero value, MoveObject target scratch_zero]
+place_instruction scratch_start (CheckCast register target_type) =
+  let target = shift_register register in
+  if low_byte_register target
+    then Right [CheckCast target target_type]
+    else Right [MoveObject scratch_zero target, CheckCast scratch_zero target_type,
+                MoveObject target scratch_zero]
 place_instruction scratch_start (IntegerBinary operation destination left right) =
   let target = shift_register destination
       first = shift_register left
