@@ -25,14 +25,14 @@ var output = "$evidence/instrumentation"
 mkdir -p "$output"
 java -jar "$smali" assemble "$controls" -o "$output/observer.dex"
 sha256sum "$controls/ReaderChecks.smali" "$controls/ReaderInstrumentation.smali" "$controls/SourceAddressObserver.smali" \
-  "$controls/oracle-manifest.xml" "$controls/target-manifest.xml" \
+  "$controls/oracle-manifest.xml" "$controls/receiver-manifest.xml" "$controls/target-manifest.xml" \
   "$output/observer.dex" "$keystore" > "$output/observer-inputs-sha256.txt"
 "$adb" -s emulator-5554 emu avd name > "$output/emulator.txt"
 "$adb" -s emulator-5554 shell getprop ro.build.version.sdk > "$output/sdk.txt"
 "$adb" -s emulator-5554 shell getprop ro.product.cpu.abi > "$output/abi.txt"
 test "$(tr -d '\r' < "$output/sdk.txt")" = 34
 test "$(tr -d '\r' < "$output/abi.txt")" = x86_64
-for package in org.isomorphisms.idric.construct.test org.isomorphisms.idric.construct.oracle {
+for package in org.isomorphisms.idric.construct.test org.isomorphisms.idric.construct.oracle org.isomorphisms.idric.construct.receiver {
   "$adb" -s emulator-5554 shell pm list packages "$package" > "$output/$package-prior.txt"
   if rg -q -x -F "package:$package" "$output/$package-prior.txt" { echo 'FAIL qualification namespace already installed' >&2; exit 1 }
 }
@@ -70,24 +70,31 @@ rg -q -x -F 'Status: ok' "$output/oracle-start.txt"
 rg -q -F 'text="FAIL native source address"' "$output/oracle-start.xml"
 "$adb" -s emulator-5554 shell input keyevent KEYCODE_HOME
 "$adb" -s emulator-5554 shell dumpsys package org.isomorphisms.idric.construct.oracle > "$output/oracle-after-start.txt"
-# Android's browser-role preference filters generic web handlers down to Chrome
-# even inside this chooser setup. Qualify dispatch with no preferred browser in
-# the disposable emulator, retaining the role state and live command interface.
+# A second independent receiver and an unavailable factory browser make a real
+# chooser available on this disposable SDK image. Clearing the browser role alone
+# restores Chrome automatically. The candidate/URI/provider results are unchanged.
+package_fixture "$controls/receiver-manifest.xml" "$output/observer.dex" "$output/receiver"
+"$adb" -s emulator-5554 install "$output/receiver/fixture.apk" > "$output/receiver-install.txt" 2>&1
+rg -q -x -F Success "$output/receiver-install.txt"
+"$adb" -s emulator-5554 shell am start -W -a android.intent.action.MAIN \
+  -n org.isomorphisms.idric.construct.receiver/Idric.SourceAddressObserver > "$output/receiver-start.txt" 2>&1
+rg -q -x -F 'Status: ok' "$output/receiver-start.txt"
+"$adb" -s emulator-5554 shell uiautomator dump /data/local/tmp/idric-source-alternative-start.xml > "$output/receiver-start-dump.txt" 2>&1
+"$adb" -s emulator-5554 pull /data/local/tmp/idric-source-alternative-start.xml "$output/receiver-start.xml" > "$output/receiver-start-pull.txt" 2>&1
+rg -q -F 'text="FAIL native source address"' "$output/receiver-start.xml"
+"$adb" -s emulator-5554 shell input keyevent KEYCODE_HOME
 "$adb" -s emulator-5554 shell dumpsys role > "$output/browser-role-before.txt"
-try { "$adb" -s emulator-5554 shell cmd role help > "$output/role-shell-help.txt" 2>&1 }
-var help_status = _error.code
-printf '%s\n' "$help_status" > "$output/role-shell-help.status"
-if (help_status !== 0 and help_status !== 255) { echo 'FAIL unexpected role help status' >&2; exit 1 }
-rg -q -F 'clear-role-holders' "$output/role-shell-help.txt"
 "$adb" -s emulator-5554 shell cmd role get-role-holders --user 0 android.app.role.BROWSER > "$output/browser-holders-before.txt"
-"$adb" -s emulator-5554 shell cmd role clear-role-holders --user 0 android.app.role.BROWSER > "$output/browser-role-clear.txt" 2>&1
-"$adb" -s emulator-5554 shell cmd role get-role-holders --user 0 android.app.role.BROWSER > "$output/browser-holders-after.txt"
-if rg -q '[^[:space:]]' "$output/browser-holders-after.txt" { echo 'FAIL preferred browser remains in disposable chooser fixture' >&2; exit 1 }
-"$adb" -s emulator-5554 shell dumpsys role > "$output/browser-role-after.txt"
+rg -q -x -F 'com.android.chrome' "$output/browser-holders-before.txt"
+"$adb" -s emulator-5554 shell pm disable-user --user 0 com.android.chrome > "$output/chrome-disable.txt" 2>&1
+rg -q -F 'new state: disabled-user' "$output/chrome-disable.txt"
+"$adb" -s emulator-5554 shell dumpsys package com.android.chrome > "$output/chrome-after-disable.txt"
 "$adb" -s emulator-5554 shell cmd package query-activities --brief --components --query-flags 0x10000 \
   -a android.intent.action.VIEW \
   -d https://github.com/isomorphisms/ib/blob/9027d5ea0ce8718b0337b4cd3d16c0549dc2b2ed/README.md > "$output/source-handlers.txt"
 rg -q -x -F 'org.isomorphisms.idric.construct.oracle/Idric.SourceAddressObserver' "$output/source-handlers.txt"
+rg -q -x -F 'org.isomorphisms.idric.construct.receiver/Idric.SourceAddressObserver' "$output/source-handlers.txt"
+if rg -q -F 'com.android.chrome/' "$output/source-handlers.txt" { echo 'FAIL factory browser remains eligible in chooser fixture' >&2; exit 1 }
 test "$(rg -c '/' "$output/source-handlers.txt")" -ge 2
 for name in positive text-mutant reflow-mutant selection-mutant recovery {
   var candidate = "$evidence/$name/candidate.dex"
