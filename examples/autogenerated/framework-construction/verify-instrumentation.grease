@@ -74,9 +74,15 @@ rg -q -F 'text="FAIL native source address"' "$output/oracle-start.xml"
 # even inside this chooser setup. Qualify dispatch with no preferred browser in
 # the disposable emulator, retaining the role state and live command interface.
 "$adb" -s emulator-5554 shell dumpsys role > "$output/browser-role-before.txt"
-"$adb" -s emulator-5554 shell cmd role help > "$output/role-shell-help.txt"
+try { "$adb" -s emulator-5554 shell cmd role help > "$output/role-shell-help.txt" 2>&1 }
+var help_status = _error.code
+printf '%s\n' "$help_status" > "$output/role-shell-help.status"
+if (help_status !== 0 and help_status !== 255) { echo 'FAIL unexpected role help status' >&2; exit 1 }
 rg -q -F 'clear-role-holders' "$output/role-shell-help.txt"
+"$adb" -s emulator-5554 shell cmd role get-role-holders --user 0 android.app.role.BROWSER > "$output/browser-holders-before.txt"
 "$adb" -s emulator-5554 shell cmd role clear-role-holders --user 0 android.app.role.BROWSER > "$output/browser-role-clear.txt" 2>&1
+"$adb" -s emulator-5554 shell cmd role get-role-holders --user 0 android.app.role.BROWSER > "$output/browser-holders-after.txt"
+if rg -q '[^[:space:]]' "$output/browser-holders-after.txt" { echo 'FAIL preferred browser remains in disposable chooser fixture' >&2; exit 1 }
 "$adb" -s emulator-5554 shell dumpsys role > "$output/browser-role-after.txt"
 "$adb" -s emulator-5554 shell cmd package query-activities --brief --components --query-flags 0x10000 \
   -a android.intent.action.VIEW \
