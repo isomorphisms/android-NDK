@@ -378,9 +378,34 @@ primitive operation arguments state =
 -- Fresh loop registers protect outer aliases. All call arguments are staged
 -- before assignment to preserve simultaneous parameter substitution.
 private
+loop_value_description : Value -> String
+loop_value_description (Literal (BI value)) = "unbounded Integer literal " ++ show value
+loop_value_description (Literal (I value)) = "platform Int literal " ++ show value
+loop_value_description (Literal (B8 value)) = "Bits8 literal " ++ show value
+loop_value_description (Literal constant) = "literal " ++ show constant
+loop_value_description (Constructor name _ _ _) = "source constructor " ++ show name
+loop_value_description (Closure name _ _) = "source closure " ++ show name
+loop_value_description Erased = "erased source value"
+loop_value_description _ = "unsupported source value"
+
+private
 clone_value : Value -> State -> Either String (Value, State)
 clone_value (TextRegister source) state =
   let (target, after) = fresh state in Right (TextRegister target, emit (MoveObject target source) after)
+clone_value (Literal (Str text)) state =
+  let (target, after) = fresh state in
+  Right (TextRegister target, emit (TextConstant target text) after)
+clone_value (Literal (Ch character)) state =
+  let (target, after) = fresh state in
+  Right (CharacterRegister target Nothing, emit (IntegerConstant target (ord character)) after)
+-- The checked compiler encodes source Boolean constructors as byte flags.
+-- Keep only the proven 0/1 range; wider bytes and unbounded numbers are not
+-- silently admitted as predicates or Int32 loop state.
+clone_value (Literal (B8 value)) state =
+  if value == 0 || value == 1
+    then let (target, after) = fresh state in
+         Right (BooleanRegister target, emit (IntegerConstant target (cast value)) after)
+    else Left "DEX tail-loop byte literal has no qualified binary flag representation"
 clone_value (Characters view) state =
   let (text, s1) = fresh state
       (array, s2) = fresh s1
@@ -390,14 +415,17 @@ clone_value (Characters view) state =
     [MoveObject text view.original_text, MoveObject array view.code_points,
      Move start view.position, Move size view.length] s4)
 clone_value value state = do
-  (source, before) <- integer_register value state
+  (source, before) <- case integer_register value state of
+    Left explanation => Left (explanation ++ ": " ++ loop_value_description value)
+    Right accepted => Right accepted
   let (target, after) = fresh before
   case value of
     CharacterRegister _ _ => Right (CharacterRegister target Nothing, emit (Move target source) after)
     BooleanRegister _ => Right (BooleanRegister target, emit (Move target source) after)
     Literal (I32 _) => Right (IntegerRegister target, emit (Move target source) after)
     IntegerRegister _ => Right (IntegerRegister target, emit (Move target source) after)
-    _ => Left "DEX tail-loop parameter needs a supported first-order runtime representation"
+    _ => Left ("DEX tail-loop parameter needs a supported first-order runtime representation: " ++
+               loop_value_description value)
 
 private
 clone_values : List Value -> State -> Either String (List Value, State)
@@ -406,6 +434,13 @@ clone_values (value :: rest) state = do
   (copied, s1) <- clone_value value state
   (more, s2) <- clone_values rest s1
   Right (copied :: more, s2)
+
+private
+clone_loop_arguments : Name -> List Value -> State -> Either String (List Value, State)
+clone_loop_arguments name arguments state =
+  case clone_values arguments state of
+    Left explanation => Left (explanation ++ " in checked helper `" ++ show name ++ "`")
+    Right copied => Right copied
 
 private
 assign_value : Value -> Value -> State -> Result
@@ -531,7 +566,7 @@ mutual
         Just active =>
           if active.function == name && tail_position
             then do
-              (staged, next) <- clone_values arguments state
+              (staged, next) <- clone_loop_arguments name arguments state
               assigned <- assign_values active.loop_values staged next
               Right (emit (Goto active.entry) assigned)
             else Left ("DEX unpack non-tail/mutual recursion remains unsupported: " ++ show name)
@@ -540,7 +575,7 @@ mutual
       Just (Make_Administrative_Normal_Form_Function formals body) =>
         if elem name (calls body)
           then do
-            (loop_values, copied) <- clone_values arguments state
+            (loop_values, copied) <- clone_loop_arguments name arguments state
             bound <- bind_arguments formals loop_values []
             let (entry, after_label) = label copied
             evaluate definitions (name :: stack) (Just (TailLoop name entry loop_values)) True bound body continuation (emit (Mark entry) after_label)

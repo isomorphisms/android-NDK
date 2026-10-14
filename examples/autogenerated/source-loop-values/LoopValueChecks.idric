@@ -1,0 +1,24 @@
+module LoopValueChecks
+
+import Data.Text
+import LoopValues
+import System
+
+assert_case : Text → Bool → IO ()
+assert_case description accepted =
+  if accepted then putStrLn ("PASS " ++ description)
+  else die ("FAIL " ++ description)
+
+main : IO ()
+main = do
+  assert_case "empty source has no linefeed" (contains_linefeed "" ≟ 0)
+  assert_case "ordinary source has no linefeed" (contains_linefeed "abc" ≟ 0)
+  assert_case "runtime linefeed is found" (contains_linefeed "ab\ncd" ≟ 1)
+  assert_case "supplementary character is not a linefeed" (contains_linefeed "λ𝄞z" ≟ 0)
+  assert_case "supplementary code point is found" (contains_music_symbol "λ𝄞z" ≟ 1)
+  assert_case "different supplementary code point is refused" (contains_music_symbol "𝄢" ≟ 0)
+  assert_case "literal text survives the scan" (source_marker "ordinary" ≟ "fallback λ𝄞")
+  assert_case "runtime marker changes the result" (source_marker "prefix!" ≟ "found")
+  assert_case "false byte flag survives the scan" (saw_marker "ordinary" ≟ 0)
+  assert_case "true byte flag survives the scan" (saw_marker "!suffix" ≟ 1)
+  putStrLn "PASS source loop-value semantics"

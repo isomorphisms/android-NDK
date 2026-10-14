@@ -1,0 +1,28 @@
+#!/usr/bin/env grease
+if (len(ARGV) !== 4) { echo 'usage: grease build-driver.grease BACKEND CORE SCHEME NEW_OUTPUT' >&2; exit 2 }
+var backend = ARGV[0]
+var core = ARGV[1]
+var scheme = ARGV[2]
+var output = ARGV[3]
+for path in "$backend" "$core" "$scheme" "$output" {
+  if (len(path) === 0 or path[0] !== '/') { echo 'absolute path required' >&2; exit 2 }
+}
+if test -e "$output" { echo 'refusing reused driver output' >&2; exit 1 }
+var prefix = "$core/_/bootstrap-build"
+var compiler = "$core/_/build/exec/idris2"
+var libraries = "$prefix/idris2-0.8.0/base-0.8.0:$prefix/idris2-0.8.0/prelude-0.8.0:$prefix/idris2-0.8.0/network-0.8.0:$prefix/idris2-0.8.0/linear-0.8.0"
+mkdir -p "$output/exec"
+git -C "$backend" rev-parse HEAD > "$output/backend-revision.txt"
+git -C "$backend" diff --binary HEAD > "$output/backend.patch"
+git -C "$core" rev-parse HEAD > "$output/core-revision.txt"
+env IDRIS2_PREFIX="$prefix" IDRIS2_PATH="$core/_/build/ttc:$libraries" CHEZ="$scheme" \
+  "$compiler" --cg chez --source-dir "$backend/dex/idric/src" \
+  --build-dir "$output/build" --output-dir "$output/exec" \
+  "$backend/dex/idric/src/Backend/DEX/Main.idr" -o idric-dex > "$output/compile.txt" 2>&1
+try { rg -n '^[[:space:]]*(Error:|INTERNAL ERROR)' "$output/compile.txt" }
+if (_error.code !== 1) { echo 'FAIL driver compiler diagnostics' >&2; exit 1 }
+test -x "$output/exec/idric-dex"
+cp "$core/_/build/exec/idris2_app/libidris2_support.so" "$output/exec/idric-dex_app/"
+sha256sum "$compiler" "$output/exec/idric-dex_app/idric-dex.so" > "$output/digests.txt"
+echo 'PASS checked DEX driver built'
+echo 'UNQUALIFIED inherited Chez bootstrap; producer acceptance remains separate'

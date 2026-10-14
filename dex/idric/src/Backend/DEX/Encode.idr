@@ -460,19 +460,35 @@ generated_method_reference class_descriptor method =
     method.result_type
 
 private
+utf16_character_units : Char -> List Int
+utf16_character_units character =
+  let code = ord character in
+  if code <= 65535 then [code]
+  else let supplementary = code - 65536 in
+       [55296 + supplementary `div` 1024, 56320 + supplementary `mod` 1024]
+
+private
+utf16_units : String -> List Int
+utf16_units value = concat (map utf16_character_units (unpack value))
+
+export
+compare_dex_strings : String -> String -> Ordering
+compare_dex_strings left right = compare (utf16_units left) (utf16_units right)
+
+private
 compare_descriptors : List String -> List String -> Ordering
 compare_descriptors [] [] = EQ
 compare_descriptors [] (_ :: _) = LT
 compare_descriptors (_ :: _) [] = GT
 compare_descriptors (left :: left_rest) (right :: right_rest) =
-  case compare left right of
+  case compare_dex_strings left right of
     EQ => compare_descriptors left_rest right_rest
     ordering => ordering
 
 private
 compare_prototype : Prototype -> Prototype -> Ordering
 compare_prototype left right =
-  case compare left.result_descriptor right.result_descriptor of
+  case compare_dex_strings left.result_descriptor right.result_descriptor of
     EQ =>
       compare_descriptors
         left.parameter_descriptors
@@ -496,11 +512,11 @@ unique_prototypes =
 private
 method_reference_before : MethodReference -> MethodReference -> Bool
 method_reference_before left right =
-  case compare left.owner.descriptor right.owner.descriptor of
+  case compare_dex_strings left.owner.descriptor right.owner.descriptor of
     LT => True
     GT => False
     EQ =>
-      case compare left.name right.name of
+      case compare_dex_strings left.name right.name of
         LT => True
         GT => False
         EQ =>
@@ -526,7 +542,7 @@ sort_method_references = foldr insert_method_reference []
 private
 method_before : MethodPlan -> MethodPlan -> Bool
 method_before left right =
-  case compare left.method_name right.method_name of
+  case compare_dex_strings left.method_name right.method_name of
     LT => True
     GT => False
     EQ =>
@@ -558,17 +574,22 @@ find_duplicate_method (method :: rest) =
     else find_duplicate_method rest
 
 private
-ascii_bytes : String -> Either String (List Int)
-ascii_bytes value = traverse encode_character (unpack value)
-  where
-    encode_character : Char -> Either String Int
-    encode_character character =
-      let code = ord character
-      in if code >= 1 && code <= 127
-           then Right code
-           else Left
-             ("Checked DEX metadata/Text constants currently admit non-NUL ASCII only: " ++
-              show character)
+modified_utf8_unit : Int -> List Int
+modified_utf8_unit 0 = [192, 128]
+modified_utf8_unit code =
+  if code <= 127 then [code]
+  else if code <= 2047 then [192 + code `div` 64, 128 + code `mod` 64]
+  else [224 + code `div` 4096, 128 + (code `div` 64) `mod` 64, 128 + code `mod` 64]
+
+||| DEX string_data_item uses UTF-16 length and modified UTF-8, including
+||| encoded NUL and three-byte encodings for each surrogate-pair member.
+export
+encode_string_data : String -> Either String (List Int)
+encode_string_data value =
+  if all (\character => ord character >= 0 && ord character <= 1114111) (unpack value)
+    then let units = utf16_units value in
+         Right (uleb128 (cast (length units)) ++ concat (map modified_utf8_unit units) ++ [0])
+    else Left "DEX string contains an invalid Unicode code point"
 
 private
 descriptor_shorty : String -> Char
@@ -631,7 +652,7 @@ private
 type_descriptors :
   String -> TypeReference -> List Prototype -> List MethodReference -> List TypeReference -> List MethodPlan -> List String
 type_descriptors class_descriptor superclass prototypes method_ids interfaces methods =
-  sort
+  sortBy compare_dex_strings
     (nub
       ([class_descriptor, superclass.descriptor] ++ map descriptor interfaces ++
        map (\method => method.owner.descriptor) method_ids ++
@@ -641,7 +662,7 @@ private
 all_strings :
   List MethodPlan -> List MethodReference -> List Prototype -> List String -> List String
 all_strings methods method_ids prototypes descriptors =
-  sort
+  sortBy compare_dex_strings
     (nub
       (descriptors ++
        map (\method => method.name) method_ids ++
@@ -823,8 +844,7 @@ layout_strings_from :
 layout_strings_from current [] accumulated offsets first =
   Right (MkStringLayout accumulated offsets (fromMaybe current first) current)
 layout_strings_from current (value :: rest) accumulated offsets first = do
-  encoded <- ascii_bytes value
-  let item = uleb128 (cast (length (unpack value))) ++ encoded ++ [0]
+  item <- encode_string_data value
   let next_first =
         case first of
           Nothing => Just current
@@ -950,7 +970,7 @@ finalize_file_plan file_plan = do
     Just duplicate => Left ("Duplicate DEX method signature " ++ duplicate)
     Nothing => Right ()
   finalized <- traverse finalize_method ordered
-  let interfaces = sortBy (\left, right => compare left.descriptor right.descriptor)
+  let interfaces = sortBy (\left, right => compare_dex_strings left.descriptor right.descriptor)
                          (nub file_plan.interfaces)
   Right (FrozenFilePlan ({ methods := finalized, interfaces := interfaces } file_plan))
 
