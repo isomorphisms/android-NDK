@@ -31,8 +31,8 @@ jobs:
         run: ./compiler/_/edric bootstrap
       - name: Install Chez runtime support
         run: make -C compiler/_/support/chez install IDRIS2_VERSION=0.8.0
-      - name: Install compiler API
-        run: make -C compiler/_ install-bootstrap-libs install-api IDRIS2=${{ github.workspace }}/compiler/_/build/exec/idris2 IDRIS2_BOOT=${{ github.workspace }}/compiler/_/build/exec/idris2
+      - name: Install compiler standard packages
+        run: make -C compiler/_ install-bootstrap-libs IDRIS2=${{ github.workspace }}/compiler/_/build/exec/idris2
       - uses: actions/cache/save@v4
         if: steps.compiler-cache.outputs.cache-hit != 'true'
         with:

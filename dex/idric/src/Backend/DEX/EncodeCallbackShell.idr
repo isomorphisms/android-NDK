@@ -13,7 +13,7 @@ record NativeCallback where
   constructor MkNativeCallback
   name : String
   result : String
-  parameters : List String
+  parameter_types : List String
 
 private
 u16 : Int -> List Int
@@ -112,7 +112,9 @@ prototypeBytes strings types parameterLists offsets prototype = do
   p <- case snd prototype of
     [] => Right 0
     ps => do i <- index ps parameterLists
-             Right (fromMaybe 0 (getAt (cast i) offsets))
+             case getAt (cast i) offsets of
+               Nothing => Left "callback parameter-list offset missing"
+               Just offset => Right offset
   Right (u32 s ++ u32 r ++ u32 p)
 
 private
@@ -143,14 +145,14 @@ encode_callback_shell descriptor superclass library callbacks = do
     then Right () else Left "invalid callback class or native library"
   if null callbacks || length callbacks > 16 then Left "invalid callback count"
     else Right ()
-  let keys = map (\c => (c.name, (c.result, c.parameters))) callbacks
+  let keys = map (\c => (c.name, (c.result, c.parameter_types))) callbacks
   if length (nub keys) /= length keys then Left "duplicate native callback"
     else Right ()
   if all (\c => ascii c.name && not (null (unpack c.name)) &&
-               length (unpack c.name) <= 128 && length c.parameters <= 16 &&
+               length (unpack c.name) <= 128 && length c.parameter_types <= 16 &&
                all (\x => isAlphaNum x || x == '_') (unpack c.name) &&
                (c.result == "V" || valueType c.result) &&
-               all valueType c.parameters) callbacks
+               all valueType c.parameter_types) callbacks
     then Right () else Left "unsupported callback signature"
   let voidProto = ("V", the (List String) [])
   let loadProto = ("V", ["Ljava/lang/String;"])
@@ -224,7 +226,7 @@ encode_callback_shell descriptor superclass library callbacks = do
                               cast (length types),typeOff,
                               cast (length prototypes),protoOff,0,0,
                               cast (length methods),methodOff,1,classOff,
-                              fileSize-dataOff,dataOff]
+                              fileSize - dataOff,dataOff]
   let bytes = header ++ concatMap u32 stringOffsets ++ concat typeIds ++
               concat protoIds ++ concat methodIds ++ classDef ++ typeData ++
               codeData ++ stringData ++ classData ++
