@@ -32,7 +32,7 @@ export ANDROID_KEY_ALIAS=wegert-debug
 export ANDROID_STORE_PASSWORD=wegert-debug
 export ANDROID_KEY_PASSWORD=wegert-debug
 export ANDROID_EXPECTED_CERT_SHA256=de9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9
-export ANDROID_SOURCE_COMMIT="${GITHUB_SHA:-fixture}"
+export ANDROID_SOURCE_COMMIT="${GITHUB_SHA:-0000000000000000000000000000000000000000}"
 export ANDROID_EXPECTED_LABEL="android-NDK fixture"
 
 bash "$repo_root/apk/build-nativeactivity-apk.sh" \
@@ -150,5 +150,11 @@ then
 fi
 grep -Fq "required value is unset: ANDROID_KEYSTORE" "$work/missing.log"
 test ! -e "$work/missing.apk"
+
+bash "$repo_root/apk/tests/qualify-reproducible.sh" \
+    "$repo_root/apk/tests/fixtures/AndroidManifest.xml" \
+    "$work/libfixture.so" \
+    armeabi-v7a \
+    "$work/reproducible"
 
 printf 'android-NDK NativeActivity packager tests: PASS\n'
