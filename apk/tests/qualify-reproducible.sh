@@ -88,7 +88,7 @@ run_package() {
 first_root="$output/workspace-a"
 second_root="$output/different/workspace-b"
 make_equivalent_root "$first_root" forward 0755 '2020-01-02 03:04:05 UTC'
-make_equivalent_root "$second_root" reverse 0644 '2025-06-07 08:09:10 Pacific/Kiritimati'
+make_equivalent_root "$second_root" reverse 0644 '2025-06-07 08:09:10 +1400'
 
 run_package "$packager" "$first_root" UTC attempt-a "$output/first.apk" > "$output/first.log"
 run_package "$packager" "$second_root" Pacific/Kiritimati attempt-b "$output/second.apk" > "$output/second.log"
