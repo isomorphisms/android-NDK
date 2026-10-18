@@ -1,0 +1,35 @@
+name: Direct DEX WebView callback shells
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  direct-dex:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: isomorphisms/Idric
+          ref: e8b9173ab2d840ef0cf212698ea2fee97bd9e807
+          path: compiler
+          persist-credentials: false
+      - name: Bootstrap pinned Idric on the build host
+        run: ./compiler/_/edric bootstrap
+      - name: Install compiler API
+        run: make -C compiler/_ install-api IDRIS2_BOOT=${{ github.workspace }}/compiler/_/build/exec/idris2
+      - name: Compile and emit direct callback DEX
+        env:
+          PATH: ${{ github.workspace }}/compiler/_/.tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        run: make -C dex/idric webview-shell IDRIC=${{ github.workspace }}/compiler/_/build/exec/idris2
+      - name: Independent DEX header and digest validation
+        run: make -C dex/idric webview-shell-check
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: direct-webview-shells
+          path: dex/idric/build/exec/webview/
