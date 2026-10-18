@@ -53,3 +53,11 @@ main = do
          [MkNativeCallback "wide" "J" []] of
     Left _ => putStrLn "PASS unsupported wide callback rejected"
     Right _ => exitFailure
+  case encode_callback_shell "Lorg/Test;" "Landroid/app/Activity;" "cgw_webview"
+         [MkNativeCallback "same" "V" [], MkNativeCallback "same" "V" []] of
+    Left _ => putStrLn "PASS duplicate callback rejected"
+    Right _ => exitFailure
+  case encode_callback_shell "Lorg/Test;" "Landroid/app/Activity;" "../bad"
+         [MkNativeCallback "callback" "V" []] of
+    Left _ => putStrLn "PASS invalid library rejected"
+    Right _ => exitFailure

@@ -19,14 +19,31 @@ jobs:
           ref: e8b9173ab2d840ef0cf212698ea2fee97bd9e807
           path: compiler
           persist-credentials: false
+      - uses: actions/cache/restore@v4
+        id: compiler-cache
+        with:
+          path: |
+            compiler/_
+            ~/.idris2
+          key: webview-idric-e8b9173ab-ubuntu24-v1
       - name: Bootstrap pinned Idric on the build host
+        if: steps.compiler-cache.outputs.cache-hit != 'true'
         run: ./compiler/_/edric bootstrap
+      - name: Install Chez runtime support
+        run: make -C compiler/_/support/chez install IDRIS2_VERSION=0.8.0
       - name: Install compiler API
-        run: make -C compiler/_ install-api IDRIS2_BOOT=${{ github.workspace }}/compiler/_/build/exec/idris2
+        run: make -C compiler/_ install-bootstrap-libs install-api IDRIS2=${{ github.workspace }}/compiler/_/build/exec/idris2 IDRIS2_BOOT=${{ github.workspace }}/compiler/_/build/exec/idris2
+      - uses: actions/cache/save@v4
+        if: steps.compiler-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            compiler/_
+            ~/.idris2
+          key: webview-idric-e8b9173ab-ubuntu24-v1
       - name: Compile and emit direct callback DEX
         env:
           PATH: ${{ github.workspace }}/compiler/_/.tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-        run: make -C dex/idric webview-shell IDRIC=${{ github.workspace }}/compiler/_/build/exec/idris2
+        run: make -C dex/idric webview-shell webview-shell-determinism IDRIC=${{ github.workspace }}/compiler/_/build/exec/idris2
       - name: Independent DEX header and digest validation
         run: make -C dex/idric webview-shell-check
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

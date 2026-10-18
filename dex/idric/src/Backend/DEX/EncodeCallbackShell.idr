@@ -55,10 +55,11 @@ ascii s = all (\c => ord c >= 32 && ord c <= 126) (unpack s)
 
 private
 objectType : String -> Bool
-objectType s = isPrefixOf ['L'] (unpack s) &&
+objectType s = ascii s && length (unpack s) <= 512 &&
+               isPrefixOf ['L'] (unpack s) &&
                isSuffixOf [';'] (unpack s) && length (unpack s) > 2 &&
                all (\c => isAlphaNum c || elem c ['L', '/', '_', '$', ';']) (unpack s) &&
-               not (elem ';' (init (unpack s)))
+               not (elem ';' (reverse (drop 1 (reverse (unpack s)))))
 
 private
 valueType : String -> Bool
@@ -137,7 +138,7 @@ encode_callback_shell : String -> String -> String -> List NativeCallback ->
                         Either String (List Int)
 encode_callback_shell descriptor superclass library callbacks = do
   if objectType descriptor && objectType superclass && descriptor /= superclass
-     && ascii library && not (null (unpack library))
+     && ascii library && not (null (unpack library)) && length (unpack library) <= 128
      && all (\c => isAlphaNum c || c == '_') (unpack library)
     then Right () else Left "invalid callback class or native library"
   if null callbacks || length callbacks > 16 then Left "invalid callback count"
@@ -145,7 +146,8 @@ encode_callback_shell descriptor superclass library callbacks = do
   let keys = map (\c => (c.name, (c.result, c.parameters))) callbacks
   if length (nub keys) /= length keys then Left "duplicate native callback"
     else Right ()
-  if all (\c => not (null (unpack c.name)) &&
+  if all (\c => ascii c.name && not (null (unpack c.name)) &&
+               length (unpack c.name) <= 128 && length c.parameters <= 16 &&
                all (\x => isAlphaNum x || x == '_') (unpack c.name) &&
                (c.result == "V" || valueType c.result) &&
                all valueType c.parameters) callbacks

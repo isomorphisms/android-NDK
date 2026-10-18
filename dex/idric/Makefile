@@ -21,6 +21,16 @@ webview-shell-check: build/oracles/baksmali-3.0.10.jar
 	grep -q '^.method public native onCreate(Landroid/os/Bundle;)V' build/exec/webview/activity/org/isomorphisms/webview/BridgeActivity.smali
 	grep -q '^.method public native onMessage(Landroid/webkit/WebMessagePort;Landroid/webkit/WebMessage;)V' build/exec/webview/callback/org/isomorphisms/webview/BridgeMessageCallback.smali
 
+.PHONY: webview-shell-determinism
+webview-shell-determinism:
+	cp build/exec/webview/classes.dex build/exec/webview/first.dex
+	cp build/exec/webview/classes2.dex build/exec/webview/second.dex
+	cp build/exec/webview/classes3.dex build/exec/webview/third.dex
+	LD_LIBRARY_PATH="$(dir $(IDRIC_RUNTIME_LIBRARY)):$${LD_LIBRARY_PATH}" ./build/exec/webview-shell
+	cmp build/exec/webview/classes.dex build/exec/webview/first.dex
+	cmp build/exec/webview/classes2.dex build/exec/webview/second.dex
+	cmp build/exec/webview/classes3.dex build/exec/webview/third.dex
+
 BACKEND_SOURCES := $(wildcard src/Backend/DEX/*.idr) backend.ipkg
 DRIVER := build/exec/idric-dex
 IDRIC_RUNTIME_LIBRARY ?= $(dir $(IDRIC))idris2_app/libidris2_support.so
