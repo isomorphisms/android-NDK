@@ -201,11 +201,9 @@ cp -- "$schema" "$mutants/nativeactivity-receipt-v2.schema.tsv"
 cp -- "$verifier" "$mutants/verify-nativeactivity-receipt.sh"
 cp -- "$packager" "$mutants/old-packager.sh"
 sed -i \
-    -e '/touch -h -d "@\$SOURCE_DATE_EPOCH" "\$target"/d' \
-    -e '/find "\$destination" -type d -exec touch -d "@\$SOURCE_DATE_EPOCH"/d' \
-    -e '/touch -d "@\$SOURCE_DATE_EPOCH" "\$work\/payload\/lib/d' \
-    -e '/chmod 0644 "\$work\/payload\/lib/d' \
+    's/chmod 0644 "\$work\/payload\/lib\/\$abi\/\$libname"/chmod --reference="\$native_library" "\$work\/payload\/lib\/\$abi\/\$libname"/' \
     "$mutants/old-packager.sh"
+bash -n "$mutants/old-packager.sh"
 run_package "$mutants/old-packager.sh" "$first_root" UTC old-a "$output/old-first.apk" \
     > "$output/old-first.log"
 run_package "$mutants/old-packager.sh" "$second_root" Pacific/Kiritimati old-b "$output/old-second.apk" \
