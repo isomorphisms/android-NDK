@@ -1,6 +1,6 @@
 # Program attempt: native Android View callbacks
 
-Status: HOST_PASS; ART class load verified in the application, interaction pending.
+Status: HOST_PASS; ART class load and real View click callbacks verified on API29.
 
 Purpose: let a NativeActivity construct ordinary platform Views and receive
 their click events in a native boundary without Java/Kotlin source.
@@ -10,6 +10,9 @@ Type sketch: a fixed platform adapter implements
 `onClick(View) : void`. Its constructor delegates to `Object.<init>`. The
 application registers its C callback with JNI and owns every event meaning.
 No application state, music operation or rendering decision lives in this DEX.
+The second declared class extends framework NativeActivity and forwards
+onActivityResult and onNewIntent to native platform callbacks. This permits
+the standard Android document picker and single-task intent delivery.
 
 `ClickListener.idric` is a checked host-side adapter encoder. It reuses the
 maintained DEX hash/file writer. This is explicitly a platform adapter, not a
@@ -36,8 +39,15 @@ both signed ARM development APKs and verified the finished signatures.
 
 Fallback: none in this platform adapter. The signed x86_64 application installed
 and launched on the API29 emulator; its C boundary successfully loaded and
-registered this class. Native callback interaction and physical-device behavior
-still require their own evidence.
+registered this class. Actual Save, transpose-up and transpose-down View clicks
+reached native callbacks and the application's checked Idric DEX operations.
+Process restart reopened the stored Unicode source. Physical-device behavior
+remains unverified. The document-result callbacks have been built and loaded;
+their interaction acceptance is tracked separately by the application.
+
+The canonical packager's executed fixture suite passes, including rejection
+of a declared subclass without DEX. A finished signed application APK also
+passed the pinned disassembler's exact declared-class/superclass gate.
 
 First language boundary: generic checked object/callback lowering remains a
 separate compiler task. This adapter must stay replaceable when that exists.

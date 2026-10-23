@@ -25,7 +25,7 @@ export ANDROID_PACKAGE_ID=org.isomorphisms.androidndk.fixture
 export ANDROID_VERSION_CODE=1
 export ANDROID_VERSION_NAME=1-test
 export ANDROID_MIN_SDK=21
-export ANDROID_TARGET_SDK=34
+export ANDROID_TARGET_SDK=${ANDROID_TEST_TARGET_SDK:-34}
 export ANDROID_KEYSTORE="$ANDROID_TEST_KEYSTORE"
 export ANDROID_KEYSTORE_TYPE=PKCS12
 export ANDROID_KEY_ALIAS=wegert-debug
@@ -43,6 +43,16 @@ bash "$repo_root/apk/build-nativeactivity-apk.sh" \
 
 test -s "$work/fixture.apk"
 test -s "$work/fixture.receipt.tsv"
+if ANDROID_ACTIVITY_CLASS=example.NativeViewActivity \
+    bash "$repo_root/apk/build-nativeactivity-apk.sh" \
+      "$repo_root/apk/tests/fixtures/AndroidManifest.xml" "$work/libfixture.so" armeabi-v7a \
+      "$work/missing-class-dex.apk" > "$work/missing-class-dex.log" 2>&1
+then
+    echo "NativeActivity subclass without DEX unexpectedly passed" >&2
+    exit 1
+fi
+grep -Fq 'requires a direct DEX input' "$work/missing-class-dex.log"
+test ! -e "$work/missing-class-dex.apk"
 grep -Fq $'launcher_label\tandroid-NDK fixture' "$work/fixture.receipt.tsv"
 grep -Fq $'package\torg.isomorphisms.androidndk.fixture' "$work/fixture.receipt.tsv"
 grep -Fq $'signer_cert_sha256\tde9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9' "$work/fixture.receipt.tsv"
