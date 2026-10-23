@@ -12,3 +12,8 @@ ART and rejected wrong-helper.dex with status 73. The received candidate bytes
 matched the built bytes. Shared native class metadata was independently
 decoded on the host. No physical-device or real ICU execution follows from
 these fixtures.
+
+`art/` retains the independent observer's raw success output, compiled-mutant
+first failure and exit status, device properties, receipt and original artifact
+hash log. Absolute paths in that log identify the actual host invocation; the
+same three artifact hashes are also in `../reconciliation-receipt.tsv`.
