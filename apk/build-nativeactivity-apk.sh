@@ -50,6 +50,16 @@ done
 [[ "$ANDROID_TARGET_SDK" =~ ^[0-9]+$ ]] || fail "ANDROID_TARGET_SDK must be numeric"
 [[ "$ANDROID_PACKAGE_ID" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] ||
     fail "invalid package id: $ANDROID_PACKAGE_ID"
+expected_activity=${ANDROID_ACTIVITY_CLASS:-android.app.NativeActivity}
+[[ "$expected_activity" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] ||
+    fail "invalid declared NativeActivity class: $expected_activity"
+if [[ "$expected_activity" != android.app.NativeActivity ]]; then
+    [[ -n ${ANDROID_DEX_FILE:-} ]] || fail "a declared NativeActivity subclass requires a direct DEX input"
+    [[ -f ${ANDROID_BAKSMALI_JAR:-} ]] || fail "a declared NativeActivity subclass requires pinned baksmali"
+    oracle_sha=$(sha256sum "$ANDROID_BAKSMALI_JAR" | awk '{print $1}')
+    [[ "$oracle_sha" == 37ae4a41a8886e15c20b8362fa4250f96bbdb55e1a608199ad8b5dff068b588f ]] ||
+        fail "NativeActivity subclass disassembler digest changed"
+fi
 
 android_home=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
 [[ -n "$android_home" ]] || fail "ANDROID_HOME/ANDROID_SDK_ROOT is required"
@@ -106,6 +116,12 @@ trap 'rm -rf "$work"; if [[ -n ${publish_stage:-} ]]; then rm -rf "$publish_stag
 libname=$(basename -- "$native_library")
 mkdir -p "$work/payload/lib/$abi"
 cp "$native_library" "$work/payload/lib/$abi/$libname"
+if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+    [[ -f "$ANDROID_DEX_FILE" ]] || fail "missing declared direct DEX input: $ANDROID_DEX_FILE"
+    [[ ${ANDROID_REQUIRE_NO_DEX:-1} == 0 ]] ||
+        fail "declared DEX input requires ANDROID_REQUIRE_NO_DEX=0"
+    cp "$ANDROID_DEX_FILE" "$work/payload/classes.dex"
+fi
 
 manifest_apk="$work/manifest.apk"
 unaligned="$work/unaligned.apk"
@@ -137,6 +153,9 @@ cp "$manifest_apk" "$unaligned"
 (
     cd "$work/payload"
     zip -q -u "$unaligned" "lib/$abi/$libname"
+    if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+        zip -q -u "$unaligned" classes.dex
+    fi
     if [[ -n ${ANDROID_ASSET_DIR:-} ]]; then
         [[ -d "$ANDROID_ASSET_DIR" ]] || fail "ANDROID_ASSET_DIR is not a directory: $ANDROID_ASSET_DIR"
         mkdir -p assets
@@ -205,8 +224,8 @@ observed_launcher_label=$(
     fail "finished APK package changed: expected $ANDROID_PACKAGE_ID got ${observed_package:-missing}"
 [[ "$observed_version_code" == "$ANDROID_VERSION_CODE" ]] ||
     fail "finished APK versionCode changed: expected $ANDROID_VERSION_CODE got ${observed_version_code:-missing}"
-[[ "$observed_activity" == "android.app.NativeActivity" ]] ||
-    fail "finished APK launcher is not android.app.NativeActivity: ${observed_activity:-missing}"
+[[ "$observed_activity" == "$expected_activity" ]] ||
+    fail "finished APK launcher changed: expected $expected_activity got ${observed_activity:-missing}"
 if [[ -n ${ANDROID_EXPECTED_LABEL:-} ]]; then
     # aapt2 reports label='' for an activity that inherits the app label.
     # Only an explicit, nonempty activity label can override that default.
@@ -224,6 +243,21 @@ grep -Eq "[[:space:]]lib/$abi/$libname$" "$contents" ||
 if [[ ${ANDROID_REQUIRE_NO_DEX:-1} == 1 ]] &&
    grep -Eq '[[:space:]]classes[0-9]*\.dex$' "$contents"; then
     fail "finished NativeActivity APK unexpectedly contains DEX"
+fi
+if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+    expected_dex_sha=$(sha256sum "$ANDROID_DEX_FILE" | awk '{print $1}')
+    observed_dex_sha=$(unzip -p "$signed" classes.dex | sha256sum | awk '{print $1}')
+    [[ "$observed_dex_sha" == "$expected_dex_sha" ]] ||
+        fail "finished APK direct DEX payload differs from its declared input"
+fi
+if [[ "$expected_activity" != android.app.NativeActivity ]]; then
+    unzip -p "$signed" classes.dex > "$work/finished-classes.dex"
+    java -jar "$ANDROID_BAKSMALI_JAR" disassemble "$work/finished-classes.dex" -o "$work/class-disassembly"
+    activity_path=${expected_activity//.//}
+    activity_source="$work/class-disassembly/$activity_path.smali"
+    [[ -f "$activity_source" ]] || fail "declared NativeActivity subclass is absent from finished DEX"
+    grep -Fxq '.super Landroid/app/NativeActivity;' "$activity_source" ||
+        fail "declared launcher does not directly extend framework NativeActivity"
 fi
 
 apk_sha=$(sha256sum "$signed" | awk '{print $1}')
@@ -246,9 +280,11 @@ staged_sha=$(sha256sum "$publish_stage/artifact.apk" | awk '{print $1}')
     printf 'version_name\t%s\n' "$ANDROID_VERSION_NAME"
     printf 'launcher_label\t%s\n' "$observed_label"
     printf 'launcher_activity_label\t%s\n' "${observed_launcher_label:-$observed_label}"
+    printf 'launcher_activity\t%s\n' "$observed_activity"
     printf 'abi\t%s\n' "$abi"
     printf 'native_library\t%s\n' "$libname"
     printf 'native_sha256\t%s\n' "$native_sha"
+    printf 'dex_sha256\t%s\n' "${observed_dex_sha:-none}"
     printf 'manifest_sha256\t%s\n' "$manifest_sha"
     printf 'apk_sha256\t%s\n' "$apk_sha"
     printf 'signer_cert_sha256\t%s\n' "$apk_cert"
