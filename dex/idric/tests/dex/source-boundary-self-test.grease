@@ -1,0 +1,21 @@
+#!/usr/bin/env grease
+if (len(ARGV) !== 1) { echo 'usage: grease source-boundary-self-test.grease PACKAGE'; exit 2 }
+var package = ARGV[0]
+var probe = "$package/tests/dex/source-boundary.grease"
+var scratch = $(mktemp -d)
+mkdir -p "$scratch/src/Backend"
+cp -R "$package/src/Backend/DEX" "$scratch/src/Backend/"
+cp "$package/backend.ipkg" "$scratch/backend.ipkg"
+grease "$probe" "$scratch"
+printf '\nimport Backend.ARMThumb.Lower\n' >> "$scratch/src/Backend/DEX/Main.idr"
+if grease "$probe" "$scratch" > "$scratch/arm.log" 2>&1 {
+  echo 'FAIL ARM import mutation accepted'; exit 1
+}
+rg -F 'DEX compiler depends on ARM/Thumb' "$scratch/arm.log"
+cp "$package/src/Backend/DEX/Main.idr" "$scratch/src/Backend/DEX/Main.idr"
+printf '\n  Backend.DEX.EncodeNativeActivity\n' >> "$scratch/backend.ipkg"
+if grease "$probe" "$scratch" > "$scratch/app.log" 2>&1 {
+  echo 'FAIL application adapter mutation accepted'; exit 1
+}
+rg -F 'application-specific adapter entered' "$scratch/app.log"
+printf '\033[32mPASS\033[0m both source ownership mutations rejected\n'

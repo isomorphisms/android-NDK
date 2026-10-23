@@ -27,6 +27,11 @@ compiler path.
 
 ## Checked compiler handoff
 
+The original arithmetic boundary below is retained as history. The current
+reference/effect extension, its supported source ABI, and its separate source,
+emission, and runtime checks are described in
+[`FRAMEWORK-EFFECTS.md`](FRAMEWORK-EFFECTS.md).
+
 The custom code generator uses `getCompileDataWith ["dex"] False ANF` from the
 Idriç revision resolved from the declared `Idriç` branch. The first green
 historical revision was `081b9cde0591154839fb5d80d76e5570e0436300`. It accepts only
@@ -42,7 +47,10 @@ The lowerer consumes `Compiler.ANF`, not source text. It currently recognizes
 checked Int32 constants, locals/lets, `Add Int32Type`, `Sub Int32Type`, and
 `Mul Int32Type`. The currently tested compiler retains overloaded Int32 `<` as the
 resolved checked name `Prelude.EqOrd.<`; the bridge lowers that exact checked
-call and its Boolean 0/1 case form. Other named calls are rejected.
+call and its Boolean 0/1 case form. The reconciled compiler also discovers
+concrete checked scalar helpers and emits actual method calls, including
+cross-module, recursive and mutually recursive calls. Polymorphic helpers
+retain bounded checked specialization; unknown representations still fail.
 
 Compilation retains four adjacent evidence files for `-o classes`:
 
@@ -67,11 +75,15 @@ integer return. The direct encoder implements these concrete formats:
 | move | `move` 12x, `move/from16` 22x, `move/16` 32x |
 | arithmetic | `add-int`, `sub-int`, `mul-int` 23x |
 | comparison branch | `if-eq` through `if-le` 22t |
-| jump | `goto` 10t |
+| jump | `goto` 10t, `goto/16` 20t, `goto/32` 30t |
 | result | `return` 11x |
 
 Format selection checks register and signed-literal ranges. Branch labels are
-resolved in code units; zero and out-of-range 10t/22t offsets are rejected.
+resolved in 16-bit code units. Unconditional jumps are widened monotonically
+from 10t to 20t or 30t until no later promotion changes another jump's
+address. Signed 8/16/32-bit ranges and the forbidden zero offset are checked;
+conditional 22t branches retain their separate signed 16-bit range check.
+A target that remains outside a supported range is refused, not wrapped.
 Parameters occupy the last virtual registers as required by DEX. There is no
 physical CPU register allocator.
 
@@ -103,13 +115,14 @@ job; it does not require a permanently attached phone.
 See [`AUDIT.md`](./AUDIT.md) for the starting boundary and
 [`OPCODES.md`](./OPCODES.md) for the complete opcode inventory.
 
-## Current generic compiler boundary
+## Original generic compiler boundary
 
-The checked-ANF compiler slice does not yet claim general calls, recursion,
+The initial checked-ANF compiler slice did not claim general calls, recursion,
 constructors, objects, arrays, fields, strings, exceptions, monitors,
 annotations, debug data, wide 64-bit values, floats, Float16, Android framework
 calls, lifecycle classes, resources, APK packaging, signing, or source-level
-IO. These are limitations of the present slice, not a rule forbidding DEX from
+IO. The implemented checked-effects extension and runtime calls now cover
+part of that original boundary. Remaining limits do not forbid DEX from
 representing them. Unsupported ANF and DEX plans fail; there is no RefC,
 Java-source, `javac`, Kotlin, Gradle, ARM Thumb, smali-candidate, or `d8`
 fallback.
@@ -123,3 +136,12 @@ checked-ANF lowering above.
 APK/UI machinery remains outside the generic semantic lowering. A framework
 call or other Android-facing extension to that lowering should be added with a
 concrete checked Idriç fixture that requires it.
+
+## Canonical ownership and shared encoding
+
+The standalone package is maintained in android-NDK/dex/idric. FrameworkClasses
+translates its compatible public API into the same FilePlan/MethodPlan and
+multi-class encoder used by the checked compiler. JNI declarations, static
+initialization, method references, MUTF-8 and metadata no longer have a second
+generic writer. Application-specific historical encoders remain fixtures.
+See ../../../RECONCILIATION.md for exact source pins, tests and ICU limits.

@@ -1,0 +1,49 @@
+module ActivitySource
+
+import Data.Text
+
+data ActivityReference : Type where [external]
+data ViewReference : Type where [external]
+data TextViewReference : Type where [external]
+
+%foreign "dex:virtual:Landroid/app/Activity;:findViewById:(I)Landroid/view/View;"
+find_activity_view : ActivityReference → Int32 → PrimIO ViewReference
+
+%foreign "dex:cast:Landroid/view/View;:Landroid/widget/TextView;"
+checked_text_view : ViewReference → PrimIO TextViewReference
+
+%foreign "dex:virtual:Landroid/widget/TextView;:setText:(Ljava/lang/CharSequence;)V"
+write_visible_text : TextViewReference → Text → PrimIO ()
+
+%foreign "dex:virtual:Landroid/app/Activity;:setContentView:(I)V"
+set_activity_layout : ActivityReference → Int32 → PrimIO ()
+
+%foreign "dex:virtual:Landroid/view/View;:getId:()I"
+view_identity : ViewReference → PrimIO Int32
+
+%foreign "dex:virtual:Landroid/view/View;:setVisibility:(I)V"
+set_view_visibility : ViewReference → Int32 → PrimIO ()
+
+%cg dex activity create_view receive_action
+
+%export "dex:create_view"
+create_view : ActivityReference → IO ()
+create_view activity = primIO (set_activity_layout activity 2130771968)
+
+%export "dex:present_text"
+present_text : ActivityReference → Text → IO ()
+present_text activity text = do
+  view ← primIO (find_activity_view activity 101)
+  text_view ← primIO (checked_text_view view)
+  primIO (write_visible_text text_view text)
+
+%export "dex:receive_action"
+receive_action : ActivityReference → ViewReference → IO ()
+receive_action activity view = do
+  identity ← primIO (view_identity view)
+  if identity ≟ 101
+    then primIO (set_view_visibility view 8)
+    else pure ()
+
+main : IO ()
+main = pure ()
