@@ -1,134 +1,23 @@
 module ClickListener
 
-import Backend.DEX.Encode
-import Backend.DEX.Hash
-import Data.Text
+import Backend.DEX.FrameworkClasses
 import System
 
-u16le : Integer → List Int
-u16le value = [cast (value `mod` 256), cast ((value `div` 256) `mod` 256)]
-
-u32le : Integer → List Int
-u32le value = u16le value ++ u16le (value `div` 65536)
-
-||| Base-128 encoding terminates by division for the nonnegative DEX offsets
-||| and flags supplied below. The compiler cannot prove the primitive division
-||| measure, so this raw writer explicitly uses covering rather than asserting
-||| totality or changing the domain application's contract.
-covering
-uleb128 : Integer → List Int
-uleb128 value =
-  if value < 128 then [cast value]
-  else cast (128 + value `mod` 128) :: uleb128 (value `div` 128)
-
-align_four : Integer → Integer
-align_four offset = offset + ((4 − offset `mod` 4) `mod` 4)
-
-padding : Integer → List Int
-padding offset = replicate (cast (align_four offset − offset)) 0
-
-replace_bytes : Number → List Int → List Int → List Int
-replace_bytes offset replacement bytes =
-  take offset bytes ++ replacement ++ drop (offset + length replacement) bytes
-
-map_item : Integer → Integer → Integer → List Int
-map_item kind count offset = u16le kind ++ u16le 0 ++ u32le count ++ u32le offset
-
-metadata : List Text
-metadata =
-  [ "<init>", "Landroid/view/View$OnClickListener;", "Landroid/view/View;"
-  , "Ljava/lang/Object;", "Lorg/isomorphisms/NativeClickListener;"
-  , "V", "VL", "onClick" ]
-
-covering
-string_item : Text → List Int
-string_item text = uleb128 (cast (length (unpack text))) ++
-  map (\character ⇒ cast (ord character)) (unpack text) ++ [0]
-
-covering
-string_offsets : Integer → List (List Int) → List Integer
-string_offsets offset [] = []
-string_offsets offset (item :: rest) = offset :: string_offsets (offset + cast (length item)) rest
-
-||| Fixed lowest-level adapter only. No musical/application behavior is encoded.
-covering
-encode_listener : Either Text (List Int)
-encode_listener = do
-  let string_ids_offset = 112
-      type_ids_offset = string_ids_offset + 8 × 4
-      prototype_ids_offset = type_ids_offset + 5 × 4
-      method_ids_offset = prototype_ids_offset + 2 × 12
-      class_definitions_offset = method_ids_offset + 3 × 8
-      data_offset = class_definitions_offset + 32
-      interfaces_offset = data_offset
-      parameter_types_offset = data_offset + 8
-      constructor_offset = data_offset + 16
-      -- invoke-direct {v0}, Object.<init>; return-void.
-      constructor_instructions = concatMap u16le [0x1070, 0, 0, 0x000e]
-      constructor_code = u16le 1 ++ u16le 1 ++ u16le 1 ++ u16le 0 ++
-        u32le 0 ++ u32le 4 ++ constructor_instructions
-      strings_offset = constructor_offset + cast (length constructor_code)
-      string_items = map string_item metadata
-      offsets = string_offsets strings_offset string_items
-      string_bytes = concat string_items
-      class_data_offset = strings_offset + cast (length string_bytes)
-      -- No fields; one constructor; one virtual native method. Method indices
-      -- are delta-encoded separately within direct and virtual method lists.
-      class_data = [0, 0, 1, 1] ++
-        uleb128 1 ++ uleb128 0x10001 ++ uleb128 constructor_offset ++
-        uleb128 2 ++ uleb128 0x101 ++ [0]
-      before_map = class_data_offset + cast (length class_data)
-      map_offset = align_four before_map
-      maps = u32le 11 ++ concat
-        [ map_item 0x0000 1 0
-        , map_item 0x0001 8 string_ids_offset
-        , map_item 0x0002 5 type_ids_offset
-        , map_item 0x0003 2 prototype_ids_offset
-        , map_item 0x0005 3 method_ids_offset
-        , map_item 0x0006 1 class_definitions_offset
-        , map_item 0x1001 2 interfaces_offset
-        , map_item 0x2001 1 constructor_offset
-        , map_item 0x2002 8 strings_offset
-        , map_item 0x2000 1 class_data_offset
-        , map_item 0x1000 1 map_offset ]
-      file_size = map_offset + cast (length maps)
-      header = [100,101,120,10,48,51,53,0] ++ replicate 24 0 ++
-        concatMap u32le
-          [ file_size, 112, 0x12345678, 0, 0, map_offset
-          , 8, string_ids_offset, 5, type_ids_offset, 2, prototype_ids_offset
-          , 0, 0, 3, method_ids_offset, 1, class_definitions_offset
-          , file_size − data_offset, data_offset ]
-      type_ids = concatMap u32le [1,2,3,4,5]
-      prototypes = concatMap u32le [5,4,0, 6,4,parameter_types_offset]
-      methods = concat
-        [ u16le 2 ++ u16le 0 ++ u32le 0
-        , u16le 3 ++ u16le 0 ++ u32le 0
-        , u16le 3 ++ u16le 1 ++ u32le 7 ]
-      class_definition = concatMap u32le
-        [3,1,2,interfaces_offset,0xffffffff,0,class_data_offset,0]
-      -- Both type_list entries are aligned to four bytes. The last two bytes
-      -- in each entry pad its one u16 type index before the next section.
-      type_lists = u32le 1 ++ u16le 0 ++ [0,0] ++
-        u32le 1 ++ u16le 1 ++ [0,0]
-      unsigned = header ++ concatMap u32le offsets ++ type_ids ++ prototypes ++
-        methods ++ class_definition ++ type_lists ++ constructor_code ++
-        string_bytes ++ class_data ++ padding before_map ++ maps
-  if cast (length unsigned) ≟ file_size
-    then Right ()
-    else Left "Click-listener DEX layout length mismatch"
-  let signed = replace_bytes 12 (sha1 (drop 32 unsigned)) unsigned
-  Right (replace_bytes 8 (u32le (adler32 (drop 12 signed))) signed)
+||| Platform-only callback plan: application and music semantics live elsewhere.
+listener : FrameworkClass
+listener = Subclass "Lorg/isomorphisms/NativeClickListener;"
+  "Ljava/lang/Object;" Nothing
+  [Callback "onClick" "V" ["Landroid/view/View;"]]
 
 covering
 main : IO ()
 main = do
   arguments ← getArgs
   case arguments of
-    [_, path] ⇒ case encode_listener of
-      Left problem ⇒ do putStrLn problem; exitFailure
-      Right bytes ⇒ do
-        result ← write_dex path bytes
-        case result of
-          Left problem ⇒ do putStrLn problem; exitFailure
-          Right () ⇒ putStrLn "PASS native View callback DEX encoded; ART execution not implied"
+    [_, path] ⇒ do
+      result ← write_framework_classes_implementing
+        [(listener, ["Landroid/view/View$OnClickListener;"])] path
+      case result of
+        Left problem ⇒ do putStrLn problem; exitFailure
+        Right () ⇒ putStrLn "PASS checked native View callback plan; ART execution not implied"
     _ ⇒ do putStrLn "usage: native-view-callback OUTPUT.dex"; exitFailure
