@@ -106,6 +106,12 @@ trap 'rm -rf "$work"; if [[ -n ${publish_stage:-} ]]; then rm -rf "$publish_stag
 libname=$(basename -- "$native_library")
 mkdir -p "$work/payload/lib/$abi"
 cp "$native_library" "$work/payload/lib/$abi/$libname"
+if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+    [[ -f "$ANDROID_DEX_FILE" ]] || fail "missing declared direct DEX input: $ANDROID_DEX_FILE"
+    [[ ${ANDROID_REQUIRE_NO_DEX:-1} == 0 ]] ||
+        fail "declared DEX input requires ANDROID_REQUIRE_NO_DEX=0"
+    cp "$ANDROID_DEX_FILE" "$work/payload/classes.dex"
+fi
 
 manifest_apk="$work/manifest.apk"
 unaligned="$work/unaligned.apk"
@@ -137,6 +143,9 @@ cp "$manifest_apk" "$unaligned"
 (
     cd "$work/payload"
     zip -q -u "$unaligned" "lib/$abi/$libname"
+    if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+        zip -q -u "$unaligned" classes.dex
+    fi
     if [[ -n ${ANDROID_ASSET_DIR:-} ]]; then
         [[ -d "$ANDROID_ASSET_DIR" ]] || fail "ANDROID_ASSET_DIR is not a directory: $ANDROID_ASSET_DIR"
         mkdir -p assets
@@ -225,6 +234,12 @@ if [[ ${ANDROID_REQUIRE_NO_DEX:-1} == 1 ]] &&
    grep -Eq '[[:space:]]classes[0-9]*\.dex$' "$contents"; then
     fail "finished NativeActivity APK unexpectedly contains DEX"
 fi
+if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+    expected_dex_sha=$(sha256sum "$ANDROID_DEX_FILE" | awk '{print $1}')
+    observed_dex_sha=$(unzip -p "$signed" classes.dex | sha256sum | awk '{print $1}')
+    [[ "$observed_dex_sha" == "$expected_dex_sha" ]] ||
+        fail "finished APK direct DEX payload differs from its declared input"
+fi
 
 apk_sha=$(sha256sum "$signed" | awk '{print $1}')
 manifest_sha=$(sha256sum "$manifest" | awk '{print $1}')
@@ -249,6 +264,7 @@ staged_sha=$(sha256sum "$publish_stage/artifact.apk" | awk '{print $1}')
     printf 'abi\t%s\n' "$abi"
     printf 'native_library\t%s\n' "$libname"
     printf 'native_sha256\t%s\n' "$native_sha"
+    printf 'dex_sha256\t%s\n' "${observed_dex_sha:-none}"
     printf 'manifest_sha256\t%s\n' "$manifest_sha"
     printf 'apk_sha256\t%s\n' "$apk_sha"
     printf 'signer_cert_sha256\t%s\n' "$apk_cert"
