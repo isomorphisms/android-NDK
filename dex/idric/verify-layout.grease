@@ -1,0 +1,127 @@
+#!/usr/bin/env grease
+
+# Independent evidence check. DEX candidates are already emitted by Idriç.
+# Smali assembles an oracle copy only; it never produces the candidate.
+if (len(ARGV) !== 4) {
+  echo 'usage: grease verify-layout.grease REPOSITORY EVIDENCE SMALI_JAR DEXDUMP' >&2
+  exit 2
+}
+var repository = ARGV[0]
+var evidence = ARGV[1]
+var smali = ARGV[2]
+var dexdump = ARGV[3]
+for path in "$repository" "$evidence" "$smali" "$dexdump" {
+  if (path[0] !== '/') { echo 'absolute path required' >&2; exit 2 }
+}
+test -s "$smali"
+test -x "$dexdump"
+var result = "$evidence/layout-consistency"
+if test -e "$result" { echo 'refusing reused layout evidence' >&2; exit 1 }
+mkdir -p "$result"
+
+# Compare exact jump widths/targets and final register counts in the two
+# source-side reports. Method ordinals also distinguish repeated names.
+proc plan_jumps(input, output) {
+  awk '
+    $1 == "method" { n++; print "method", n, $2 }
+    $1 == "registers:" { print "registers", $2 }
+    $1 ~ /^goto(\/16|\/32)?$/ { print $1, $2 }
+  ' "$input" > "$output"
+}
+proc smali_jumps(input, output) {
+  awk '
+    $1 == ".method" { n++; name=$NF; sub(/\(.*/, "", name); print "method", n, name }
+    $1 == ".registers" { print "registers", $2 }
+    $1 ~ /^goto(\/16|\/32)?$/ { print $1, $2 }
+  ' "$input" > "$output"
+}
+proc jump_widths(input, output) {
+  awk '
+    $1 == "method" || $1 == "registers" { print; next }
+    $1 ~ /^goto(\/16|\/32)?$/ { print $1 }
+  ' "$input" > "$output"
+}
+proc decoded_jump_widths(input, output) {
+  awk '
+    /^[[:space:]]+name[[:space:]]+:/ { n++; name=$NF; gsub(/\047/, "", name); print "method", n, name }
+    /^[[:space:]]+registers[[:space:]]+:/ { print "registers", $NF }
+    /^[[:xdigit:]]+:/ && /\|[[:xdigit:]]+:/ {
+      line=$0; sub(/^.*\|[[:xdigit:]]+:[[:space:]]*/, "", line)
+      split(line, fields, /[[:space:]]+/)
+      if (fields[1] ~ /^goto(\/16|\/32)?$/) print fields[1]
+    }
+  ' "$input" > "$output"
+}
+
+# Compare every method's exact instruction code units after an independent
+# assembly/disassembly. Ignore file offsets and metadata placement only;
+# retain method signatures, local offsets, register counts and encoded words.
+# Reading the left-hand hex column avoids parsing quoted string operands.
+proc decoded_code(input, output) {
+  awk '
+    /^[[:space:]]+name[[:space:]]+:/ { print }
+    /^[[:space:]]+type[[:space:]]+:/ { print }
+    /^[[:space:]]+(registers|ins|outs)[[:space:]]+:/ { print }
+    /^[[:xdigit:]]+:/ && /\|[[:xdigit:]]+:/ {
+      words=$0; sub(/\|.*/, "", words); sub(/^[^:]*:/, "", words)
+      gsub(/[[:space:]]/, "", words)
+      offset=$0; sub(/^.*\|/, "", offset); sub(/:.*/, "", offset)
+      print offset, words
+    }
+  ' "$input" > "$output"
+}
+
+proc check_candidate(name) {
+  var base = "$evidence/$name"
+  var output = "$result/$name"
+  for suffix in dex dex.plan smali { test -s "$base.$suffix" }
+  mkdir -p "$output/oracle-source"
+  cp "$base.smali" "$output/oracle-source/Candidate.smali"
+  "$dexdump" -c "$base.dex" > "$output/candidate-checksum.txt" 2>&1
+  "$dexdump" -d "$base.dex" > "$output/candidate-disassembly.txt" 2>&1
+  plan_jumps "$base.dex.plan" "$output/plan-jumps.txt"
+  smali_jumps "$base.smali" "$output/smali-jumps.txt"
+  test -s "$output/plan-jumps.txt"
+  cmp "$output/plan-jumps.txt" "$output/smali-jumps.txt"
+  jump_widths "$output/smali-jumps.txt" "$output/source-widths.txt"
+  decoded_jump_widths "$output/candidate-disassembly.txt" "$output/actual-widths.txt"
+  cmp "$output/source-widths.txt" "$output/actual-widths.txt"
+  # A smali assembler may repair a stale short jump itself. The explicit
+  # comparison above must pass BEFORE this independent assembly is allowed.
+  java -jar "$smali" assemble "$output/oracle-source" -o "$output/oracle.dex" > "$output/assembly.txt" 2>&1
+  test -s "$output/oracle.dex"
+  "$dexdump" -c "$output/oracle.dex" > "$output/oracle-checksum.txt" 2>&1
+  "$dexdump" -d "$output/oracle.dex" > "$output/oracle-disassembly.txt" 2>&1
+  decoded_code "$output/candidate-disassembly.txt" "$output/candidate-code.txt"
+  decoded_code "$output/oracle-disassembly.txt" "$output/oracle-code.txt"
+  test -s "$output/candidate-code.txt"
+  cmp "$output/candidate-code.txt" "$output/oracle-code.txt"
+  sha256sum "$base.dex" "$base.dex.plan" "$base.smali" "$output/oracle.dex" > "$output/sha256.txt"
+  echo "PASS finalized plan/smali/decoded instructions agree: $name" >> "$result/result.txt"
+}
+
+for name in arithmetic text pure-foreign effects invoke-range quick-settings boolean layout-text layout-fixture {
+  check_candidate "$name"
+}
+
+# Negative controls alter retained evidence, not the candidate or compiler.
+# Both stale reports must still be rejected against the actual DEX, rather
+# than being allowed to corroborate each other or repaired by the assembler.
+var reference = "$result/layout-fixture"
+rg -q 'goto/16 ' "$evidence/layout-fixture.smali"
+sed 's/goto\/16 /goto /g' "$evidence/layout-fixture.dex.plan" > "$result/stale.plan"
+sed 's/goto\/16 /goto /g' "$evidence/layout-fixture.smali" > "$result/stale.smali"
+plan_jumps "$result/stale.plan" "$result/stale-plan-jumps.txt"
+smali_jumps "$result/stale.smali" "$result/stale-smali-jumps.txt"
+try { cmp -s "$result/stale-plan-jumps.txt" "$reference/smali-jumps.txt" }
+if (_error.code !== 1) { echo 'FAIL stale-plan control was not rejected' >&2; exit 1 }
+echo 'PASS rejected stale-plan evidence' >> "$result/result.txt"
+try { cmp -s "$reference/plan-jumps.txt" "$result/stale-smali-jumps.txt" }
+if (_error.code !== 1) { echo 'FAIL stale-smali control was not rejected' >&2; exit 1 }
+echo 'PASS rejected stale-smali evidence' >> "$result/result.txt"
+cmp "$result/stale-plan-jumps.txt" "$result/stale-smali-jumps.txt"
+jump_widths "$result/stale-smali-jumps.txt" "$result/stale-widths.txt"
+try { cmp -s "$result/stale-widths.txt" "$reference/actual-widths.txt" }
+if (_error.code !== 1) { echo 'FAIL two agreeing stale reports escaped actual DEX check' >&2; exit 1 }
+echo 'PASS rejected jointly stale plan and smali against actual DEX' >> "$result/result.txt"
+cat "$result/result.txt"

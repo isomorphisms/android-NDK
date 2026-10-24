@@ -3,6 +3,10 @@ module ClickListener
 import Backend.DEX.FrameworkClasses
 import System
 
+refuses : Either String value -> Bool
+refuses (Left _) = True
+refuses (Right _) = False
+
 ||| Platform-only callback plan: application and music semantics live elsewhere.
 listener : FrameworkClass
 listener = Subclass "Lorg/isomorphisms/NativeClickListener;"
@@ -18,6 +22,11 @@ platform_activity = Subclass "Lorg/isomorphisms/NativeViewActivity;"
 covering
 main : IO ()
 main = do
+  if refuses (encode_framework_classes_implementing [(listener, ["invalid"])]) &&
+     refuses (encode_framework_classes [listener, listener]) &&
+     refuses (encode_framework_classes [{ callbacks := [Callback "onClick" "V" ["Junk"]] } listener])
+    then pure ()
+    else do putStrLn "FAIL native callback refusal controls"; exitFailure
   arguments ← getArgs
   case arguments of
     [_, path] ⇒ do

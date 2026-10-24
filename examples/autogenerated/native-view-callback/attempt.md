@@ -1,5 +1,35 @@
 # Program attempt: native Android View callbacks
 
+## Pre-ICU consolidation
+
+The missing shared module is recovered verbatim from
+`fuego-ironworks/idric-arm-thumb@c13a6a223a24c211d090d2c88a395c134ed8d469`,
+`src/Backend/DEX/FrameworkClasses.idr`, blob
+`1ce706303759a18123389c9db66e5b3108db16a3`. No ICU branch is used.
+It shares the canonical DEX writer/hash modules; its bounded native-method
+class plan stays distinct from checked-ANF application method lowering.
+
+The qualification input is this checked `FrameworkClass` plan. The output is
+a fresh DEX file; invalid class/interface/native-method plans must return
+`Left` before writing bytes. A pinned Idriç compiler builds the library and
+fixture. Independent AOSP decoding and baksmali check inheritance, interfaces
+and native callback signatures. Repeated generation must be byte-identical.
+
+Packaging combines that actual DEX with the existing native fixture and signer.
+The DEX-free receipt remains v2; the explicit-DEX lane uses v3 and includes
+launcher, DEX bytes and subclass-oracle identity in material identity. The DEX
+payload receives the same epoch/mode/ZIP normalization as other payloads.
+The independent verifier checks both the APK and its extracted DEX digest.
+Host compilation/decoding, reproducible packaging and historical API29 callback
+execution remain separate evidence. Fresh native callback execution is not
+inferred from a package check. No fallback language or compiler is introduced.
+
+The current generic language boundary remains arbitrary checked heap values
+and callbacks; this import only repairs the declared native-adapter dependency.
+The acceptance test for future replacement must exercise real source callbacks
+through ART/JNI rather than treating this host-side class plan as source-ANF
+object lowering.
+
 Status: HOST_PASS; ART class load and real View click callbacks verified on API29.
 
 Purpose: let a NativeActivity construct ordinary platform Views and receive

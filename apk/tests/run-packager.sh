@@ -32,7 +32,7 @@ export ANDROID_KEY_ALIAS=wegert-debug
 export ANDROID_STORE_PASSWORD=wegert-debug
 export ANDROID_KEY_PASSWORD=wegert-debug
 export ANDROID_EXPECTED_CERT_SHA256=de9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9
-export ANDROID_SOURCE_COMMIT="${GITHUB_SHA:-fixture}"
+export ANDROID_SOURCE_COMMIT="${GITHUB_SHA:-0000000000000000000000000000000000000000}"
 export ANDROID_EXPECTED_LABEL="android-NDK fixture"
 
 bash "$repo_root/apk/build-nativeactivity-apk.sh" \
@@ -160,5 +160,42 @@ then
 fi
 grep -Fq "required value is unset: ANDROID_KEYSTORE" "$work/missing.log"
 test ! -e "$work/missing.apk"
+
+bash "$repo_root/apk/tests/qualify-reproducible.sh" \
+    "$repo_root/apk/tests/fixtures/AndroidManifest.xml" \
+    "$work/libfixture.so" \
+    armeabi-v7a \
+    "$work/reproducible"
+
+if [[ -n ${ANDROID_TEST_DEX_FILE:-} ]]; then
+    [[ -s "$ANDROID_TEST_DEX_FILE" ]] || { echo 'missing required direct callback fixture' >&2; exit 1; }
+    sed 's/android\.app\.NativeActivity/org.isomorphisms.NativeViewActivity/g; s/android:hasCode="false"/android:hasCode="true"/' \
+        "$repo_root/apk/tests/fixtures/AndroidManifest.xml" > "$work/subclass.xml"
+    ANDROID_ACTIVITY_CLASS=org.isomorphisms.NativeViewActivity \
+    ANDROID_DEX_FILE="$ANDROID_TEST_DEX_FILE" ANDROID_REQUIRE_NO_DEX=0 \
+        bash "$repo_root/apk/build-nativeactivity-apk.sh" \
+        "$work/subclass.xml" "$work/libfixture.so" armeabi-v7a "$work/subclass.apk"
+    bash "$repo_root/apk/verify-nativeactivity-receipt.sh" "$work/subclass.receipt.tsv" "$work/subclass.apk"
+    grep -Fq $'launcher_activity\torg.isomorphisms.NativeViewActivity' "$work/subclass.receipt.tsv"
+    if ANDROID_DEX_FILE="$ANDROID_TEST_DEX_FILE" ANDROID_REQUIRE_NO_DEX=1 \
+        bash "$repo_root/apk/build-nativeactivity-apk.sh" \
+        "$repo_root/apk/tests/fixtures/AndroidManifest.xml" "$work/libfixture.so" armeabi-v7a \
+        "$work/undeclared-policy.apk" > "$work/undeclared-policy.log" 2>&1; then
+        echo 'DEX bypassed the default DEX-free policy' >&2; exit 1
+    fi
+    grep -Fq 'declared DEX input requires ANDROID_REQUIRE_NO_DEX=0' "$work/undeclared-policy.log"
+    sed 's/org.isomorphisms.NativeViewActivity/org.isomorphisms.NativeClickListener/' \
+        "$work/subclass.xml" > "$work/wrong-parent.xml"
+    if ANDROID_ACTIVITY_CLASS=org.isomorphisms.NativeClickListener \
+        ANDROID_DEX_FILE="$ANDROID_TEST_DEX_FILE" ANDROID_REQUIRE_NO_DEX=0 \
+        bash "$repo_root/apk/build-nativeactivity-apk.sh" \
+        "$work/wrong-parent.xml" "$work/libfixture.so" armeabi-v7a \
+        "$work/wrong-parent.apk" > "$work/wrong-parent.log" 2>&1; then
+        echo 'non-NativeActivity launcher passed subclass qualification' >&2; exit 1
+    fi
+    grep -Fq 'declared launcher does not directly extend framework NativeActivity' "$work/wrong-parent.log"
+    test ! -e "$work/wrong-parent.apk"
+    printf 'android-NDK declared DEX normalization, receipt and subclass controls: PASS\n'
+fi
 
 printf 'android-NDK NativeActivity packager tests: PASS\n'
