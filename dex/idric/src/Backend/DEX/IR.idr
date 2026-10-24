@@ -301,6 +301,9 @@ data Instruction
   | MoveWide Register Register
   | MoveObject Register Register
   | IntegerConstant Register Int
+  | ArrayLength Register Register
+  | ArrayGetObject Register Register Register
+  | IntToLong Register Register
   | NullReference Register
   | TextConstant Register String
   | NewObject Register TypeReference
@@ -334,6 +337,12 @@ Show Instruction where
     "move-object " ++ show destination ++ ", " ++ show source
   show (IntegerConstant destination value) =
     "const " ++ show destination ++ ", " ++ show value
+  show (ArrayLength destination array) =
+    "array-length " ++ show destination ++ ", " ++ show array
+  show (ArrayGetObject destination array index) =
+    "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
+  show (IntToLong destination source) =
+    "int-to-long " ++ show destination ++ ", " ++ show source
   show (NullReference destination) = "const-null " ++ show destination
   show (TextConstant destination value) =
     "const-string " ++ show destination ++ ", " ++ show value

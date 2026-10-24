@@ -80,7 +80,12 @@ The original Main.main IO ABI refusal is passed. Current first failure:
 
 `No checked helper body for DEX call System.prim__getArgCount`
 
-The compiler rejects that source with exit 1 and emits no classes.dex. Missing
+The compiler rejects that source with exit 1 and emits no classes.dex. The
+argument-array boundary now has typed DEX array-length, aget-object and
+int-to-long operations, with directly encoded proof methods and rejected
+out-of-range register plans. These are target instructions, not an
+implementation of System.prim__getArgCount: no generated ART main(String[])
+entrypoint yet binds an argument array to checked Idriç code. Missing
 runtime arguments include getArgCount/getArg, their source Int representation
 and the runtime List Text result. Subsequent requirements include runtime lists,
 records, constructors/cases, escaping closures as needed, ICU string/byte

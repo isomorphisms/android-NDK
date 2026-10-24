@@ -59,6 +59,10 @@ instruction_registers (MoveWide destination source) =
   Right [destination, next_register destination, source, next_register source]
 instruction_registers (MoveObject destination source) = Right [destination, source]
 instruction_registers (IntegerConstant destination _) = Right [destination]
+instruction_registers (ArrayLength destination array) = Right [destination, array]
+instruction_registers (ArrayGetObject destination array index) = Right [destination, array, index]
+instruction_registers (IntToLong destination source) =
+  Right [destination, next_register destination, source]
 instruction_registers (NullReference destination) = Right [destination]
 instruction_registers (TextConstant destination _) = Right [destination]
 instruction_registers (NewObject destination _) = Right [destination]
@@ -128,6 +132,12 @@ instruction_staging (TextEqual destination left right) =
   call_staging (text_call destination left right)
 instruction_staging (CheckCast register _) = Right (register.number > 255, 0)
 instruction_staging (NewObject destination _) = Right (destination.number > 255, 0)
+instruction_staging (ArrayLength destination array) =
+  Right (destination.number > 15 || array.number > 15, 0)
+instruction_staging (ArrayGetObject destination array index) =
+  Right (destination.number > 255 || array.number > 255 || index.number > 255, 0)
+instruction_staging (IntToLong destination source) =
+  Right (destination.number > 15 || source.number > 15, 0)
 instruction_staging _ = Right (False, 0)
 
 private
@@ -229,6 +239,39 @@ place_instruction scratch_start (NewObject destination object_type) =
   if low_byte_register target
     then Right [NewObject target object_type]
     else Right [NewObject scratch_zero object_type, MoveObject target scratch_zero]
+-- ART String[] operations use the same disjoint v0/v1 scratch area as calls.
+-- For aget-object, the output may overlap the array source (DEX reads the
+-- array before writing the object result).
+place_instruction scratch_start (ArrayLength destination array) =
+  let target = shift_register destination
+      source = shift_register array
+      input = if source.number <= 15 then source else scratch_zero
+      output = if target.number <= 15 then target else scratch_one
+      prefix = if source.number <= 15 then [] else [MoveObject scratch_zero source]
+      suffix = if target.number <= 15 then [] else [Move target scratch_one]
+  in Right (prefix ++ [ArrayLength output input] ++ suffix)
+place_instruction scratch_start (ArrayGetObject destination array index) =
+  let target = shift_register destination
+      array_source = shift_register array
+      index_source = shift_register index
+      array_input = if array_source.number <= 255 then array_source else scratch_zero
+      index_input = if index_source.number <= 255 then index_source else scratch_one
+      output = if target.number <= 255 then target else scratch_zero
+      array_prefix = if array_source.number <= 255 then []
+                       else [MoveObject scratch_zero array_source]
+      index_prefix = if index_source.number <= 255 then []
+                       else [Move scratch_one index_source]
+      suffix = if target.number <= 255 then [] else [MoveObject target scratch_zero]
+  in Right (array_prefix ++ index_prefix ++
+            [ArrayGetObject output array_input index_input] ++ suffix)
+place_instruction scratch_start (IntToLong destination source) =
+  let target = shift_register destination
+      input_register = shift_register source
+      input = if input_register.number <= 15 then input_register else scratch_zero
+      output = if target.number <= 15 then target else scratch_zero
+      prefix = if input_register.number <= 15 then [] else [Move scratch_zero input_register]
+      suffix = if target.number <= 15 then [] else [MoveWide target scratch_zero]
+  in Right (prefix ++ [IntToLong output input] ++ suffix)
 place_instruction scratch_start (IntegerBinary operation destination left right) =
   let target = shift_register destination
       first = shift_register left

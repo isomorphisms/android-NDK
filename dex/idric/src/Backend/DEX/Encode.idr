@@ -114,6 +114,19 @@ instruction_width (IntegerConstant destination value) =
         else if value >= -32768 && value <= 32767
           then Right 2
           else Right 3
+instruction_width (ArrayLength destination array) =
+  if valid_register 15 destination && valid_register 15 array
+    then Right 1
+    else Left "DEX array-length format 12x requires registers v0..v15"
+instruction_width (ArrayGetObject destination array index) =
+  if valid_register 255 destination &&
+     valid_register 255 array && valid_register 255 index
+    then Right 2
+    else Left "DEX aget-object format 23x requires registers v0..v255"
+instruction_width (IntToLong destination source) =
+  if valid_register 15 destination && valid_register 15 source
+    then Right 1
+    else Left "DEX int-to-long format 12x requires registers v0..v15"
 instruction_width (NullReference destination) =
   instruction_width (IntegerConstant destination 0)
 instruction_width (CheckCast register _) =
@@ -305,6 +318,19 @@ encode_instruction strings descriptors method_ids labels address
           (0x12 + register * 256 + unsigned_mod literal 16 * 4096))
     2 => Right (u16le (0x13 + register * 256) ++ u16le literal)
     _ => Right (u16le (0x14 + register * 256) ++ u32le literal)
+encode_instruction strings descriptors method_ids labels address
+  instruction@(ArrayLength destination array) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x21 + cast destination.number * 256 + cast array.number * 4096))
+encode_instruction strings descriptors method_ids labels address
+  instruction@(ArrayGetObject destination array index) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x46 + cast destination.number * 256) ++
+         u16le (cast array.number + cast index.number * 256))
+encode_instruction strings descriptors method_ids labels address
+  instruction@(IntToLong destination source) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x81 + cast destination.number * 256 + cast source.number * 4096))
 encode_instruction strings descriptors method_ids labels address (NullReference destination) =
   encode_instruction strings descriptors method_ids labels address (IntegerConstant destination 0)
 encode_instruction strings descriptors method_ids labels address

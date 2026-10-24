@@ -59,6 +59,12 @@ render_instruction (MoveObject destination source) =
   render_move_with "move-object" destination source
 render_instruction (IntegerConstant destination value) =
   render_constant destination value
+render_instruction (ArrayLength destination array) =
+  "array-length " ++ show destination ++ ", " ++ show array
+render_instruction (ArrayGetObject destination array index) =
+  "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
+render_instruction (IntToLong destination source) =
+  "int-to-long " ++ show destination ++ ", " ++ show source
 render_instruction (NullReference destination) =
   render_constant destination 0
 render_instruction (TextConstant destination value) =
