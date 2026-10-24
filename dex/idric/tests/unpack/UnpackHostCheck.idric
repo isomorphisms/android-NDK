@@ -1,0 +1,30 @@
+module UnpackHostCheck
+
+import UnpackSource
+import System
+
+check : Text → Bool → IO ()
+check name True = putStrLn ("PASS " ++ name)
+check name False = die ("FAIL " ++ name)
+
+main : IO ()
+main = do
+  check "empty head" (first_codepoint "" ≟ -1)
+  check "ASCII head" (first_codepoint "AB" ≟ 65)
+  check "supplementary head" (first_codepoint "😀X" ≟ 128512)
+  check "supplementary is one Char" (second_codepoint "😀X" ≟ 88)
+  check "NUL is not an empty string" (first_codepoint "\0A" ≟ 0)
+  check "roundtrip ASCII" (roundtrip "abc" ≟ "abc")
+  check "roundtrip Unicode" (roundtrip "π😀漢字" ≟ "π😀漢字")
+  check "roundtrip NUL" (roundtrip "A\0B" ≟ "A\0B")
+  check "tail after supplementary" (tail_text "😀X" ≟ "X")
+  check "reject empty identity" (record_allowed "" ≟ 0)
+  check "accept identity" (record_allowed "abc" ≟ 1)
+  check "reject tab" (record_allowed "a\tb" ≟ 0)
+  check "reject newline" (record_allowed "a\nb" ≟ 0)
+  check "reject carriage return" (record_allowed "a\rb" ≟ 0)
+  check "count codepoints" (codepoint_count "A😀漢" ≟ 3)
+  check "alias survives scan" (alias_preserved "😀abc" ≟ 128512)
+  check "constant Integer wrap negative" (integer_wrap "" ≟ 2147483647)
+  check "constant Integer wrap positive" (integer_wrap "x" ≟ 1)
+  putStrLn "PASS actual Idric unpack source semantics"

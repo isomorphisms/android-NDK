@@ -27,6 +27,11 @@ compiler path.
 
 ## Checked compiler handoff
 
+The original arithmetic boundary below is retained as history. The current
+reference/effect extension, its supported source ABI, and its separate source,
+emission, and runtime checks are described in
+[`FRAMEWORK-EFFECTS.md`](FRAMEWORK-EFFECTS.md).
+
 The custom code generator uses `getCompileDataWith ["dex"] False ANF` from the
 Idriç revision resolved from the declared `Idriç` branch. The first green
 historical revision was `081b9cde0591154839fb5d80d76e5570e0436300`. It accepts only
@@ -67,11 +72,15 @@ integer return. The direct encoder implements these concrete formats:
 | move | `move` 12x, `move/from16` 22x, `move/16` 32x |
 | arithmetic | `add-int`, `sub-int`, `mul-int` 23x |
 | comparison branch | `if-eq` through `if-le` 22t |
-| jump | `goto` 10t |
+| jump | `goto` 10t, `goto/16` 20t, `goto/32` 30t |
 | result | `return` 11x |
 
 Format selection checks register and signed-literal ranges. Branch labels are
-resolved in code units; zero and out-of-range 10t/22t offsets are rejected.
+resolved in 16-bit code units. Unconditional jumps are widened monotonically
+from 10t to 20t or 30t until no later promotion changes another jump's
+address. Signed 8/16/32-bit ranges and the forbidden zero offset are checked;
+conditional 22t branches retain their separate signed 16-bit range check.
+A target that remains outside a supported range is refused, not wrapped.
 Parameters occupy the last virtual registers as required by DEX. There is no
 physical CPU register allocator.
 
@@ -103,9 +112,9 @@ job; it does not require a permanently attached phone.
 See [`AUDIT.md`](./AUDIT.md) for the starting boundary and
 [`OPCODES.md`](./OPCODES.md) for the complete opcode inventory.
 
-## Current generic compiler boundary
+## Original generic compiler boundary
 
-The checked-ANF compiler slice does not yet claim general calls, recursion,
+The initial checked-ANF compiler slice did not claim general calls, recursion,
 constructors, objects, arrays, fields, strings, exceptions, monitors,
 annotations, debug data, wide 64-bit values, floats, Float16, Android framework
 calls, lifecycle classes, resources, APK packaging, signing, or source-level

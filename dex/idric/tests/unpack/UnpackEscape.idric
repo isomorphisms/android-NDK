@@ -1,0 +1,8 @@
+module UnpackEscape
+
+%export "dex:escaping"
+escaping : Text → List Char
+escaping input = unpack input
+
+main : IO ()
+main = pure ()
