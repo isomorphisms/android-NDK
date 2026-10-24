@@ -30,3 +30,9 @@ The migration inventory distinguishes canonical generic material from copied
 specialized references, application-owned consumers, historical experiments,
 and unresolved items.  A copied source file remains visibly attributed to its
 original repository and revision.
+# Consolidation inventory
+
+The [pre-ICU DEX inventory](provenance/pre-icu-dex-baseline.md) maps the checked
+frontend, lowering, encoder, runtime limits, Android adapters and provenance for
+the next architecture study. Historical slice descriptions remain attributable
+to their original revisions.

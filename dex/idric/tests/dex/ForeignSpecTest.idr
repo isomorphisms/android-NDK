@@ -57,14 +57,24 @@ transact =
     ]
     CFInt32
 
+method_kind : DEXForeign -> Maybe InvokeKind
+method_kind foreign = case foreign.operation of
+  MethodInvocation kind _ => Just kind
+  _ => Nothing
+
+method_signature : DEXForeign -> Maybe String
+method_signature foreign = case foreign.operation of
+  MethodInvocation _ method => Just (method_descriptor method)
+  _ => Nothing
+
 main : IO ()
 main = do
   case calling_uid of
     Left explanation => fail explanation
     Right foreign => do
-      expect "calling uid is static" (foreign.invocation_kind == InvokeStatic)
+      expect "calling uid is static" (method_kind foreign == Just InvokeStatic)
       expect "calling uid result descriptor"
-        (method_descriptor foreign.method == "()I")
+        (method_signature foreign == Just "()I")
       expect "calling uid remains effectful"
         (foreign.effect == PrimitiveIOForeign)
 
@@ -72,7 +82,7 @@ main = do
     Left explanation => fail explanation
     Right foreign => do
       expect "restore identity descriptor"
-        (method_descriptor foreign.method == "(J)V")
+        (method_signature foreign == Just "(J)V")
       expect "PrimIO world is recognized"
         (foreign.effect == PrimitiveIOForeign)
 
@@ -80,9 +90,9 @@ main = do
     Left explanation => fail explanation
     Right foreign => do
       expect "transact is interface invoke"
-        (foreign.invocation_kind == InvokeInterface)
+        (method_kind foreign == Just InvokeInterface)
       expect "transact descriptor"
-        (method_descriptor foreign.method ==
+        (method_signature foreign == Just
           "(ILandroid/os/Parcel;Landroid/os/Parcel;I)Z")
 
   expect_left "virtual call requires receiver"

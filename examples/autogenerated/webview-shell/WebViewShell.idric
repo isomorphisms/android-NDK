@@ -1,0 +1,63 @@
+module WebViewShell
+
+import Backend.DEX.Encode
+import Backend.DEX.EncodeCallbackShell
+import System
+
+%default covering
+
+emit : String -> String -> List NativeCallback -> IO ()
+emit path parent callbacks =
+  let name = case path of
+        "classes.dex" => "BridgeActivity"
+        "classes2.dex" => "BridgeClient"
+        _ => "BridgeMessageCallback"
+  in case encode_callback_shell ("Lorg/isomorphisms/webview/" ++ name ++ ";")
+                                parent "cgw_webview" callbacks of
+       Left error => do putStrLn error; exitFailure
+       Right bytes => do
+         result <- write_dex ("build/exec/webview/" ++ path) bytes
+         case result of
+           Left error => do putStrLn error; exitFailure
+           Right () => putStrLn ("PASS direct DEX " ++ path)
+
+main : IO ()
+main = do
+  emit "classes.dex" "Landroid/app/Activity;"
+    [ MkNativeCallback "onCreate" "V" ["Landroid/os/Bundle;"]
+    , MkNativeCallback "onDestroy" "V" []
+    , MkNativeCallback "onBackPressed" "V" []
+    , MkNativeCallback "onCreateOptionsMenu" "Z" ["Landroid/view/Menu;"]
+    , MkNativeCallback "onOptionsItemSelected" "Z" ["Landroid/view/MenuItem;"] ]
+  emit "classes2.dex" "Landroid/webkit/WebViewClient;"
+    [ MkNativeCallback "onPageStarted" "V"
+        ["Landroid/webkit/WebView;", "Ljava/lang/String;", "Landroid/graphics/Bitmap;"]
+    , MkNativeCallback "onPageCommitVisible" "V"
+        ["Landroid/webkit/WebView;", "Ljava/lang/String;"]
+    , MkNativeCallback "onPageFinished" "V"
+        ["Landroid/webkit/WebView;", "Ljava/lang/String;"]
+    , MkNativeCallback "shouldInterceptRequest" "Landroid/webkit/WebResourceResponse;"
+        ["Landroid/webkit/WebView;", "Landroid/webkit/WebResourceRequest;"]
+    , MkNativeCallback "shouldOverrideUrlLoading" "Z"
+        ["Landroid/webkit/WebView;", "Landroid/webkit/WebResourceRequest;"]
+    , MkNativeCallback "onReceivedSslError" "V"
+        ["Landroid/webkit/WebView;", "Landroid/webkit/SslErrorHandler;", "Landroid/net/http/SslError;"] ]
+  emit "classes3.dex" "Landroid/webkit/WebMessagePort$WebMessageCallback;"
+    [ MkNativeCallback "onMessage" "V"
+        ["Landroid/webkit/WebMessagePort;", "Landroid/webkit/WebMessage;"] ]
+  case encode_callback_shell "invalid" "Landroid/app/Activity;" "cgw_webview"
+         [MkNativeCallback "onCreate" "V" []] of
+    Left _ => putStrLn "PASS invalid descriptor rejected"
+    Right _ => exitFailure
+  case encode_callback_shell "Lorg/Test;" "Landroid/app/Activity;" "cgw_webview"
+         [MkNativeCallback "wide" "J" []] of
+    Left _ => putStrLn "PASS unsupported wide callback rejected"
+    Right _ => exitFailure
+  case encode_callback_shell "Lorg/Test;" "Landroid/app/Activity;" "cgw_webview"
+         [MkNativeCallback "same" "V" [], MkNativeCallback "same" "V" []] of
+    Left _ => putStrLn "PASS duplicate callback rejected"
+    Right _ => exitFailure
+  case encode_callback_shell "Lorg/Test;" "Landroid/app/Activity;" "../bad"
+         [MkNativeCallback "callback" "V" []] of
+    Left _ => putStrLn "PASS invalid library rejected"
+    Right _ => exitFailure

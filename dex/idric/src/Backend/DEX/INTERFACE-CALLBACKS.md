@@ -30,9 +30,11 @@ Their explicit record constructors are now `MkBoundMethodPlan` and
 `MkClassFilePlan`; consumers pattern-matching the former constructors must use
 the new record constructors. Existing repository callers need no changes.
 
-There are no captured closures, instance fields, inherited Activity methods,
-arbitrary heap values, exception handlers, source-level object factories or
-automatic subtype casts. The platform owner constructs the listener and
+There are no captured closures, instance fields, arbitrary heap values,
+exception handlers, source-level object factories or automatic subtype casts.
+The subsequent [Activity adapter](ACTIVITY-ADAPTERS.md) supplies a bounded
+Activity lifecycle/action shape and explicit checked reference casts.
+The platform owner constructs the listener and
 attaches it. This generic backend owns no canonical browser state or Material
 resources. Arbitrary S08 reducers/journals are not qualified by this bridge.
 

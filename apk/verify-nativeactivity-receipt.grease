@@ -17,7 +17,7 @@ if (schema_id === 'android-ndk-nativeactivity-apk-v2') {
 } else { fail "unsupported receipt schema: $schema_id" }
 test -f "$schema_file"
 var work = $(mktemp -d)
-trap 'rm -rf -- "$work"' EXIT
+trap --add EXIT { rm -rf -- "$work" }
 tail -n +2 "$schema_file" | cut -f1 > "$work/expected-fields"
 if ! awk -F '\t' 'NF != 2 { exit 1 } { print $1 }' "$receipt" > "$work/actual-fields" {
   fail 'receipt is not strict two-column TSV'

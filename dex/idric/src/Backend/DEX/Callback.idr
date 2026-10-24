@@ -25,14 +25,8 @@ record LifecycleOverride where
   checked_export : String
 
 private
-data ClassDirective
-  = InterfaceBridge InterfaceCallback
-  | ActivityParent
-  | LifecycleBridge LifecycleOverride
-
-private
-parse_directive : String -> Either String (Maybe ClassDirective)
-parse_directive directive = case words directive of
+parse_callback : String -> Either String (Maybe InterfaceCallback)
+parse_callback directive = case words directive of
   ["callback", implemented, method_name, signature, checked_export] => do
     validate_reference_descriptor implemented
     _ <- validate_method_name method_name
@@ -40,33 +34,24 @@ parse_directive directive = case words directive of
     (arguments, result) <- parse_method_descriptor signature
     if result /= VoidValue
       then Left "DEX callback bridge currently requires a void result"
-      else Right (Just (InterfaceBridge (DeclaredCallback (MkTypeReference implemented)
-                          method_name signature checked_export)))
-  ["extends", "Landroid/app/Activity;"] => Right (Just ActivityParent)
-  ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] => do
-    _ <- validate_method_name checked_export
-    Right (Just (LifecycleBridge (DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export)))
+      else Right (Just (DeclaredCallback (MkTypeReference implemented)
+                          method_name signature checked_export))
   "callback" :: _ =>
     Left "DEX callback requires interface, method, JVM signature and checked export"
+  ["activity", create_export, action_export] => do
+    _ <- validate_method_name create_export
+    _ <- validate_method_name action_export
+    Right Nothing
+  "activity" :: _ =>
+    Left "DEX activity requires checked create and action exports"
+  ["extends", "Landroid/app/Activity;"] => Right Nothing
+  ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
   "extends" :: _ => Left "DEX checked subclass currently admits android.app.Activity only"
   "override" :: _ => Left "DEX checked lifecycle currently admits onCreate(Bundle) only"
   [] => Right Nothing
-  _ => Left "Unsupported DEX directive; expected unquoted callback, extends or override declaration"
-
-private
-interface_bridge : ClassDirective -> Maybe InterfaceCallback
-interface_bridge (InterfaceBridge callback) = Just callback
-interface_bridge _ = Nothing
-
-private
-lifecycle_bridge : ClassDirective -> Maybe LifecycleOverride
-lifecycle_bridge (LifecycleBridge lifecycle) = Just lifecycle
-lifecycle_bridge _ = Nothing
-
-private
-is_activity_parent : ClassDirective -> Bool
-is_activity_parent ActivityParent = True
-is_activity_parent _ = False
+  _ => Left "Unsupported DEX directive; expected unquoted callback, activity, extends or override declaration"
 
 private
 argument_registers : Int -> List FrameworkValueType -> List Register
@@ -102,14 +87,76 @@ bridge_method class_descriptor methods callback = do
   Right ({ mode := InstanceMethod } bridge)
 
 private
-object_constructor : TypeReference -> MethodPlan
-object_constructor superclass =
+platform_constructor : TypeReference -> MethodPlan
+platform_constructor superclass =
   let method = MkMethodPlan "platform superclass initialization" "<init>" 0 [] VoidValue 1
         [ InvokeMethod (Invoke InvokeDirect
             (MkMethodReference superclass
               "<init>" [] VoidValue) [MkRegister 0] Nothing)
         , ReturnVoid ]
   in { mode := ConstructorMethod } method
+
+private
+checked_activity_export : String -> List MethodPlan -> String ->
+  List FrameworkValueType -> Either String MethodReference
+checked_activity_export class_descriptor methods name arguments =
+  case filter (\method => method.mode == StaticMethod && method.method_name == name) methods of
+    [target] =>
+      if target.parameter_types == arguments && target.result_type == VoidValue
+        then Right (MkMethodReference (MkTypeReference class_descriptor)
+                     name arguments VoidValue)
+        else Left ("DEX activity signature disagrees with checked export `" ++ name ++ "`")
+    _ => Left ("DEX activity has no unique checked static export `" ++ name ++ "`")
+
+private
+activity_bridges : String -> List MethodPlan -> String -> String ->
+  Either String (List MethodPlan)
+activity_bridges class_descriptor methods create_name action_name = do
+  let activity = ReferenceValue (MkTypeReference "Landroid/app/Activity;")
+  let bundle = ReferenceValue (MkTypeReference "Landroid/os/Bundle;")
+  let view = ReferenceValue (MkTypeReference "Landroid/view/View;")
+  create <- checked_activity_export class_descriptor methods create_name [activity]
+  action <- checked_activity_export class_descriptor methods action_name [activity, view]
+  let create_bridge = MkMethodPlan "Activity super.onCreate then checked create action"
+        "onCreate" 1 [bundle] VoidValue 3
+        [ InvokeMethod (Invoke InvokeSuper
+            (MkMethodReference (MkTypeReference "Landroid/app/Activity;")
+              "onCreate" [bundle] VoidValue) [MkRegister 1, MkRegister 2] Nothing)
+        , InvokeMethod (Invoke InvokeStatic create [MkRegister 1] Nothing)
+        , ReturnVoid ]
+  let action_bridge = MkMethodPlan "Activity receiver and clicked view to checked action"
+        "onClick" 1 [view] VoidValue 3
+        [ InvokeMethod (Invoke InvokeStatic action [MkRegister 1, MkRegister 2] Nothing)
+        , ReturnVoid ]
+  Right [{ mode := InstanceMethod } create_bridge,
+         { mode := InstanceMethod } action_bridge]
+
+private
+activity_declarations : List String -> List (String, String)
+activity_declarations [] = []
+activity_declarations (directive :: rest) = case words directive of
+  ["activity", create_name, action_name] =>
+    (create_name, action_name) :: activity_declarations rest
+  _ => activity_declarations rest
+
+private
+select_activity_adapter : String -> List MethodPlan -> List (String, String) ->
+  Either String (TypeReference, List MethodPlan)
+select_activity_adapter class_descriptor methods [] =
+  Right (MkTypeReference "Ljava/lang/Object;", [])
+select_activity_adapter class_descriptor methods [(create_name, action_name)] = do
+  lifecycle <- activity_bridges class_descriptor methods create_name action_name
+  Right (MkTypeReference "Landroid/app/Activity;", lifecycle)
+select_activity_adapter class_descriptor methods _ =
+  Left "DEX class requires at most one Activity declaration"
+
+private
+lifecycle_declarations : List String -> List LifecycleOverride
+lifecycle_declarations [] = []
+lifecycle_declarations (directive :: rest) = case words directive of
+  ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] =>
+    DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export :: lifecycle_declarations rest
+  _ => lifecycle_declarations rest
 
 private
 override_method : String -> TypeReference -> List MethodPlan -> LifecycleOverride ->
@@ -138,26 +185,31 @@ override_method class_descriptor superclass methods lifecycle = do
                  , ReturnVoid ]
   Right ({ mode := InstanceMethod } bridge)
 
-||| Platform metadata agrees with actual checked exports. Construction and
-||| dispatch remain subject to independent SDK/ART qualification.
+||| Metadata supplies the platform method contract; the compiler checks its
+||| exact agreement with a real checked export. SDK interface conformance and
+||| framework dispatch still require independent target execution.
 public export
 with_interface_callbacks : String -> List MethodPlan -> List String ->
   Either String FilePlan
 with_interface_callbacks class_descriptor methods directives = do
-  parsed <- traverse parse_directive directives
-  let declarations = mapMaybe id parsed
-  let parents = filter is_activity_parent declarations
+  parsed <- traverse parse_callback directives
+  let callbacks = mapMaybe id parsed
+  bridges <- traverse (bridge_method class_descriptor methods) callbacks
+  let declarations = activity_declarations directives
+  let parents = filter (\directive => words directive == ["extends", "Landroid/app/Activity;"]) directives
   if length parents > 1 then Left "DEX class has repeated superclass declarations" else Right ()
-  let lifecycle = mapMaybe lifecycle_bridge declarations
+  let lifecycle = lifecycle_declarations directives
   if not (null lifecycle) && null parents
     then Left "DEX lifecycle override requires its Activity superclass"
     else Right ()
-  let superclass = MkTypeReference (if null parents then "Ljava/lang/Object;" else "Landroid/app/Activity;")
-  let callbacks = mapMaybe interface_bridge declarations
-  bridges <- traverse (bridge_method class_descriptor methods) callbacks
+  if not (null declarations) && (not (null parents) || not (null lifecycle))
+    then Left "DEX class cannot mix activity shorthand with extends/override declarations"
+    else Right ()
+  (adapter_superclass, adapter_methods) <- select_activity_adapter class_descriptor methods declarations
+  let superclass = if null parents then adapter_superclass else MkTypeReference "Landroid/app/Activity;"
   overrides <- traverse (override_method class_descriptor superclass methods) lifecycle
-  let needs_constructor = not (null callbacks) || not (null parents)
+  let needs_constructor = not (null callbacks) || not (null declarations) || not (null parents)
   let plan = MkFilePlan class_descriptor
-               (methods ++ (if needs_constructor then [object_constructor superclass] else []) ++
-                bridges ++ overrides)
+        (methods ++ (if needs_constructor then [platform_constructor superclass] else []) ++
+         bridges ++ adapter_methods ++ overrides)
   Right ({ interfaces := nub (map implemented_type callbacks), superclass := superclass } plan)
