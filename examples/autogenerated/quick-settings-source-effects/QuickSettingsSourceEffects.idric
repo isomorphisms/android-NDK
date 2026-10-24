@@ -1,0 +1,46 @@
+module QuickSettingsSourceEffects
+
+data Parcel : Type where [external]
+
+%foreign "dex:static:Landroid/os/Parcel;:obtain:()Landroid/os/Parcel;"
+obtain_parcel : PrimIO Parcel
+
+%foreign "dex:virtual:Landroid/os/Parcel;:writeInt:(I)V"
+write_integer : Parcel → Int32 → PrimIO ()
+
+%foreign "dex:virtual:Landroid/os/Parcel;:setDataPosition:(I)V"
+set_position : Parcel → Int32 → PrimIO ()
+
+%foreign "dex:virtual:Landroid/os/Parcel;:readInt:()I"
+read_integer : Parcel → PrimIO Int32
+
+%foreign "dex:virtual:Landroid/os/Parcel;:recycle:()V"
+recycle_parcel : Parcel → PrimIO ()
+
+%export "dex:primitive_read"
+primitive_read : Parcel → PrimIO Int32
+primitive_read parcel = read_integer parcel
+
+%export "dex:wrapped_read"
+wrapped_read : Parcel → IO Int32
+wrapped_read parcel = primIO (read_integer parcel)
+
+%export "dex:wrapped_recycle"
+wrapped_recycle : Parcel → IO ()
+wrapped_recycle parcel = primIO (recycle_parcel parcel)
+
+%export "dex:write_then_read"
+write_then_read : Parcel → Int32 → IO Int32
+write_then_read parcel value = do
+  primIO (write_integer parcel value)
+  primIO (set_position parcel 0)
+  primIO (read_integer parcel)
+
+%export "dex:obtain_then_recycle"
+obtain_then_recycle : IO ()
+obtain_then_recycle = do
+  parcel ← primIO obtain_parcel
+  primIO (recycle_parcel parcel)
+
+main : IO ()
+main = pure ()

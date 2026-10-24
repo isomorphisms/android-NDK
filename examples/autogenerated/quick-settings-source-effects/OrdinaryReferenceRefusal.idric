@@ -1,0 +1,13 @@
+module OrdinaryReferenceRefusal
+
+data OrdinaryParcel = MissingParcel | StoredParcel Int32
+
+%foreign "dex:virtual:Landroid/os/Parcel;:readInt:()I"
+read_ordinary : OrdinaryParcel → PrimIO Int32
+
+%export "dex:ordinary_reference"
+ordinary_reference : OrdinaryParcel → IO Int32
+ordinary_reference parcel = primIO (read_ordinary parcel)
+
+main : IO ()
+main = pure ()
