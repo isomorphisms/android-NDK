@@ -262,9 +262,9 @@ place_instruction scratch_start (ArrayLength destination array) =
       source = shift_register array
       input = if source.number <= 15 then source else scratch_zero
       output = if target.number <= 15 then target else scratch_one
-      prefix = if source.number <= 15 then [] else [MoveObject scratch_zero source]
+      moves_before = if source.number <= 15 then [] else [MoveObject scratch_zero source]
       suffix = if target.number <= 15 then [] else [Move target scratch_one]
-  in Right (prefix ++ [ArrayLength output input] ++ suffix)
+  in Right (moves_before ++ [ArrayLength output input] ++ suffix)
 place_instruction scratch_start (ArrayGetObject destination array index) =
   let target = shift_register destination
       array_source = shift_register array
@@ -306,9 +306,9 @@ place_instruction scratch_start (IntToLong destination source) =
       input_register = shift_register source
       input = if input_register.number <= 15 then input_register else scratch_zero
       output = if target.number <= 15 then target else scratch_zero
-      prefix = if input_register.number <= 15 then [] else [Move scratch_zero input_register]
+      moves_before = if input_register.number <= 15 then [] else [Move scratch_zero input_register]
       suffix = if target.number <= 15 then [] else [MoveWide target scratch_zero]
-  in Right (prefix ++ [IntToLong output input] ++ suffix)
+  in Right (moves_before ++ [IntToLong output input] ++ suffix)
 place_instruction scratch_start (IntegerBinary operation destination left right) =
   let target = shift_register destination
       first = shift_register left

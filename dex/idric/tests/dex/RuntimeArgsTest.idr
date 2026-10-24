@@ -72,9 +72,7 @@ main = do
   check "index conversion is checked" (isInfixOf "toIntExact(J)I" smali)
   check "entry calls checked method"
     (isInfixOf "checkedStart()V" smali)
-  let broken = { methods := map
-    (\method => if method.method_name == "__idricArgCount" then wrong_count else method)
-    plan.methods } plan
+  let broken = { methods := map (\method => if method.method_name == "__idricArgCount" then wrong_count else method) plan.methods } plan
   wrong <- case encode_dex broken of
     Left error => fail error
     Right encoded => pure encoded
