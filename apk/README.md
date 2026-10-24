@@ -86,6 +86,45 @@ certificate before packaging and the finished APK signer, package ID,
 Run `apk/tests/run-packager.sh` with the Android SDK/NDK and an explicit test
 keystore to exercise the positive path plus missing/wrong-signer hostile cases.
 
+For byte-reproducible packages, supply `SOURCE_DATE_EPOCH` from the consumer's
+source commit and repeat that approved value as
+`ANDROID_EXPECTED_SOURCE_DATE_EPOCH`. A mismatch fails before packaging.
+`ANDROID_SOURCE_COMMIT` must name the exact 40- or 64-hex source revision. The
+maintained packager stages resources and assets in bytewise relative-path
+order, normalizes their timestamps to the epoch, normalizes files to mode 0644
+and directories to 0755, and omits ZIP user/group extra fields. The native
+library receives the same epoch and file mode. This opt-in mode requires a
+minimum SDK of 24 or newer and explicitly uses APK signature v2 only,
+disabling v1, v3 and v4. The consumer still supplies the signer; no new signing
+or build authority is introduced. Ordinary calls retain their existing signing
+defaults.
+
+Every successful package emits an `android-ndk-nativeactivity-apk-v2` receipt.
+Its material identity binds the schema, package and SDK policy, source
+revision and epoch, normalization rules, manifest, resource/asset/native
+closures, signer certificate, and exact packager, `aapt2`, `zipalign`,
+receipt verifier, `apksigner` wrapper and implementation, `android.jar`, and
+`zip` bytes. Separate fields record the
+unsigned payload, aligned package, and signed APK digests. Paths, attempt IDs,
+timestamps outside the approved epoch, and other attempt metadata do not enter
+the canonical receipt. The ordered schema is
+[`nativeactivity-receipt-v2.schema.tsv`](nativeactivity-receipt-v2.schema.tsv).
+
+Run `verify-nativeactivity-receipt.sh RECEIPT APK` before consuming a pair. It
+rejects changed field order, schema or material rows and a receipt whose final
+APK digest does not match the supplied APK. APK and receipt publication remain
+two filesystem renames, so this verification is required after interruption
+or transport as well as after a normal build.
+
+`apk/tests/reproducible.grease MANIFEST NATIVE ABI OUTPUT` exercises distinct
+workspace roots, time zones, creation orders, input modes and timestamps. It
+also checks resource/native material changes, old-packager and ZIP-metadata
+mutants, wrong and invalid epochs, wrong signer, incompatible API floor,
+mismatched receipt/APK pairs, and canonical receipt equality across different
+attempt IDs. It requires the same explicit SDK and test-signer environment as
+the maintained packager. This is a hosted packaging check, not device
+acceptance, compiler reproducibility, signer update compatibility, or physical
+application behavior.
 
 ## Resource and launcher identity continuity
 
