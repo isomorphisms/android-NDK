@@ -303,6 +303,7 @@ data Instruction
   | IntegerConstant Register Int
   | NullReference Register
   | TextConstant Register String
+  | NewObject Register TypeReference
   | CheckCast Register TypeReference
   | IntegerBinary IntegerBinaryOperation Register Register Register
   | TextEqual Register Register Register
@@ -336,6 +337,8 @@ Show Instruction where
   show (NullReference destination) = "const-null " ++ show destination
   show (TextConstant destination value) =
     "const-string " ++ show destination ++ ", " ++ show value
+  show (NewObject destination object_type) =
+    "new-instance " ++ show destination ++ ", " ++ show object_type
   show (CheckCast register target) =
     "check-cast " ++ show register ++ ", " ++ show target
   show (IntegerBinary operation destination left right) =

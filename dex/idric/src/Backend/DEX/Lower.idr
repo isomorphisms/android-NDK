@@ -604,6 +604,10 @@ lower_foreign_call destination destination_type name arguments state =
               [source_register] => Right (emit (CheckCast destination target)
                 (emit (MoveObject destination source_register) state))
               _ => Left "DEX checked cast has no single source reference"
+            ObjectConstruction method => Right
+              (emit (InvokeMethod (Invoke InvokeDirect method
+                       (destination :: registers) Nothing))
+                (emit (NewObject destination method.owner) state))
 
 private
 lower_comparison :

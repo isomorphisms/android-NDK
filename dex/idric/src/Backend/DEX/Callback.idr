@@ -18,6 +18,13 @@ record InterfaceCallback where
   checked_export : String
 
 private
+record LifecycleOverride where
+  constructor DeclaredOverride
+  method_name : String
+  signature : String
+  checked_export : String
+
+private
 parse_callback : String -> Either String (Maybe InterfaceCallback)
 parse_callback directive = case words directive of
   ["callback", implemented, method_name, signature, checked_export] => do
@@ -37,8 +44,25 @@ parse_callback directive = case words directive of
     Right Nothing
   "activity" :: _ =>
     Left "DEX activity requires checked create and action exports"
+  ["extends", "Landroid/app/Activity;"] => Right Nothing
+  ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
+  "extends" :: _ => Left "DEX checked subclass currently admits android.app.Activity only"
+  "override" :: _ => Left "DEX checked lifecycle currently admits onCreate(Bundle) only"
   [] => Right Nothing
-  _ => Left "Unsupported DEX directive; expected unquoted callback or activity declaration"
+  _ => Left "Unsupported DEX directive; expected unquoted callback, activity, extends or override declaration"
+
+private
+explicit_parent : String -> Bool
+explicit_parent directive = words directive == ["extends", "Landroid/app/Activity;"]
+
+private
+explicit_override : String -> Maybe LifecycleOverride
+explicit_override directive = case words directive of
+  ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] =>
+    Just (DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export)
+  _ => Nothing
 
 private
 argument_registers : Int -> List FrameworkValueType -> List Register
@@ -137,6 +161,35 @@ select_activity_adapter class_descriptor methods [(create_name, action_name)] = 
 select_activity_adapter class_descriptor methods _ =
   Left "DEX class requires at most one Activity declaration"
 
+-- Preserve the separately qualified Material-screen declaration surface.
+-- This and the create/action shorthand use the same typed MethodPlan writer.
+private
+override_method : String -> TypeReference -> List MethodPlan -> LifecycleOverride ->
+  Either String MethodPlan
+override_method class_descriptor superclass methods lifecycle = do
+  (arguments, result) <- parse_method_descriptor lifecycle.signature
+  target <- case filter (\method => method.mode == StaticMethod &&
+                           method.method_name == lifecycle.checked_export) methods of
+    [target] => Right target
+    _ => Left "DEX lifecycle has no unique checked static export"
+  let expected_arguments = ReferenceValue superclass :: arguments
+  let receiver_only = [ReferenceValue superclass]
+  if (target.parameter_types /= expected_arguments && target.parameter_types /= receiver_only) || target.result_type /= result
+    then Left "DEX lifecycle signature must include its checked Activity receiver"
+    else Right ()
+  words <- parameter_register_words arguments
+  let call_parent = MkMethodReference superclass lifecycle.method_name arguments result
+  let call_source = MkMethodReference (MkTypeReference class_descriptor)
+                      target.method_name target.parameter_types target.result_type
+  let incoming = argument_registers 1 expected_arguments
+  let source_incoming = if target.parameter_types == receiver_only then take 1 incoming else incoming
+  let bridge = MkMethodPlan ("platform lifecycle to " ++ target.source_name)
+                 lifecycle.method_name (cast (length arguments)) arguments result (words + 2)
+                 [ InvokeMethod (Invoke InvokeSuper call_parent incoming Nothing)
+                 , InvokeMethod (Invoke InvokeStatic call_source source_incoming Nothing)
+                 , ReturnVoid ]
+  Right ({ mode := InstanceMethod } bridge)
+
 ||| Metadata supplies the platform method contract; the compiler checks its
 ||| exact agreement with a real checked export. SDK interface conformance and
 ||| framework dispatch still require independent target execution.
@@ -148,8 +201,19 @@ with_interface_callbacks class_descriptor methods directives = do
   let callbacks = mapMaybe id parsed
   bridges <- traverse (bridge_method class_descriptor methods) callbacks
   let declarations = activity_declarations directives
-  (superclass, lifecycle) <- select_activity_adapter class_descriptor methods declarations
+  let parents = filter explicit_parent directives
+  let overrides = mapMaybe explicit_override directives
+  if length parents > 1 then Left "DEX class has repeated superclass declarations" else Right ()
+  if not (null overrides) && null parents
+    then Left "DEX lifecycle override requires its Activity superclass"
+    else Right ()
+  if not (null declarations) && (not (null parents) || not (null overrides))
+    then Left "DEX activity shorthand cannot be combined with explicit superclass/lifecycle declarations"
+    else Right ()
+  (selected_parent, lifecycle) <- select_activity_adapter class_descriptor methods declarations
+  let superclass = if null parents then selected_parent else MkTypeReference "Landroid/app/Activity;"
+  explicit_lifecycle <- traverse (override_method class_descriptor superclass methods) overrides
   let plan = MkFilePlan class_descriptor
-        (methods ++ if null callbacks && null declarations then []
-                    else platform_constructor superclass :: bridges ++ lifecycle)
+        (methods ++ if null callbacks && null declarations && null parents then []
+                    else platform_constructor superclass :: bridges ++ lifecycle ++ explicit_lifecycle)
   Right ({ interfaces := nub (map implemented_type callbacks), superclass := superclass } plan)
