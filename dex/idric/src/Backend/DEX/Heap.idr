@@ -380,7 +380,8 @@ mutual
     (Make_Administrative_Normal_Form_Constructor_Alternative name _ _ fields body :: rest) fallback state = do
       let (next, after_label) = fresh_label state
       let tested = emit (node_get (register 8) source 0 ++
-            [TextConstant (register 9) (show name), TextEqual (register 0) (register 8) (register 9)
+            [CheckCast (register 8) (MkTypeReference "Ljava/lang/String;")
+            , TextConstant (register 9) (show name), TextEqual (register 0) (register 8) (register 9)
             , IntegerConstant (register 1) 0, IntegerBranch EqualInteger (register 0) (register 1) next]) after_label
       projected <- lower_fields source 1 fields tested
       selected <- lower destination body projected
@@ -436,7 +437,8 @@ heap_apply methods = MkMethodPlan "checked managed closure application" "__idric
     dispatch : Int -> List (Name, (String, Int)) -> List Instruction
     dispatch label [] = []
     dispatch label ((_, (method, arity)) :: rest) =
-      [ TextConstant (register 9) method
+      [ CheckCast (register 8) (MkTypeReference "Ljava/lang/String;")
+      , TextConstant (register 9) method
       , TextEqual (register 0) (register 8) (register 9)
       , IntegerConstant (register 1) 0
       , IntegerBranch EqualInteger (register 0) (register 1) (MkLabel label)
@@ -507,7 +509,8 @@ pack_text input =
   , NewObject (register 17) (MkTypeReference "Ljava/lang/StringBuilder;")
   , call InvokeDirect (MkTypeReference "Ljava/lang/StringBuilder;") "<init>" [] VoidValue [register 17] Nothing
   , Mark (MkLabel 0)] ++ node_get (register 8) (register 18) 0 ++
-  [TextConstant (register 9) "_builtin.NIL", TextEqual (register 0) (register 8) (register 9)
+  [CheckCast (register 8) (MkTypeReference "Ljava/lang/String;")
+  , TextConstant (register 9) "_builtin.NIL", TextEqual (register 0) (register 8) (register 9)
   , IntegerConstant (register 1) 0, IntegerBranch NotEqualInteger (register 0) (register 1) (MkLabel 1)] ++
   node_get (register 16) (register 18) 1 ++ unbox_int (register 0) (register 16) ++
   [call InvokeVirtual (MkTypeReference "Ljava/lang/StringBuilder;") "appendCodePoint" [integer_value]

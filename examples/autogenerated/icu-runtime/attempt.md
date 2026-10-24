@@ -67,3 +67,16 @@ surrogate and out-of-range values map to NUL. CharacterCasts checks those bounds
 The pinned frontend rejects both prefix `−1` and binary `0 − 1`, with nonzero
 process status. The fixture uses descriptive `negate 1`; both failed source
 forms remain in initial/. No frontend syntax change is claimed.
+
+The f007837c13a4853e1d5475f65cda495fbb136c59 hosted run emitted/decoded ICU
+and rejected the wrong JNI signature, then failed inside the maintained
+OpenSSL recursive build; the inner log was not retained. Source analysis found
+that Configure had the NDK on PATH, while the later Make invocation did not.
+The caller now retains that exact NDK path
+for the entire recursive build and captures the inner build log on failure.
+No native transport source is replaced.
+
+Source review also found that managed node getters return Object, while tag
+comparisons invoke String.equals. Explicit checked String casts now preserve
+that representation invariant for ART's verifier. The actual checked argument
+and ICU ART gates exercise those constructor/closure/string-list paths.
