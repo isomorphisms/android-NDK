@@ -63,6 +63,8 @@ render_instruction (NullReference destination) =
   render_constant destination 0
 render_instruction (TextConstant destination value) =
   "const-string " ++ show destination ++ ", " ++ render_literal value
+render_instruction (NewObject destination object_type) =
+  "new-instance " ++ show destination ++ ", " ++ show object_type
 render_instruction (IntegerBinary operation destination left right) =
   show operation ++ " " ++ show destination ++ ", " ++
   show left ++ ", " ++ show right
@@ -157,7 +159,7 @@ render_finalized_smali finalized =
   let plan = finalized_plan finalized in
   unlines
     [ ".class public final " ++ plan.class_descriptor
-    , ".super Ljava/lang/Object;"
+    , ".super " ++ show plan.superclass
     , ""
     ] ++ unlines (map (\implemented => ".implements " ++ show implemented) plan.interfaces) ++
     concat (map render_method plan.methods)

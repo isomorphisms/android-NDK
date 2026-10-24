@@ -1,0 +1,31 @@
+#!/usr/bin/env grease
+# The second declared HTTPS handler keeps Android's chooser observable. Android
+# may automatically choose a single handler, as in the retained Chrome first-run
+# attempt. Receiving the exact intent is required, not just a chooser classname.
+set -eu -o pipefail
+if (len(ARGV) !== 3) {
+  echo 'usage: grease verify-source-handoff.grease ADB SCREEN_EVIDENCE FRESH_EVIDENCE' >&2
+  exit 2
+}
+var adb = ARGV[0]
+var screen = ARGV[1]
+var evidence = ARGV[2]
+for path in "$adb" "$screen" "$evidence" { if (path[0] !== '/') { exit 2 } }
+if test -e "$evidence" { exit 1 }
+mkdir -p "$evidence"
+"$adb" -s emulator-5554 shell uiautomator dump /data/local/tmp/ib-source-chooser.xml > "$evidence/chooser-dump.txt" 2>&1
+"$adb" -s emulator-5554 pull /data/local/tmp/ib-source-chooser.xml "$evidence/chooser.xml" > "$evidence/chooser-pull.txt" 2>&1
+var bounds = $(sed 's/></>\n</g' "$evidence/chooser.xml" | rg -F 'text="IB source observer"' | sed -n 's/.*bounds="\(\[[^"]*\]\)".*/\1/p')
+var digits = $(echo "$bounds" | tr -cs '0-9' ' ' | sed 's/^ *//;s/ *$//')
+var points = digits.split(' ')
+if (len(points) !== 4) { echo 'FAIL ambiguous source observer choice' >&2; exit 1 }
+var x = (int(points[0]) + int(points[2])) // 2
+var y = (int(points[1]) + int(points[3])) // 2
+"$adb" -s emulator-5554 shell input tap "$x" "$y"
+sleep 2
+"$adb" -s emulator-5554 shell uiautomator dump /data/local/tmp/ib-source-received.xml > "$evidence/received-dump.txt" 2>&1
+"$adb" -s emulator-5554 pull /data/local/tmp/ib-source-received.xml "$evidence/received.xml" > "$evidence/received-pull.txt" 2>&1
+rg -q -F 'text="PASS exact native source address"' "$evidence/received.xml"
+"$adb" -s emulator-5554 exec-out screencap -p > "$evidence/received.png"
+echo 'PASS actual source-button touch, chooser dispatch, ACTION_VIEW and exact source address received independently' > "$evidence/result.txt"
+cat "$evidence/result.txt"
