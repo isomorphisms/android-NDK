@@ -180,11 +180,13 @@ main = do
       exitFailure
     Right call ⇒ do
       expect "constructor owns allocated receiver"
-        (call.construction ≟ Just (MkTypeReference "Landroid/widget/TextView;"))
+        (construction call ≟ Just (MkTypeReference "Landroid/widget/TextView;"))
       expect "source arguments exclude allocated receiver" (length (foreign_argument_types call) ≟ 1)
       expect "constructor returns initialized owner"
         (foreign_result_type call ≟ ReferenceValue (MkTypeReference "Landroid/widget/TextView;"))
-      expect "raw constructor returns void" (call.method.result ≟ VoidValue)
+      expect "raw constructor returns void" (case call.operation of
+        MethodInvocation InvokeDirect method ⇒ method.result ≟ VoidValue
+        _ ⇒ False)
   expect "pure allocation refused" (refuses (parse_dex_foreign constructor_call [context_source] view_source))
   expect "wrong source result refused" (refuses (parse_dex_foreign constructor_call [context_source, CFWorld] (CFIORes CFString)))
   expect "missing constructor argument refused" (refuses (parse_dex_foreign constructor_call [CFWorld] (CFIORes view_source)))

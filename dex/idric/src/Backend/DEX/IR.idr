@@ -278,6 +278,7 @@ data Instruction
   | IntegerConstant Register Int
   | NullReference Register
   | TextConstant Register String
+  | CheckCast Register TypeReference
   | NewObject Register TypeReference
   | IntegerBinary IntegerBinaryOperation Register Register Register
   | TextEqual Register Register Register
@@ -311,6 +312,8 @@ Show Instruction where
   show (NullReference destination) = "const-null " ++ show destination
   show (TextConstant destination value) =
     "const-string " ++ show destination ++ ", " ++ show value
+  show (CheckCast register target) =
+    "check-cast " ++ show register ++ ", " ++ show target
   show (NewObject destination object_type) =
     "new-instance " ++ show destination ++ ", " ++ show object_type
   show (IntegerBinary operation destination left right) =
@@ -405,7 +408,8 @@ record FilePlan where
 
 public export
 MkFilePlan : String -> List MethodPlan -> FilePlan
-MkFilePlan descriptor methods = MkClassFilePlan descriptor methods [] (MkTypeReference "Ljava/lang/Object;")
+MkFilePlan descriptor methods =
+  MkClassFilePlan descriptor methods [] (MkTypeReference "Ljava/lang/Object;")
 
 public export
 render_file_plan : FilePlan -> String
