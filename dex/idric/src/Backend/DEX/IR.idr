@@ -198,12 +198,14 @@ data InvokeKind
   = InvokeStatic
   | InvokeVirtual
   | InvokeInterface
+  | InvokeDirect
 
 public export
 Eq InvokeKind where
   InvokeStatic == InvokeStatic = True
   InvokeVirtual == InvokeVirtual = True
   InvokeInterface == InvokeInterface = True
+  InvokeDirect == InvokeDirect = True
   _ == _ = False
 
 public export
@@ -211,6 +213,7 @@ Show InvokeKind where
   show InvokeStatic = "invoke-static"
   show InvokeVirtual = "invoke-virtual"
   show InvokeInterface = "invoke-interface"
+  show InvokeDirect = "invoke-direct"
 
 ||| A DEX invocation before format selection. For virtual/interface calls,
 ||| the first register is the receiver; method.argument_types describes only
@@ -328,10 +331,28 @@ Show Instruction where
   show (ReturnWide register) = "return-wide " ++ show register
   show ReturnVoid = "return-void"
 
-||| One checked Idriç export after deterministic DEX register placement.
+||| Instance receivers belong to the platform ABI, never to the checked
+||| static export's declared parameter list.
+public export
+data MethodMode = StaticMethod | InstanceMethod | ConstructorMethod
+
+public export
+Eq MethodMode where
+  StaticMethod == StaticMethod = True
+  InstanceMethod == InstanceMethod = True
+  ConstructorMethod == ConstructorMethod = True
+  _ == _ = False
+
+public export
+method_access_flags : MethodMode -> Integer
+method_access_flags StaticMethod = 9
+method_access_flags InstanceMethod = 1
+method_access_flags ConstructorMethod = 0x10001
+
+||| One checked Idriç export or mechanical platform bridge after placement.
 public export
 record MethodPlan where
-  constructor MkMethodPlan
+  constructor MkBoundMethodPlan
   source_name : String
   method_name : String
   parameter_count : Int
@@ -339,6 +360,20 @@ record MethodPlan where
   result_type : FrameworkValueType
   register_count : Int
   instructions : List Instruction
+  mode : MethodMode
+
+||| Preserve the ordinary static-plan entry point used by existing consumers.
+public export
+MkMethodPlan : String -> String -> Int -> List FrameworkValueType ->
+  FrameworkValueType -> Int -> List Instruction -> MethodPlan
+MkMethodPlan source name count argument_types result registers instructions =
+  MkBoundMethodPlan source name count argument_types result registers instructions StaticMethod
+
+public export
+incoming_parameter_types : MethodPlan -> List FrameworkValueType
+incoming_parameter_types method = case method.mode of
+  StaticMethod => method.parameter_types
+  _ => ExistingValue ObjectValue :: method.parameter_types
 
 public export
 render_method_plan : MethodPlan -> String
@@ -349,18 +384,25 @@ render_method_plan method =
      , "parameters: " ++ show method.parameter_types
      , "result: " ++ show method.result_type
      , "registers: " ++ show method.register_count
+     , "access-flags: " ++ show (method_access_flags method.mode)
      ] ++ map (\instruction => "  " ++ show instruction) method.instructions)
 
 ||| A single generated utility class. The generic backend still owns no
 ||| Android UI, resource, manifest, or packaging semantics.
 public export
 record FilePlan where
-  constructor MkFilePlan
+  constructor MkClassFilePlan
   class_descriptor : String
   methods : List MethodPlan
+  interfaces : List TypeReference
+
+public export
+MkFilePlan : String -> List MethodPlan -> FilePlan
+MkFilePlan descriptor methods = MkClassFilePlan descriptor methods []
 
 public export
 render_file_plan : FilePlan -> String
 render_file_plan plan =
-  "class " ++ plan.class_descriptor ++ "\n\n" ++
+  "class " ++ plan.class_descriptor ++ "\n" ++
+  concat (map (\implemented => "implements " ++ show implemented ++ "\n") plan.interfaces) ++ "\n" ++
   concat (intersperse "\n" (map render_method_plan plan.methods))

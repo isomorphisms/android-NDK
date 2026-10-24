@@ -1,0 +1,109 @@
+module CallbackPlanChecks
+
+import Backend.DEX.Callback
+import Backend.DEX.Encode
+import Backend.DEX.IR
+import Backend.DEX.Invoke
+import Backend.DEX.Smali
+import Data.Text
+import Data.List
+import System
+
+-- The compiler encoder has a covering API. These finite plan fixtures test
+-- that boundary; they do not select Chez as the application runtime.
+%default covering
+
+source_method : MethodPlan
+source_method = MkMethodPlan "checked-fixture-export" "receive_action" 1
+  [ExistingValue IntegerValue] VoidValue 1 [ReturnVoid]
+
+valid_directive : Text
+valid_directive = "callback LFixture/ActionListener; onAction (I)V receive_action"
+
+refuses_plan : Either Text value → Bool
+refuses_plan (Left _) = True
+refuses_plan (Right _) = False
+
+callback_shape_is_bound : Bool
+callback_shape_is_bound = case with_interface_callbacks "LIdric/Generated;"
+  [source_method] [valid_directive] of
+    Left _ ⇒ False
+    Right plan ⇒ plan.interfaces ≟ [MkTypeReference "LFixture/ActionListener;"] &&
+      case filter (\method ⇒ method.mode ≟ InstanceMethod) plan.methods of
+        [bridge] ⇒ bridge.method_name ≟ "onAction" &&
+          bridge.parameter_types ≟ [ExistingValue IntegerValue] &&
+          length (incoming_parameter_types bridge) ≟ 2 &&
+          case bridge.instructions of
+            [InvokeMethod invocation, ReturnVoid] ⇒
+              invocation.kind ≟ InvokeStatic &&
+              invocation.method.name ≟ "receive_action" &&
+              invocation.arguments ≟ [MkRegister 2]
+            _ ⇒ False
+        _ ⇒ False
+
+constructor_initializes_object : Bool
+constructor_initializes_object = case with_interface_callbacks "LIdric/Generated;"
+  [source_method] [valid_directive] of
+    Left _ ⇒ False
+    Right plan ⇒ case filter (\method ⇒ method.mode ≟ ConstructorMethod) plan.methods of
+      [constructor_method] ⇒ constructor_method.method_name ≟ "<init>" &&
+        length (incoming_parameter_types constructor_method) ≟ 1 &&
+        case constructor_method.instructions of
+          [InvokeMethod invocation, ReturnVoid] ⇒
+            invocation.kind ≟ InvokeDirect &&
+            invocation.method.owner ≟ MkTypeReference "Ljava/lang/Object;" &&
+            invocation.method.name ≟ "<init>" &&
+            invocation.arguments ≟ [MkRegister 0] &&
+            encode_invoke 3 invocation ≟ Right [0x70, 0x10, 3, 0, 0, 0]
+          _ ⇒ False
+      _ ⇒ False
+
+duplicate_virtual_method_refuses : Bool
+duplicate_virtual_method_refuses = case with_interface_callbacks "LIdric/Generated;"
+  [source_method] [valid_directive, valid_directive] of
+    Left _ ⇒ False
+    Right plan ⇒ refuses_plan (finalize_file_plan plan)
+
+callback_plan_encodes : Bool
+callback_plan_encodes = case with_interface_callbacks "LIdric/Generated;"
+  [source_method] [valid_directive] of
+    Left _ ⇒ False
+    Right plan ⇒ case finalize_file_plan plan of
+      Left _ ⇒ False
+      Right frozen ⇒ case encode_finalized_dex frozen of
+        Left _ ⇒ False
+        Right bytes ⇒ not (null bytes) &&
+          isInfixOf ".implements LFixture/ActionListener;" (render_finalized_smali frozen) &&
+          isInfixOf ".method public onAction(I)V" (render_finalized_smali frozen) &&
+          isInfixOf ".method public constructor <init>()V" (render_finalized_smali frozen)
+
+callback_cases : List (Text, Bool)
+callback_cases =
+  [ ("actual-argument-excludes-listener-receiver", callback_shape_is_bound)
+  , ("constructor-initializes-object", constructor_initializes_object)
+  , ("missing-checked-export-refuses", refuses_plan
+       (with_interface_callbacks "LIdric/Generated;" [] [valid_directive]))
+  , ("wrong-source-signature-refuses", refuses_plan
+       (with_interface_callbacks "LIdric/Generated;" [source_method]
+         ["callback LFixture/ActionListener; onAction (Z)V receive_action"]))
+  , ("nonvoid-callback-refuses", refuses_plan
+       (with_interface_callbacks "LIdric/Generated;" [source_method]
+         ["callback LFixture/ActionListener; onAction (I)I receive_action"]))
+  , ("malformed-interface-refuses", refuses_plan
+       (with_interface_callbacks "LIdric/Generated;" [source_method]
+         ["callback not_a_descriptor onAction (I)V receive_action"]))
+  , ("malformed-callback-refuses", refuses_plan
+       (with_interface_callbacks "LIdric/Generated;" [source_method] ["callback missing"]))
+  , ("quoted-directive-cannot-disappear", refuses_plan
+       (with_interface_callbacks "LIdric/Generated;" [source_method]
+         ["\"callback LFixture/ActionListener; onAction (I)V receive_action\""]))
+  , ("duplicate-virtual-signature-refuses", duplicate_virtual_method_refuses)
+  , ("one-finalized-plan-emits-interface-and-methods", callback_plan_encodes)
+  ]
+
+main : IO ()
+main = do
+  traverse_ (\(name, passed) ⇒ putStrLn ((if passed then "PASS " else "FAIL ") ++ name)) callback_cases
+  if all snd callback_cases
+    then putStrLn "PASS callback typed-plan controls"
+    else exitFailure

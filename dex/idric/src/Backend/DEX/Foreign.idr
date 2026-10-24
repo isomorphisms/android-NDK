@@ -95,7 +95,7 @@ valid_class_path = segment False
 
 ||| The current encoder admits ASCII class names. Check every foreign object
 ||| descriptor, not just the declaring owner, before constructing target types.
-private
+public export
 validate_reference_descriptor : String -> Either String ()
 validate_reference_descriptor descriptor =
   case unpack descriptor of
@@ -157,7 +157,7 @@ parse_parameters (S fuel) chars reversed = do
   (value, rest) <- parse_type False chars
   parse_parameters fuel rest (value :: reversed)
 
-private
+public export
 parse_method_descriptor :
   String -> Either String (List FrameworkValueType, FrameworkValueType)
 parse_method_descriptor descriptor =
@@ -244,6 +244,8 @@ target_argument_types InvokeStatic method = method.argument_types
 target_argument_types InvokeVirtual method =
   reference_type (unpack method.owner.descriptor) :: method.argument_types
 target_argument_types InvokeInterface method =
+  reference_type (unpack method.owner.descriptor) :: method.argument_types
+target_argument_types InvokeDirect method =
   reference_type (unpack method.owner.descriptor) :: method.argument_types
 
 private
