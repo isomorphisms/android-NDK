@@ -16,6 +16,7 @@ modules =
   Backend.DEX.Hash,
   Backend.DEX.Encode,
   Backend.DEX.FrameworkClasses,
+  Backend.DEX.RuntimeArgs,
   Backend.DEX.EncodeCallbackShell,
   Backend.DEX.Smali,
   Backend.DEX.Codegen,

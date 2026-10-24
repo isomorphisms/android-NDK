@@ -80,7 +80,15 @@ The original Main.main IO ABI refusal is passed. Current first failure:
 
 `No checked helper body for DEX call System.prim__getArgCount`
 
-The compiler rejects that source with exit 1 and emits no classes.dex. The
+The compiler rejects that source with exit 1 and emits no classes.dex. A reusable
+Backend.DEX.RuntimeArgs adapter now produces a direct-DEX main(String[]) that
+stores the real ART argv, invokes a previously checked nullary void method,
+and exposes __idricArgCount()J and __idricArg(J)Ljava/lang/String;. The count
+uses 64-bit arithmetic so even a maximum-sized Java array cannot overflow
+when adding the synthetic executable-name slot. The index conversion uses
+Math.toIntExact, refusing out-of-range Int values instead of truncating.
+This is an unconnected runtime adapter, not yet a checked System primitive
+mapping or an ICU execution claim. The
 argument-array boundary now has typed DEX array-length, aget-object and
 int-to-long operations, with directly encoded proof methods and rejected
 out-of-range register plans. A direct-DEX static reference field now stores the real ART String[] during

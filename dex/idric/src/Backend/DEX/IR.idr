@@ -331,6 +331,8 @@ data Instruction
   | ArrayLength Register Register
   | ArrayGetObject Register Register Register
   | IntToLong Register Register
+  | LongConstant Register Int
+  | AddLong Register Register Register
   | StaticGetObject Register FieldReference
   | StaticPutObject Register FieldReference
   | NullReference Register
@@ -372,6 +374,10 @@ Show Instruction where
     "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
   show (IntToLong destination source) =
     "int-to-long " ++ show destination ++ ", " ++ show source
+  show (LongConstant destination value) =
+    "const-wide/16 " ++ show destination ++ ", " ++ show value
+  show (AddLong destination left right) =
+    "add-long " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
   show (StaticGetObject destination field) =
     "sget-object " ++ show destination ++ ", " ++ show field
   show (StaticPutObject source field) =

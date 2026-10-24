@@ -127,6 +127,16 @@ instruction_width (IntToLong destination source) =
   if valid_register 15 destination && valid_register 15 source
     then Right 1
     else Left "DEX int-to-long format 12x requires registers v0..v15"
+instruction_width (LongConstant destination value) =
+  if not (valid_register 255 destination)
+    then Left "DEX const-wide/16 requires a register v0..v255"
+    else if value < -32768 || value > 32767
+      then Left "DEX const-wide/16 literal exceeds signed 16-bit range"
+      else Right 2
+instruction_width (AddLong destination left right) =
+  if valid_register 255 destination && valid_register 255 left && valid_register 255 right
+    then Right 2
+    else Left "DEX add-long format 23x requires registers v0..v255"
 instruction_width (StaticGetObject destination field) =
   if valid_register 255 destination then Right 2
     else Left "DEX sget-object format 21c requires register v0..v255"
@@ -338,6 +348,15 @@ encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(IntToLong destination source) = do
   _ <- instruction_width instruction
   Right (u16le (0x81 + cast destination.number * 256 + cast source.number * 4096))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(LongConstant destination value) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x16 + cast destination.number * 256) ++ u16le (cast value))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(AddLong destination left right) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x9b + cast destination.number * 256) ++
+         u16le (cast left.number + cast right.number * 256))
 encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(StaticGetObject destination field) = do
   _ <- instruction_width instruction

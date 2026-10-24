@@ -63,6 +63,11 @@ instruction_registers (ArrayLength destination array) = Right [destination, arra
 instruction_registers (ArrayGetObject destination array index) = Right [destination, array, index]
 instruction_registers (IntToLong destination source) =
   Right [destination, next_register destination, source]
+instruction_registers (LongConstant destination value) =
+  Right [destination, next_register destination]
+instruction_registers (AddLong destination left right) =
+  Right [destination, next_register destination, left, next_register left,
+         right, next_register right]
 instruction_registers (StaticGetObject destination field) = Right [destination]
 instruction_registers (StaticPutObject source field) = Right [source]
 instruction_registers (NullReference destination) = Right [destination]
@@ -140,6 +145,10 @@ instruction_staging (ArrayGetObject destination array index) =
   Right (destination.number > 255 || array.number > 255 || index.number > 255, 0)
 instruction_staging (IntToLong destination source) =
   Right (destination.number > 15 || source.number > 15, 0)
+instruction_staging (LongConstant destination value) =
+  Right (destination.number > 255, 0)
+instruction_staging (AddLong destination left right) =
+  Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
 instruction_staging (StaticGetObject destination field) =
   Right (destination.number > 255, 0)
 instruction_staging (StaticPutObject source field) =
@@ -270,6 +279,18 @@ place_instruction scratch_start (ArrayGetObject destination array index) =
       suffix = if target.number <= 255 then [] else [MoveObject target scratch_zero]
   in Right (array_prefix ++ index_prefix ++
             [ArrayGetObject output array_input index_input] ++ suffix)
+place_instruction scratch_start (LongConstant destination value) =
+  let target = shift_register destination in
+  if low_byte_register target
+    then Right [LongConstant target value]
+    else Right [LongConstant scratch_zero value, MoveWide target scratch_zero]
+place_instruction scratch_start (AddLong destination left right) =
+  let target = shift_register destination
+      left_input = shift_register left
+      right_input = shift_register right in
+  if low_byte_register target && low_byte_register left_input && low_byte_register right_input
+    then Right [AddLong target left_input right_input]
+    else Left "DEX add-long register staging needs three disjoint wide pairs"
 place_instruction scratch_start (StaticGetObject destination field) =
   let target = shift_register destination in
   if low_byte_register target
