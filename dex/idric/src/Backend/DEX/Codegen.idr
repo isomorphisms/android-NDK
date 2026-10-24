@@ -5,6 +5,8 @@ import Backend.DEX.Callback
 import Backend.DEX.Foreign
 import Backend.DEX.IR
 import Backend.DEX.Lower
+import Backend.DEX.Heap
+import Backend.DEX.RuntimeArgs
 import Backend.DEX.Unpack
 import Backend.DEX.Smali
 import Compiler.ANF
@@ -364,6 +366,93 @@ fully_qualified_export (internal_name, method_name) = do
   pure (qualified_name, method_name)
 
 private
+managed_abis : Int -> List (Name, Administrative_Normal_Form_Definition) ->
+  List (Name, (String, Int))
+managed_abis next [] = []
+managed_abis next ((name, definition) :: rest) =
+  case definition of
+    Make_Administrative_Normal_Form_Function arguments _ =>
+      (name, ("__idricManaged" ++ show next, cast (length arguments))) :: managed_abis (next + 1) rest
+    Make_Administrative_Normal_Form_Foreign_Function _ arguments _ =>
+      (name, ("__idricManaged" ++ show next, cast (length arguments))) :: managed_abis (next + 1) rest
+    _ => managed_abis next rest
+
+private
+managed_methods : List JNIService -> List (Name, (String, Int)) ->
+  List (Name, Administrative_Normal_Form_Definition) -> Either String (List MethodPlan)
+managed_methods services abis [] = Right []
+managed_methods services abis ((name, definition) :: rest) = do
+  more <- managed_methods services abis rest
+  case lookup name abis of
+    Nothing => Right more
+    Just (method, arity) => do
+      if arity > 12 then Left ("Managed DEX checked arity exceeds current closure frame: " ++ show name) else Right ()
+      lowered <- case (case definition of
+        Make_Administrative_Normal_Form_Foreign_Function {} => heap_foreign_linked services method definition
+        _ => heap_method abis name method definition) of
+          Left explanation => Left ("In " ++ show name ++ ": " ++ explanation)
+          Right accepted => Right accepted
+      Right (lowered :: more)
+
+private
+managed_plan : String -> Maybe (String, List JNIService) -> List ExportABI -> List Name ->
+  List (Name, Administrative_Normal_Form_Definition) -> Either String FilePlan
+managed_plan program_name native [entry] reachable definitions = do
+  if entry.effect /= PrimitiveIOForeign || entry.result_type /= VoidValue ||
+     not (null entry.parameter_types)
+    then Left "Managed command execution requires one checked IO Unit entrypoint"
+    else Right ()
+  let live = filter (\definition => elem (fst definition) reachable) definitions
+  let abis = managed_abis 0 live
+  let services = maybe [] snd native
+  methods <- managed_methods services abis live
+  (checked, arity) <- maybe (Left "Managed DEX entry has no checked body") Right (lookup entry.internal_name abis)
+  if arity /= 1 then Left "Managed IO entry must retain exactly its checked World argument" else Right ()
+  let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
+  let all_methods = methods ++ [heap_apply abis, heap_match_failure, heap_entry entry.method_name checked] ++ native_methods
+  case find_duplicate_name (map method_name all_methods) of
+    Just name => Left ("Managed JNI/generated method name collision: " ++ name)
+    Nothing => Right ()
+  let plan = MkFilePlan "LIdric/Generated;" all_methods
+  with_runtime_arguments program_name entry.method_name plan
+managed_plan _ _ _ _ _ = Left "Managed command execution requires exactly one IO export"
+
+private
+parse_jni_services : List String -> Either String (List JNIService)
+parse_jni_services [] = Right []
+parse_jni_services (line :: rest) =
+  if null (words line) then parse_jni_services rest else do
+    service <- case words line of
+      [convention, method, descriptor] => do
+        name <- validate_method_name method
+        if isPrefixOf (unpack "__idric") (unpack name) || name == "main"
+          then Left "JNI method name is reserved for the checked runtime" else Right ()
+        (arguments, result) <- parse_method_descriptor descriptor
+        Right (MkJNIService convention name arguments result)
+      _ => Left "JNI map rows require convention, method name and descriptor"
+    more <- parse_jni_services rest
+    if any (\earlier => earlier.convention == service.convention || earlier.method_name == service.method_name) more
+      then Left "JNI map repeats a convention or native method" else Right (service :: more)
+
+private
+load_jni_services : List String -> Core (Maybe (String, List JNIService))
+load_jni_services directives =
+  case filter (\directive => isPrefixOf (unpack "jni-map=") (unpack directive)) directives of
+    [] => pure Nothing
+    [directive] => do
+      let path = pack (drop 8 (unpack directive))
+      contents <- Core.readFile path
+      case lines contents of
+        header :: rows => case words header of
+          ["library_property", property] => case parse_jni_services rows of
+            Left explanation => throw (UserError ("dex rejected JNI map: " ++ explanation))
+            Right [] => throw (UserError "dex rejected empty JNI map")
+            Right services => pure (Just (property, services))
+          _ => throw (UserError "dex JNI map requires library_property header")
+        [] => throw (UserError "dex rejected empty JNI map")
+    _ => throw (UserError "dex accepts exactly one explicit JNI map")
+
+private
 compile_dex :
   Ref Ctxt Defs -> Ref Syn SyntaxInfo ->
   (temporary_directory : String) -> (output_directory : String) ->
@@ -396,15 +485,20 @@ compile_dex definitions syntax temporary_directory output_directory
   case validate_exports export_abis of
     Left explanation => throw (UserError ("dex rejected exports: " ++ explanation))
     Right () => pure ()
-  methods <-
-    case lower_exports integer_less_name calls compiled_abis (anf resolved_compile_data) of
-      Left explanation =>
-        throw (UserError ("dex rejected checked program: " ++ explanation))
-      Right accepted => pure accepted
   directives <- getDirectives (Other backend_name)
-  plan <- case with_interface_callbacks "LIdric/Generated;" methods directives of
-    Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
-    Right accepted => pure accepted
+  native_services <- load_jni_services directives
+  plan <-
+    if any (\name => show name == "System.prim__getArgCount") reachable
+      then case managed_plan requested_output_name native_services export_abis reachable (anf resolved_compile_data) of
+        Left explanation => throw (UserError ("dex rejected checked runtime: " ++ explanation))
+        Right accepted => pure accepted
+      else do
+        methods <- case lower_exports integer_less_name calls compiled_abis (anf resolved_compile_data) of
+          Left explanation => throw (UserError ("dex rejected checked program: " ++ explanation))
+          Right accepted => pure accepted
+        case with_interface_callbacks "LIdric/Generated;" methods directives of
+          Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
+          Right accepted => pure accepted
   finalized <-
     case finalize_file_plan plan of
       Left explanation => throw (UserError ("dex layout rejected plan: " ++ explanation))
