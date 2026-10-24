@@ -202,7 +202,9 @@ if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
     schema_file="$packager_dir/nativeactivity-receipt-v3.schema.tsv"
     schema_id=android-ndk-nativeactivity-apk-v3
 fi
-verifier_file="$packager_dir/verify-nativeactivity-receipt.sh"
+verifier_file="$packager_dir/verify-nativeactivity-receipt.grease"
+grease_runtime=${ANDROID_GREASE:-}
+[[ -x "$grease_runtime" ]] || fail "ANDROID_GREASE must name the verified Grease runtime"
 [[ -f "$schema_file" ]] || fail "missing receipt schema: $schema_file"
 [[ -f "$verifier_file" ]] || fail "missing receipt verifier: $verifier_file"
 packager_sha=$(sha256sum "$0" | awk '{print $1}')
@@ -515,7 +517,7 @@ material_sha=$(sha256sum "$material" | awk '{print $1}')
     printf 'apk_sha256\t%s\n' "$apk_sha"
 } > "$publish_stage/receipt.tsv"
 
-bash "$verifier_file" \
+"$grease_runtime" "$verifier_file" \
     "$publish_stage/receipt.tsv" "$publish_stage/artifact.apk"
 
 # Both renames stay on one filesystem. A failed or interrupted stage/copy

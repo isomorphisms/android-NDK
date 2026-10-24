@@ -175,3 +175,10 @@ ZIP metadata normalization as the native payload. The optional
 fixture; the dependent checked-effects packaging job supplies it from the same
 run and source revision. Its changed-byte control tests material identity only.
 These checks establish packaging and inheritance, not fresh JNI execution.
+
+The maintained receipt verifier and reproducibility qualifier are implemented
+in Grease. `ANDROID_GREASE` must name the verified runtime; CI builds the pinned
+Grease revision through Cat Food. The `.sh` verifier/qualifier entries are only
+compatibility dispatchers for existing callers. The SDK packager remains the
+explicit pre-existing Bash/Android-tools boundary. No owned verification logic
+is delegated from Grease to Bash.
