@@ -17,9 +17,10 @@ var source_revision = get(ENV, 'GITHUB_SHA')
 if (source_revision === null) { setvar source_revision = '0000000000000000000000000000000000000000' }
 proc fail(message) { echo "android-NDK reproducibility qualification failed: $message" >&2; exit 1 }
 test -x "$grease"
-if ! printf '%s\n' "$source_revision" | rg -q '^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$' { fail 'qualification source revision is not exact' }
-if (dex_input !== '') { test -s "$dex_input" }
 mkdir -p "$output"
+printf '%s\n' "$source_revision" > "$output/source-revision.txt"
+if ! awk 'NR != 1 || $0 !~ /^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$/ { bad = 1 } END { exit (bad || NR != 1) }' "$output/source-revision.txt" { fail 'qualification source revision is not exact' }
+if (dex_input !== '') { test -s "$dex_input" }
 proc receipt_value(path, field) { awk -F '\t' -v field="$field" '$1 == field { print $2 }' "$path" }
 proc require_different(field, first, second) {
   var first_value = $(receipt_value "$first" "$field")

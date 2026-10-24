@@ -40,6 +40,10 @@ Run `40144236422` subsequently passed real receipt verification, then exposed
 the pinned environment object's lack of an `.get` method. The qualifier now
 uses that source pin's documented `get(ENV, key)` operation and explicit null
 defaults. This failed qualifier attempt remains distinct from acceptance.
+Run `40144448250` then exposed Grease's refusal of a multi-status pipeline as
+a command conditional. The source-revision check now validates one recorded
+line with one command status; embedded newlines and wrong-length revisions
+remain refusals.
 
 Status: HOST_PASS; ART class load and real View click callbacks verified on API29.
 
