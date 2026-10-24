@@ -48,6 +48,12 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          repository: isomorphisms/ib
+          ref: 446a183e245632608bf2868d4a34eb2f5225bd67
+          path: .tools/ib
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
           repository: isomorphisms/catfood
           ref: 609a9628d5a52860f956bf62e0914a0cd03292ae
           path: .tools/catfood
@@ -59,8 +65,8 @@ jobs:
           path: .tools/runtime/grease
           submodules: true
           persist-credentials: false
-      # Fixed bootstrap interface: run the existing recipes. New orchestration
-      # below is Grease source executed by the actual pinned Grease runtime.
+      # Fixed existing bootstrap interface. Maintained compiler/verification
+      # below follows the current Idric -> checked DEX path, not Java source.
       - name: Refresh host package index
         shell: sh
         run: sudo apt-get update
@@ -110,13 +116,16 @@ jobs:
       - name: Compile and independently parse fresh DEX candidates
         shell: sh
         run: .tools/runtime/.build/grease/bin/grease dex/idric/verify-effects.grease "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/.tools/Idric" "$GITHUB_WORKSPACE/.tools/Idric/_/.tools/bin/scheme" "$ANDROID_HOME/build-tools/35.0.0/dexdump" "$RUNNER_TEMP/dex-effects-evidence"
+      - name: Compile checked unpack and unchanged IB source with semantic and refusal controls
+        shell: sh
+        run: .tools/runtime/.build/grease/bin/grease dex/idric/verify-unpack.grease "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/.tools/Idric" "$RUNNER_TEMP/dex-effects-evidence" "$ANDROID_HOME/build-tools/35.0.0/dexdump" "$GITHUB_WORKSPACE/.tools/ib" "$RUNNER_TEMP/dex-unpack-evidence" "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Prepare external oracle and ephemeral KVM access
         shell: sh
         run: .tools/runtime/.build/grease/bin/grease dex/idric/prepare-effects-ci.grease "$GITHUB_WORKSPACE" "$RUNNER_TEMP/dex-effects-oracles"
       - name: Compare final plans and smali with independently decoded candidate bytes
         shell: sh
         run: .tools/runtime/.build/grease/bin/grease dex/idric/verify-layout.grease "$GITHUB_WORKSPACE" "$RUNNER_TEMP/dex-effects-evidence" "$RUNNER_TEMP/dex-effects-oracles/smali-3.0.10.jar" "$ANDROID_HOME/build-tools/35.0.0/dexdump"
-      - name: Run purpose-neutral candidates on Android 14 ART
+      - name: Run existing candidates, unpack and unchanged IB diagnostics on Android 14 ART
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 34
@@ -125,7 +134,12 @@ jobs:
           emulator-port: 5554
           emulator-boot-timeout: 300
           disable-animations: true
-          script: .tools/runtime/.build/grease/bin/grease dex/idric/verify-effects-art.grease "$GITHUB_WORKSPACE" "$RUNNER_TEMP/dex-effects-evidence" "$RUNNER_TEMP/dex-effects-oracles/smali-3.0.10.jar" "$ANDROID_HOME/platform-tools/adb"
+          script: |
+            .tools/runtime/.build/grease/bin/grease dex/idric/verify-effects-art.grease "$GITHUB_WORKSPACE" "$RUNNER_TEMP/dex-effects-evidence" "$RUNNER_TEMP/dex-effects-oracles/smali-3.0.10.jar" "$ANDROID_HOME/platform-tools/adb"
+            .tools/runtime/.build/grease/bin/grease dex/idric/verify-unpack-art.grease "$GITHUB_WORKSPACE" "$RUNNER_TEMP/dex-unpack-evidence" "$RUNNER_TEMP/dex-effects-oracles/smali-3.0.10.jar" "$ANDROID_HOME/platform-tools/adb"
+      - name: Require actual IB target success independently of standalone unpack
+        shell: sh
+        run: .tools/runtime/.build/grease/bin/grease dex/idric/require-unpack-acceptance.grease "$RUNNER_TEMP/dex-unpack-evidence"
       - name: Retain source, DEX and scoped ART evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -139,4 +153,5 @@ jobs:
             ${{ runner.temp }}/dex-effects-evidence/*.dex
             ${{ runner.temp }}/dex-effects-evidence/art/
             ${{ runner.temp }}/dex-effects-evidence/layout-consistency/
+            ${{ runner.temp }}/dex-unpack-evidence/
           if-no-files-found: warn
