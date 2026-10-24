@@ -1,0 +1,12 @@
+module UnprojectedTileState
+
+import Android.QuickSettings
+
+-- Expected backend refusal until an external algebraic-result ABI is defined.
+-- The positive fixture projects this value inside Idriç before returning it.
+%export "dex:unprojected_tile_state"
+unprojected_tile_state : Tile → IO (Maybe TileState)
+unprojected_tile_state tile = get_tile_state tile
+
+main : IO ()
+main = pure ()

@@ -1,0 +1,74 @@
+#!/usr/bin/env grease
+
+if (len(ARGV) !== 4) {
+  echo 'usage: grease verify-unpack-art.grease REPOSITORY EVIDENCE SMALI_JAR ADB' >&2
+  exit 2
+}
+var repository = ARGV[0]
+var evidence = ARGV[1]
+var smali = ARGV[2]
+var adb = ARGV[3]
+for path in "$repository" "$evidence" "$smali" "$adb" {
+  if (path[0] !== '/') { echo 'absolute path required' >&2; exit 2 }
+}
+var runtime = "$evidence/art"
+if test -e "$runtime" { echo 'refusing reused ART evidence' >&2; exit 1 }
+mkdir -p "$runtime/standalone-runner" "$runtime/ib-runner"
+cp "$repository/dex/idric/tests/unpack/UnpackRunner.smali" "$runtime/standalone-runner/"
+cp "$repository/dex/idric/tests/unpack/IBUnpackRunner.smali" "$runtime/ib-runner/"
+java -jar "$smali" assemble "$runtime/standalone-runner" -o "$runtime/standalone.dex"
+java -jar "$smali" assemble "$runtime/ib-runner" -o "$runtime/ib.dex"
+test -s "$runtime/standalone.dex"
+test -s "$runtime/ib.dex"
+"$adb" -s emulator-5554 get-state
+"$adb" -s emulator-5554 shell getprop ro.build.fingerprint > "$runtime/fingerprint.txt"
+"$adb" -s emulator-5554 shell getprop ro.build.version.sdk > "$runtime/sdk.txt"
+"$adb" -s emulator-5554 shell getprop ro.product.cpu.abi > "$runtime/abi.txt"
+"$adb" -s emulator-5554 shell mkdir -p /data/local/tmp/idric-unpack
+
+proc execute(name, runner, class_name, expected, negative) {
+  # Command arguments are strings, not typed Boolean values. Refuse an
+  # unknown mode rather than treating any nonempty argument as true.
+  if (negative !== 'true' and negative !== 'false') {
+    echo 'FAIL unknown ART oracle mode' >&2
+    exit 2
+  }
+  var candidate = "$evidence/$name/candidate.dex"
+  test -s "$candidate"
+  sha256sum -c "$evidence/$name/sha256.txt"
+  "$adb" -s emulator-5554 push "$candidate" "/data/local/tmp/idric-unpack/$name.dex"
+  "$adb" -s emulator-5554 push "$runtime/$runner.dex" "/data/local/tmp/idric-unpack/$name-runner.dex"
+  "$adb" -s emulator-5554 shell chmod 0444 "/data/local/tmp/idric-unpack/$name.dex" "/data/local/tmp/idric-unpack/$name-runner.dex"
+  "$adb" -s emulator-5554 pull "/data/local/tmp/idric-unpack/$name.dex" "$runtime/$name-received.dex"
+  "$adb" -s emulator-5554 pull "/data/local/tmp/idric-unpack/$name-runner.dex" "$runtime/$name-runner-received.dex"
+  cmp "$candidate" "$runtime/$name-received.dex"
+  cmp "$runtime/$runner.dex" "$runtime/$name-runner-received.dex"
+  try {
+    "$adb" -s emulator-5554 shell \
+      "CLASSPATH=/data/local/tmp/idric-unpack/$name-runner.dex:/data/local/tmp/idric-unpack/$name.dex app_process /system/bin $class_name" \
+      > "$runtime/$name.txt" 2>&1
+  }
+  var status = _error.code
+  cat "$runtime/$name.txt"
+  printf 'process_exit=%s\n' "$status" > "$runtime/$name-status.txt"
+  if (negative === 'true') {
+    if (status !== 73) { echo "FAIL mutation did not fail the oracle: $name" >&2; exit 1 }
+  } else {
+    if (status !== 0) { echo "FAIL target execution: $name" >&2; exit 1 }
+  }
+  rg -q -x -F "$expected" "$runtime/$name.txt"
+  sha256sum "$candidate" "$runtime/$runner.dex" "$runtime/$name-received.dex" > "$runtime/$name-sha256.txt"
+}
+execute positive standalone Idric.UnpackRunner 'PASS checked Idric unpack on ART' false
+execute mutant standalone Idric.UnpackRunner 'FAIL record_allowed valid' true
+echo 'PASS actual unpack candidate and executed source-mutant rejection' > "$runtime/result.txt"
+if test -s "$evidence/ib-compiled.txt" {
+  execute ib ib Idric.IBUnpackRunner 'PASS actual IB LongViewAndroid on ART' false
+  execute ib-separator ib Idric.IBUnpackRunner 'FAIL actual IB invalid task' true
+  execute ib-wrong-host ib Idric.IBUnpackRunner 'FAIL actual IB same host' true
+  echo 'PASS unchanged IB diagnostic source and two executed production mutations' > "$evidence/ib-art-success.txt"
+} else {
+  echo 'NOT_RUN canonical IB target: compilation is blocked' >> "$runtime/result.txt"
+}
+echo 'NOT_RUN Activity callbacks, persistent store, APK, physical phone, authenticated website' >> "$runtime/result.txt"
+cat "$runtime/result.txt"

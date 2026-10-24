@@ -1,0 +1,41 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+if (len(ARGV) !== 7) {
+  echo 'usage: grease verify-package.grease BACKEND SDK MANIFEST RESOURCES DEX TEST_KEYSTORE FRESH_EVIDENCE' >&2
+  exit 2
+}
+var repository = ARGV[0]
+var sdk = ARGV[1]
+var manifest = ARGV[2]
+var resources = ARGV[3]
+var dex = ARGV[4]
+var keystore = ARGV[5]
+var evidence = ARGV[6]
+for path in "$repository" "$sdk" "$manifest" "$resources" "$dex" "$keystore" "$evidence" {
+  if (path[0] !== '/') { exit 2 }
+}
+if test -e "$evidence" { echo 'FAIL refusing reused package controls' >&2; exit 1 }
+mkdir -p "$evidence"
+var producer = "$repository/apk/build-direct-dex-activity.grease"
+sha256sum "$producer" "$manifest" "$dex" "$keystore" > "$evidence/inputs-sha256.txt"
+for name in wrong-certificate missing-signer wrong-package {
+  var package = 'org.isomorphisms.ib.material3'
+  var certificate = 'de9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9'
+  var signing_key = keystore
+  if (name === 'wrong-certificate') { setvar certificate = '0000000000000000000000000000000000000000000000000000000000000000' }
+  if (name === 'missing-signer') { setvar signing_key = "$evidence/missing-test-key" }
+  if (name === 'wrong-package') { setvar package = 'org.isomorphisms.ib.wrong' }
+  try {
+    grease "$producer" "$sdk" "$manifest" "$resources" "$dex" "$signing_key" \
+      "$package" "$certificate" "$evidence/$name" > "$evidence/$name.txt" 2>&1
+  }
+  var status = _error.code
+  printf '%s\n' "$status" > "$evidence/$name.status"
+  test "$status" = 1
+  if test -e "$evidence/$name/ib-material-reader.apk" { echo 'FAIL refused package was exposed' >&2; exit 1 }
+  if (name === 'wrong-certificate') { rg -q -x -F 'FAIL declared test certificate does not match keystore' "$evidence/$name.txt" }
+  if (name === 'missing-signer') { rg -q -x -F 'FAIL explicit public test keystore missing' "$evidence/$name.txt" }
+  if (name === 'wrong-package') { rg -q -x -F 'FAIL package identity does not match declared package' "$evidence/$name.txt" }
+}
+echo 'PASS checked Activity candidate packager rejects wrong certificate, missing signer and wrong package without exposing a final APK' > "$evidence/result.txt"
+cat "$evidence/result.txt"
