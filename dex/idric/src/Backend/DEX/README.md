@@ -123,3 +123,19 @@ checked-ANF lowering above.
 APK/UI machinery remains outside the generic semantic lowering. A framework
 call or other Android-facing extension to that lowering should be added with a
 concrete checked Idriç fixture that requires it.
+
+## Locating and changing direct-DEX choices
+
+The cross-repository [ComputerScience lowering decision atlas](https://github.com/walnut-burgundy/computer-science/pull/82) tracks **where** a decision is made, its alternatives, its available change point, and what later stages did with it. This note supplies concrete landmarks for the direct-DEX baseline. Follow the active [DEX pull requests](https://github.com/isomorphisms/android-NDK/pulls) separately: work on PR heads is not automatically on `main`.
+
+| Question | Code to inspect and change | Evidence boundary |
+| --- | --- | --- |
+| Which checked source functions and types are admitted? | [`Codegen.idr`](Codegen.idr): `classify_value_type`, `parse_source_signature`, `resolve_export_abi`, `lower_exports` | Rejected signatures, checked source and retained checked one-step definitions |
+| How are one-step operations turned into a typed target plan? | [`Lower.idr`](Lower.idr), [`IR.idr`](IR.idr), especially `lower_method` and `MethodPlan` | `classes.dex.plan`; unsupported cases must fail explicitly |
+| How are virtual registers, constants and instruction widths encoded? | [`Encode.idr`](Encode.idr): `move_width`, `instruction_width` and encoding routines | `classes.dex`, independent decoding/disassembly and boundary tests |
+| Which source-level meanings are preserved? | [Idriç `Compiler/ANF.idr`](https://github.com/isomorphisms/Idric/blob/Idri%C3%A7/Compiler/ANF.idr), [its control-flow distinction](https://github.com/isomorphisms/Idric/blob/Idri%C3%A7/notes/control-flow-predication.md) | Source/checked-form comparison; the DEX encoder cannot redefine semantics |
+| What happens after DEX emission? | [Android ART](https://android.googlesource.com/platform/art/) (outside this repo), selected runtime version, compilation/profile settings | Target-specific ART output and runtime observations; no machine instruction claim from the DEX plan alone |
+
+For immutable lookup machinery such as URL/mention/hashtag recognizers, separate the **recognition algorithm** (scanner, trie, DFA), **data layout** (DEX constants, initialized objects, native read-only data, APK asset), **runtime behavior**, and **physical execution**. DEX constants do not prove a shared zero-allocation table. A compiler-produced `classes.dex` is not ARM/Thumb output, and a native `.so` is not DEX.
+
+Record the actual code symbol, revision, selected/rejected alternatives, edit point, generated output and downstream observation before asking the planner to automate the choice. The [English Major C machine model](https://github.com/isomorphisms/English-major-C/blob/main/architecture/armv7-a/t32/Given%20a%20machine%20-%20objects%20and%20execution.english) is a separate bottom-up reference; it is not evidence of an ART-generated instruction stream.
