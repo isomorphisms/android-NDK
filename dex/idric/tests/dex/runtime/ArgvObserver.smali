@@ -6,6 +6,7 @@
 .method public static main([Ljava/lang/String;)V
     .registers 11
 
+    invoke-static {p0}, LIdric/ArgvBoundary;->rememberArguments([Ljava/lang/String;)V
     array-length v0, p0
     if-eqz v0, :zero_arguments
     const/4 v1, 0x2
@@ -14,6 +15,10 @@
     invoke-static {p0}, LIdric/ArgvBoundary;->commandLineCount([Ljava/lang/String;)J
     move-result-wide v2
     const-wide/16 v4, 0x3
+    cmp-long v6, v2, v4
+    if-nez v6, :bad_result
+    invoke-static {}, LIdric/ArgvBoundary;->savedCommandLineCount()J
+    move-result-wide v2
     cmp-long v6, v2, v4
     if-nez v6, :bad_result
 
@@ -34,6 +39,13 @@
     if-eqz v9, :bad_result
 
     const/4 v1, 0x2
+    invoke-static {v1}, LIdric/ArgvBoundary;->savedCommandLineArg32(I)Ljava/lang/String;
+    move-result-object v7
+    const-string v8, "second"
+    invoke-virtual {v7, v8}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+    move-result v9
+    if-eqz v9, :bad_result
+
     invoke-static {p0, v1}, LIdric/ArgvBoundary;->commandLineArg32([Ljava/lang/String;I)Ljava/lang/String;
     move-result-object v7
     const-string v8, "second"
@@ -50,6 +62,10 @@
     invoke-static {p0}, LIdric/ArgvBoundary;->commandLineCount([Ljava/lang/String;)J
     move-result-wide v2
     const-wide/16 v4, 0x1
+    cmp-long v6, v2, v4
+    if-nez v6, :bad_result
+    invoke-static {}, LIdric/ArgvBoundary;->savedCommandLineCount()J
+    move-result-wide v2
     cmp-long v6, v2, v4
     if-nez v6, :bad_result
 

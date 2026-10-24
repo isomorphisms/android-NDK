@@ -83,8 +83,12 @@ The original Main.main IO ABI refusal is passed. Current first failure:
 The compiler rejects that source with exit 1 and emits no classes.dex. The
 argument-array boundary now has typed DEX array-length, aget-object and
 int-to-long operations, with directly encoded proof methods and rejected
-out-of-range register plans. An independent smali-only ART observer executes
-the actual direct DEX methods with zero and two incoming arguments; its wrong
+out-of-range register plans. A direct-DEX static reference field now stores the real ART String[] during
+the probe's entrypoint, and separately generated zero-argument read methods
+recover the count and values. The class-data/field-id writer and sget-object/
+sput-object encodings share the canonical encoder; fieldless consumers retain
+their original layouts. An independent smali-only ART observer executes
+the direct DEX methods with zero and two incoming arguments; its wrong
 +2 count candidate must exit unsuccessfully. CI and phone results remain
 separate from committed source and host validation. These are target instructions, not an
 implementation of System.prim__getArgCount: no generated ART main(String[])

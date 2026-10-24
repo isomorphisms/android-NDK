@@ -57,8 +57,56 @@ argument_method =
     ]
 
 private
+argv_field : FieldReference
+argv_field = MkFieldReference
+  (MkTypeReference "LIdric/ArgvBoundary;") "arguments" arguments_type
+
+private
+saved_field : StaticFieldPlan
+saved_field = MkStaticFieldPlan "arguments" arguments_type 10
+
+private
+remember_method : MethodPlan
+remember_method =
+  MkMethodPlan "saved argv proof" "rememberArguments"
+    1 [arguments_type] VoidValue 1
+    [StaticPutObject (MkRegister 0) argv_field, ReturnVoid]
+
+private
+saved_count_method : MethodPlan
+saved_count_method =
+  MkMethodPlan "saved argv proof" "savedCommandLineCount"
+    0 [] LongValue 4
+    [ StaticGetObject (MkRegister 3) argv_field
+    , ArrayLength (MkRegister 0) (MkRegister 3)
+    , IntegerConstant (MkRegister 1) 1
+    , IntegerBinary AddInteger (MkRegister 0) (MkRegister 0) (MkRegister 1)
+    , IntToLong (MkRegister 1) (MkRegister 0)
+    , ReturnWide (MkRegister 1)
+    ]
+
+private
+saved_argument_method : MethodPlan
+saved_argument_method =
+  MkMethodPlan "saved argv proof" "savedCommandLineArg32"
+    1 [ExistingValue IntegerValue] (ExistingValue TextValue) 5
+    [ StaticGetObject (MkRegister 3) argv_field
+    , IntegerConstant (MkRegister 0) 0
+    , IntegerBranch EqualInteger (MkRegister 4) (MkRegister 0) (MkLabel 0)
+    , IntegerConstant (MkRegister 1) 1
+    , IntegerBinary SubtractInteger (MkRegister 2) (MkRegister 4) (MkRegister 1)
+    , ArrayGetObject (MkRegister 0) (MkRegister 3) (MkRegister 2)
+    , ReturnObject (MkRegister 0)
+    , Mark (MkLabel 0)
+    , TextConstant (MkRegister 0) "icu"
+    , ReturnObject (MkRegister 0)
+    ]
+
+private
 fixture : FilePlan
-fixture = MkFilePlan "LIdric/ArgvBoundary;" [count_method, argument_method]
+fixture = { fields := [saved_field] }
+  (MkFilePlan "LIdric/ArgvBoundary;"
+    [count_method, argument_method, remember_method, saved_count_method, saved_argument_method])
 
 -- Same checked target plan, one deliberately incorrect runtime count.
 -- An independent ART observer must reject this actual candidate mutation.
@@ -76,8 +124,9 @@ wrong_count_method =
 
 private
 wrong_fixture : FilePlan
-wrong_fixture = MkFilePlan "LIdric/ArgvBoundary;"
-  [wrong_count_method, argument_method]
+wrong_fixture = { fields := [saved_field] }
+  (MkFilePlan "LIdric/ArgvBoundary;"
+    [wrong_count_method, argument_method, remember_method, saved_count_method, saved_argument_method])
 
 main : IO ()
 main = do
@@ -99,6 +148,22 @@ main = do
   check "object indexed load" (isInfixOf "aget-object " smali)
   check "widened Idriç Int result" (isInfixOf "int-to-long " smali)
   check "wide return" (isInfixOf "return-wide " smali)
+  check "declared private static argument field"
+    (isInfixOf ".field private static arguments:[Ljava/lang/String;" smali)
+  check "stored argv read and write" (isInfixOf "sget-object " smali &&
+                                       isInfixOf "sput-object " smali)
+  case encode_dex ({ fields := [saved_field, saved_field] } fixture) of
+    Left explanation => pure ()
+    Right bytes => fail "accepted duplicate static field"
+  case encode_dex
+    ({ fields := [MkStaticFieldPlan "arguments" (ExistingValue IntegerValue) 10] }
+      fixture) of
+    Left explanation => pure ()
+    Right bytes => fail "accepted integer field with object read/write"
+  case encode_dex
+    ({ fields := [MkStaticFieldPlan "arguments" arguments_type 2] } fixture) of
+    Left explanation => pure ()
+    Right bytes => fail "accepted nonstatic field in static field set"
   case encode_dex
     (MkFilePlan "LIdric/InvalidArgv;"
       [MkMethodPlan "invalid" "badCount" 1 [arguments_type] LongValue 3

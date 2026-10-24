@@ -127,6 +127,12 @@ instruction_width (IntToLong destination source) =
   if valid_register 15 destination && valid_register 15 source
     then Right 1
     else Left "DEX int-to-long format 12x requires registers v0..v15"
+instruction_width (StaticGetObject destination field) =
+  if valid_register 255 destination then Right 2
+    else Left "DEX sget-object format 21c requires register v0..v255"
+instruction_width (StaticPutObject source field) =
+  if valid_register 255 source then Right 2
+    else Left "DEX sput-object format 21c requires register v0..v255"
 instruction_width (NullReference destination) =
   instruction_width (IntegerConstant destination 0)
 instruction_width (CheckCast register _) =
@@ -298,15 +304,16 @@ encode_move narrow_opcode from16_opcode wide_opcode destination source = do
 
 private
 encode_instruction :
-  List String -> List String -> List MethodReference -> List (Label, Int) -> Int -> Instruction ->
+  List String -> List String -> List MethodReference -> List FieldReference ->
+  List (Label, Int) -> Int -> Instruction ->
   Either String (List Int)
-encode_instruction strings descriptors method_ids labels address (Mark label) = Right []
-encode_instruction strings descriptors method_ids labels address instruction@(CheckCast register target) = do
+encode_instruction strings descriptors method_ids field_ids labels address (Mark label) = Right []
+encode_instruction strings descriptors method_ids field_ids labels address instruction@(CheckCast register target) = do
   _ <- instruction_width instruction
   index <- lookup_index "check-cast type" target.descriptor descriptors
   if index > 65535 then Left "DEX check-cast type index exceeds 65535"
     else Right (u16le (0x1f + cast register.number * 256) ++ u16le (cast index))
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(IntegerConstant destination value) = do
   width <- instruction_width instruction
   let register = cast destination.number
@@ -318,22 +325,34 @@ encode_instruction strings descriptors method_ids labels address
           (0x12 + register * 256 + unsigned_mod literal 16 * 4096))
     2 => Right (u16le (0x13 + register * 256) ++ u16le literal)
     _ => Right (u16le (0x14 + register * 256) ++ u32le literal)
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(ArrayLength destination array) = do
   _ <- instruction_width instruction
   Right (u16le (0x21 + cast destination.number * 256 + cast array.number * 4096))
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(ArrayGetObject destination array index) = do
   _ <- instruction_width instruction
   Right (u16le (0x46 + cast destination.number * 256) ++
          u16le (cast array.number + cast index.number * 256))
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(IntToLong destination source) = do
   _ <- instruction_width instruction
   Right (u16le (0x81 + cast destination.number * 256 + cast source.number * 4096))
-encode_instruction strings descriptors method_ids labels address (NullReference destination) =
-  encode_instruction strings descriptors method_ids labels address (IntegerConstant destination 0)
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(StaticGetObject destination field) = do
+  _ <- instruction_width instruction
+  index <- lookup_index "sget-object field" field field_ids
+  if index > 65535 then Left "DEX sget-object field-id exceeds 65535"
+    else Right (u16le (0x62 + cast destination.number * 256) ++ u16le (cast index))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(StaticPutObject source field) = do
+  _ <- instruction_width instruction
+  index <- lookup_index "sput-object field" field field_ids
+  if index > 65535 then Left "DEX sput-object field-id exceeds 65535"
+    else Right (u16le (0x69 + cast source.number * 256) ++ u16le (cast index))
+encode_instruction strings descriptors method_ids field_ids labels address (NullReference destination) =
+  encode_instruction strings descriptors method_ids field_ids labels address (IntegerConstant destination 0)
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(TextConstant destination value) = do
   _ <- instruction_width instruction
   string_index <- lookup_index "const-string" value strings
@@ -343,38 +362,38 @@ encode_instruction strings descriptors method_ids labels address
       Right
         (u16le (0x1a + cast destination.number * 256) ++
          u16le (cast string_index))
-encode_instruction strings descriptors method_ids labels address (Move destination source) =
+encode_instruction strings descriptors method_ids field_ids labels address (Move destination source) =
   encode_move 0x01 0x02 0x03 destination source
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(NewObject destination object_type) = do
   _ <- instruction_width instruction
   type_index <- lookup_index "new-instance type" object_type.descriptor descriptors
   if type_index > 65535
     then Left "DEX new-instance type index exceeds 16 bits"
     else Right (u16le (0x22 + cast destination.number * 256) ++ u16le (cast type_index))
-encode_instruction strings descriptors method_ids labels address (MoveWide destination source) = do
+encode_instruction strings descriptors method_ids field_ids labels address (MoveWide destination source) = do
   _ <- wide_move_width destination source
   encode_move 0x04 0x05 0x06 destination source
-encode_instruction strings descriptors method_ids labels address (MoveObject destination source) =
+encode_instruction strings descriptors method_ids field_ids labels address (MoveObject destination source) =
   encode_move 0x07 0x08 0x09 destination source
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(IntegerBinary operation destination left right) = do
   _ <- instruction_width instruction
   Right
     (u16le (binary_opcode operation + cast destination.number * 256) ++
      u16le (cast left.number + cast right.number * 256))
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(TextEqual destination left right) = do
   _ <- instruction_width instruction
   let invocation = text_equal_invocation destination left right
   method_index <- lookup_index "external method" invocation.method method_ids
   encode_invoke method_index invocation
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(InvokeMethod invocation) = do
   _ <- instruction_width instruction
   method_index <- lookup_index "external method" invocation.method method_ids
   encode_invoke method_index invocation
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(IntegerBranch condition left right target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
@@ -390,7 +409,7 @@ encode_instruction strings descriptors method_ids labels address
           (branch_opcode condition + cast left.number * 256 +
            cast right.number * 4096) ++
          u16le (cast offset))
-encode_instruction strings descriptors method_ids labels address instruction@(Goto target) = do
+encode_instruction strings descriptors method_ids field_ids labels address instruction@(Goto target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
   let offset = target_address - address
@@ -398,7 +417,7 @@ encode_instruction strings descriptors method_ids labels address instruction@(Go
     then Left ("DEX goto/8 offset is zero or out of range at code unit " ++
                show address ++ ": " ++ show offset)
     else Right (u16le (0x28 + unsigned_mod (cast offset) 256 * 256))
-encode_instruction strings descriptors method_ids labels address instruction@(Goto16 target) = do
+encode_instruction strings descriptors method_ids field_ids labels address instruction@(Goto16 target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
   let offset = target_address - address
@@ -406,54 +425,56 @@ encode_instruction strings descriptors method_ids labels address instruction@(Go
     then Left ("DEX goto/16 offset is zero or out of range at code unit " ++
                show address ++ ": " ++ show offset)
     else Right (u16le 0x29 ++ u16le (cast offset))
-encode_instruction strings descriptors method_ids labels address instruction@(Goto32 target) = do
+encode_instruction strings descriptors method_ids field_ids labels address instruction@(Goto32 target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
   let offset = target_address - address
   checked_goto_offset offset
   Right (u16le 0x2a ++ u32le (cast offset))
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(ReturnInteger register) = do
   _ <- instruction_width instruction
   Right (u16le (0x0f + cast register.number * 256))
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(ReturnObject register) = do
   _ <- instruction_width instruction
   Right (u16le (0x11 + cast register.number * 256))
-encode_instruction strings descriptors method_ids labels address
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(ReturnWide register) = do
   _ <- instruction_width instruction
   Right (u16le (0x10 + cast register.number * 256))
-encode_instruction strings descriptors method_ids labels address ReturnVoid =
+encode_instruction strings descriptors method_ids field_ids labels address ReturnVoid =
   Right (u16le 0x0e)
 
 private
 encode_instruction_stream :
-  List String -> List String -> List MethodReference -> List (Label, Int) -> Int -> List Instruction ->
+  List String -> List String -> List MethodReference -> List FieldReference ->
+  List (Label, Int) -> Int -> List Instruction ->
   Either String (List Int)
-encode_instruction_stream strings descriptors method_ids labels address [] = Right []
-encode_instruction_stream strings descriptors method_ids labels address (instruction :: rest) = do
-  encoded <- encode_instruction strings descriptors method_ids labels address instruction
+encode_instruction_stream strings descriptors method_ids field_ids labels address [] = Right []
+encode_instruction_stream strings descriptors method_ids field_ids labels address (instruction :: rest) = do
+  encoded <- encode_instruction strings descriptors method_ids field_ids labels address instruction
   width <- instruction_width instruction
   more <-
-    encode_instruction_stream strings descriptors method_ids labels (address + width) rest
+    encode_instruction_stream strings descriptors method_ids field_ids labels (address + width) rest
   Right (encoded ++ more)
 
 -- Strict emission of already finalized instruction widths. Unlike the
 -- compatibility entry below, this does not silently promote a stale goto.
 private
 encode_final_instructions :
-  List String -> List String -> List MethodReference -> List Instruction -> Either String (List Int)
-encode_final_instructions strings descriptors method_ids instructions = do
+  List String -> List String -> List MethodReference -> List FieldReference ->
+  List Instruction -> Either String (List Int)
+encode_final_instructions strings descriptors method_ids field_ids instructions = do
   labels <- label_addresses instructions
-  encode_instruction_stream strings descriptors method_ids labels 0 instructions
+  encode_instruction_stream strings descriptors method_ids field_ids labels 0 instructions
 
 public export
 encode_instructions_with_types :
   List String -> List String -> List MethodReference -> List Instruction -> Either String (List Int)
 encode_instructions_with_types strings descriptors method_ids instructions = do
   widened <- relax_gotos (S (2 * length instructions)) instructions
-  encode_final_instructions strings descriptors method_ids widened
+  encode_final_instructions strings descriptors method_ids [] widened
 
 public export
 encode_instructions :
@@ -577,6 +598,20 @@ sort_method_references : List MethodReference -> List MethodReference
 sort_method_references = foldr insert_method_reference []
 
 private
+field_reference_before : FieldReference -> FieldReference -> Ordering
+field_reference_before left right =
+  case compare_dex_strings left.owner.descriptor right.owner.descriptor of
+    EQ => case compare_dex_strings left.name right.name of
+      EQ => compare_dex_strings (framework_descriptor left.value_type)
+              (framework_descriptor right.value_type)
+      ordering => ordering
+    ordering => ordering
+
+private
+sort_field_references : List FieldReference -> List FieldReference
+sort_field_references = sortBy field_reference_before . nub
+
+private
 method_before : MethodPlan -> MethodPlan -> Bool
 method_before left right =
   case compare_dex_strings left.method_name right.method_name of
@@ -668,6 +703,25 @@ all_method_references class_descriptor methods =
      concat (map method_external_references methods))
 
 private
+instruction_field_references : Instruction -> List FieldReference
+instruction_field_references (StaticGetObject _ field) = [field]
+instruction_field_references (StaticPutObject _ field) = [field]
+instruction_field_references _ = []
+
+private
+declared_field_reference : String -> StaticFieldPlan -> FieldReference
+declared_field_reference owner field =
+  MkFieldReference (MkTypeReference owner) field.name field.value_type
+
+private
+all_field_references : List FilePlan -> List FieldReference
+all_field_references plans =
+  sort_field_references
+    (concatMap (\plan =>
+      map (declared_field_reference plan.class_descriptor) plan.fields ++
+      concatMap (concatMap instruction_field_references . instructions) plan.methods) plans)
+
+private
 method_texts : MethodPlan -> List String
 method_texts method = concat (map instruction_texts method.instructions)
 
@@ -688,22 +742,26 @@ method_type_descriptors method = concat (map instruction_type_descriptors method
 
 private
 type_descriptors :
-  String -> TypeReference -> List Prototype -> List MethodReference -> List TypeReference -> List MethodPlan -> List String
-type_descriptors class_descriptor superclass prototypes method_ids interfaces methods =
+  String -> TypeReference -> List Prototype -> List MethodReference -> List FieldReference ->
+  List TypeReference -> List MethodPlan -> List String
+type_descriptors class_descriptor superclass prototypes method_ids field_ids interfaces methods =
   sortBy compare_dex_strings
     (nub
       ([class_descriptor, superclass.descriptor] ++ map descriptor interfaces ++
        map (\method => method.owner.descriptor) method_ids ++
+       concatMap (\field => [field.owner.descriptor, framework_descriptor field.value_type]) field_ids ++
        concat (map prototype_descriptors prototypes) ++ concat (map method_type_descriptors methods)))
 
 private
 all_strings :
-  List MethodPlan -> List MethodReference -> List Prototype -> List String -> List String
-all_strings methods method_ids prototypes descriptors =
+  List MethodPlan -> List MethodReference -> List FieldReference -> List Prototype ->
+  List String -> List String
+all_strings methods method_ids field_ids prototypes descriptors =
   sortBy compare_dex_strings
     (nub
       (descriptors ++
        map (\method => method.name) method_ids ++
+       map (\field => field.name) field_ids ++
        map shorty prototypes ++
        concat (map method_texts methods)))
 
@@ -814,10 +872,10 @@ record PreparedMethod where
 
 private
 prepare_methods :
-  List String -> List String -> List Prototype -> List MethodReference -> String ->
-  List MethodPlan -> Either String (List PreparedMethod)
-prepare_methods strings descriptors prototypes method_ids class_descriptor [] = Right []
-prepare_methods strings descriptors prototypes method_ids class_descriptor (method :: rest) = do
+  List String -> List String -> List Prototype -> List MethodReference -> List FieldReference ->
+  String -> List MethodPlan -> Either String (List PreparedMethod)
+prepare_methods strings descriptors prototypes method_ids field_ids class_descriptor [] = Right []
+prepare_methods strings descriptors prototypes method_ids field_ids class_descriptor (method :: rest) = do
   incoming_words <- parameter_register_words (incoming_parameter_types method)
   outgoing_words <- outgoing_register_count method.instructions
   prototype_index <-
@@ -825,9 +883,9 @@ prepare_methods strings descriptors prototypes method_ids class_descriptor (meth
   method_index <-
     lookup_index "generated method"
       (generated_method_reference class_descriptor method) method_ids
-  bytes <- encode_final_instructions strings descriptors method_ids method.instructions
+  bytes <- encode_final_instructions strings descriptors method_ids field_ids method.instructions
   more <-
-    prepare_methods strings descriptors prototypes method_ids class_descriptor rest
+    prepare_methods strings descriptors prototypes method_ids field_ids class_descriptor rest
   Right
     (MkPreparedMethod class_descriptor method incoming_words outgoing_words method_index prototype_index bytes
       (cast (length bytes) `div` 2) 0 :: more)
@@ -913,13 +971,28 @@ encode_class_methods previous (method :: rest) =
   encode_class_methods method.method_index rest
 
 private
-class_data : List PreparedMethod -> List Int
-class_data methods =
+encode_class_fields : Int -> List (Int, Integer) -> List Int
+encode_class_fields previous [] = []
+encode_class_fields previous ((index, flags) :: rest) =
+  uleb128 (cast (index - previous)) ++ uleb128 flags ++
+  encode_class_fields index rest
+
+private
+class_data : FilePlan -> List PreparedMethod -> List FieldReference -> Either String (List Int)
+class_data plan methods field_ids = do
+  indexed <- traverse
+    (\field => do
+      index <- lookup_index "declared static field"
+        (declared_field_reference plan.class_descriptor field) field_ids
+      Right (index, field.access_flags)) plan.fields
+  let static_fields = sortBy (\left, right => compare (fst left) (fst right)) indexed
   let direct = filter (\method => not (virtual_method method.plan.mode)) methods
-      virtual = filter (\method => virtual_method method.plan.mode) methods in
-  uleb128 0 ++ uleb128 0 ++ uleb128 (cast (length direct)) ++
-  uleb128 (cast (length virtual)) ++
-  encode_class_methods 0 direct ++ encode_class_methods 0 virtual
+  let virtual = filter (\method => virtual_method method.plan.mode) methods
+  Right (uleb128 (cast (length static_fields)) ++ uleb128 0 ++
+    uleb128 (cast (length direct)) ++
+    uleb128 (cast (length virtual)) ++
+    encode_class_fields 0 static_fields ++
+    encode_class_methods 0 direct ++ encode_class_methods 0 virtual)
 
 private
 map_item : Integer -> Int -> Int -> List Int
@@ -1034,6 +1107,52 @@ finalize_method original = do
      Right ({ instructions := widened } placed)
 
 private
+valid_field_name : String -> Bool
+valid_field_name value = case unpack value of
+  [] => False
+  first :: rest =>
+    let allowed = \character =>
+          (character >= 'A' && character <= 'Z') ||
+          (character >= 'a' && character <= 'z') ||
+          (character >= '0' && character <= '9') ||
+          character == '_' || character == '$'
+    in not (first >= '0' && first <= '9') && all allowed (first :: rest)
+
+private
+object_field_value : FrameworkValueType -> Bool
+object_field_value (ReferenceValue _) = True
+object_field_value (ExistingValue TextValue) = True
+object_field_value (ExistingValue ObjectValue) = True
+object_field_value _ = False
+
+private
+validate_field_instruction : Instruction -> Either String ()
+validate_field_instruction (StaticGetObject _ field) =
+  if object_field_value field.value_type && valid_field_name field.name
+    then validate_value_type field.value_type
+    else Left "DEX sget-object requires a named reference-typed field"
+validate_field_instruction (StaticPutObject _ field) =
+  if object_field_value field.value_type && valid_field_name field.name
+    then validate_value_type field.value_type
+    else Left "DEX sput-object requires a named reference-typed field"
+validate_field_instruction _ = Right ()
+
+private
+validate_declared_fields : FilePlan -> Either String ()
+validate_declared_fields plan = do
+  if length (nub (map name plan.fields)) == length plan.fields
+    then Right ()
+    else Left "Duplicate DEX static field name"
+  _ <- traverse
+    (\field =>
+      if valid_field_name field.name && object_field_value field.value_type &&
+         elem field.access_flags [9, 10]
+        then validate_value_type field.value_type
+        else Left "DEX static field declaration must be public/private static reference")
+    plan.fields
+  Right ()
+
+private
 validate_allocation : Instruction -> Either String ()
 validate_allocation (NewObject _ object_type) = validate_class_descriptor object_type.descriptor
 validate_allocation _ = Right ()
@@ -1050,6 +1169,8 @@ finalize_file_plan file_plan = do
     else Right ()
   _ <- traverse (validate_class_descriptor . descriptor) file_plan.interfaces
   _ <- traverse validate_reference_type (concat (map method_type_descriptors file_plan.methods))
+  validate_declared_fields file_plan
+  _ <- traverse validate_field_instruction (concat (map instructions file_plan.methods))
   _ <- traverse validate_allocation (concat (map instructions file_plan.methods))
   _ <- traverse validate_value_type
     (concatMap (\method => method.result_type :: method.parameter_types) file_plan.methods)
@@ -1080,14 +1201,15 @@ layout_class_interfaces descriptors layout (plan :: rest) = do
   Right (finished, (plan.class_descriptor, placed.interfaces_offset) :: others)
 
 private
-layout_class_data : Int -> List FilePlan -> List PreparedMethod ->
-  (List Int, List (String, Int), Int)
-layout_class_data current [] methods = ([], [], current)
-layout_class_data current (plan :: rest) methods =
-  let bytes = class_data (filter (\method => method.owner == plan.class_descriptor) methods)
-      (other, offsets, finish) =
-        layout_class_data (current + cast (length bytes)) rest methods
-  in (bytes ++ other, (plan.class_descriptor, current) :: offsets, finish)
+layout_class_data : Int -> List FilePlan -> List PreparedMethod -> List FieldReference ->
+  Either String (List Int, List (String, Int), Int)
+layout_class_data current [] methods fields = Right ([], [], current)
+layout_class_data current (plan :: rest) methods fields = do
+  bytes <- class_data plan
+    (filter (\method => method.owner == plan.class_descriptor) methods) fields
+  (other, offsets, finish) <-
+    layout_class_data (current + cast (length bytes)) rest methods fields
+  Right (bytes ++ other, (plan.class_descriptor, current) :: offsets, finish)
 
 private
 encode_finalized_classes : List FinalizedFilePlan -> Either String (List Int)
@@ -1106,30 +1228,42 @@ encode_finalized_classes frozen = do
     then Left "App-defined superclass/interface dependencies are unsupported"
     else Right ()
   let methods = concatMap methods plans
+  let field_ids = all_field_references plans
+  if length field_ids > 65536
+    then Left "DEX field_id count exceeds the 16-bit instruction index range"
+    else Right ()
+  let owned_fields = concatMap
+        (\plan => map (declared_field_reference plan.class_descriptor) plan.fields) plans
+  let referenced_fields = concatMap (concatMap instruction_field_references . instructions) methods
+  if any (\field => elem field.owner.descriptor classes && not (elem field owned_fields)) referenced_fields
+    then Left "DEX generated class reads or writes an undeclared static field"
+    else Right ()
   let method_ids = sort_method_references
         (concatMap (\plan => all_method_references plan.class_descriptor plan.methods) plans)
   _ <- traverse validate_method_types method_ids
   let prototypes = unique_prototypes (map prototype_of_reference method_ids)
   let descriptors = sortBy compare_dex_strings (nub
         (concatMap (\plan => type_descriptors plan.class_descriptor plan.superclass
-          prototypes method_ids plan.interfaces plan.methods) plans))
-  let strings = all_strings methods method_ids prototypes descriptors
+          prototypes method_ids field_ids plan.interfaces plan.methods) plans))
+  let strings = all_strings methods method_ids field_ids prototypes descriptors
+  let field_id_count : Int = cast (length field_ids)
   let method_id_count : Int = cast (length method_ids)
   let string_ids_off = 112
   let type_ids_off = string_ids_off + 4 * cast (length strings)
   let proto_ids_off = type_ids_off + 4 * cast (length descriptors)
-  let method_ids_off = proto_ids_off + 12 * cast (length prototypes)
+  let field_ids_off = proto_ids_off + 12 * cast (length prototypes)
+  let method_ids_off = field_ids_off + 8 * field_id_count
   let class_defs_off = method_ids_off + 8 * method_id_count
   let data_off = class_defs_off + 32 * cast (length plans)
   parameter_lists <- layout_type_lists descriptors data_off prototypes
   (type_lists, interface_offsets) <- layout_class_interfaces descriptors parameter_lists plans
   prepared_groups <- traverse
-    (\plan => prepare_methods strings descriptors prototypes method_ids plan.class_descriptor plan.methods) plans
+    (\plan => prepare_methods strings descriptors prototypes method_ids field_ids plan.class_descriptor plan.methods) plans
   let code = layout_code type_lists.next_offset (concat prepared_groups)
   let code_count = length (filter (\method => not (native_method method.mode)) methods)
   strings_layout <- layout_strings code.next_offset strings
-  let (class_data_bytes, class_offsets, before_map) =
-        layout_class_data strings_layout.next_offset plans code.methods
+  (class_data_bytes, class_offsets, before_map) <-
+    layout_class_data strings_layout.next_offset plans code.methods field_ids
   let class_data_off = strings_layout.next_offset
   let map_off = align_up before_map 4
   string_id_bytes <- traverse
@@ -1139,6 +1273,16 @@ encode_finalized_classes frozen = do
     (\descriptor => do index <- lookup_index "type descriptor" descriptor strings
                        Right (u32le (cast index))) descriptors
   proto_id_bytes <- traverse (prototype_bytes strings descriptors type_lists) prototypes
+  field_id_bytes <- traverse
+    (\field => do
+      owner_index <- lookup_index "field owner type" field.owner.descriptor descriptors
+      type_index <- lookup_index "field type" (framework_descriptor field.value_type) descriptors
+      name_index <- lookup_index "field name" field.name strings
+      if owner_index > 65535 || type_index > 65535
+        then Left "DEX field owner or type index exceeds 65535"
+        else Right (u16le (cast owner_index) ++ u16le (cast type_index) ++
+                    u32le (cast name_index)))
+    field_ids
   method_id_bytes <- traverse
     (\method => do
       owner_index <- lookup_index "method owner type" method.owner.descriptor descriptors
@@ -1162,12 +1306,15 @@ encode_finalized_classes frozen = do
         Just offset => [map_item 0x1001 type_lists.item_count offset]
   let code_map = if code_count == 0 then [] else
         [map_item 0x2001 (cast code_count) code.first_offset]
+  let field_map = if field_id_count == 0 then [] else
+        [map_item 0x0004 field_id_count field_ids_off]
   let map_entries =
         [ map_item 0x0000 1 0
         , map_item 0x0001 (cast (length strings)) string_ids_off
         , map_item 0x0002 (cast (length descriptors)) type_ids_off
         , map_item 0x0003 (cast (length prototypes)) proto_ids_off
-        , map_item 0x0005 method_id_count method_ids_off
+        ] ++ field_map ++
+        [ map_item 0x0005 method_id_count method_ids_off
         , map_item 0x0006 (cast (length plans)) class_defs_off
         ] ++ type_list_map ++ code_map ++
         [ map_item 0x2002 (cast (length strings)) strings_layout.first_offset
@@ -1184,11 +1331,12 @@ encode_finalized_classes frozen = do
         u32le (cast (length strings)) ++ u32le (cast string_ids_off) ++
         u32le (cast (length descriptors)) ++ u32le (cast type_ids_off) ++
         u32le (cast (length prototypes)) ++ u32le (cast proto_ids_off) ++
-        u32le 0 ++ u32le 0 ++ u32le (cast method_id_count) ++ u32le (cast method_ids_off) ++
+        u32le (cast field_id_count) ++ u32le (cast (if field_id_count == 0 then 0 else field_ids_off)) ++
+        u32le (cast method_id_count) ++ u32le (cast method_ids_off) ++
         u32le (cast (length plans)) ++ u32le (cast class_defs_off) ++
         u32le (cast data_size) ++ u32le (cast data_off)
   let unsigned_file = header ++ concat string_id_bytes ++ concat type_id_bytes ++
-        concat proto_id_bytes ++ concat method_id_bytes ++ concat class_definitions ++
+        concat proto_id_bytes ++ concat field_id_bytes ++ concat method_id_bytes ++ concat class_definitions ++
         type_lists.bytes ++ code.bytes ++ strings_layout.bytes ++ class_data_bytes ++
         padding before_map 4 ++ map_bytes
   if cast (length unsigned_file) /= file_size

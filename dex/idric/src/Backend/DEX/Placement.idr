@@ -63,6 +63,8 @@ instruction_registers (ArrayLength destination array) = Right [destination, arra
 instruction_registers (ArrayGetObject destination array index) = Right [destination, array, index]
 instruction_registers (IntToLong destination source) =
   Right [destination, next_register destination, source]
+instruction_registers (StaticGetObject destination field) = Right [destination]
+instruction_registers (StaticPutObject source field) = Right [source]
 instruction_registers (NullReference destination) = Right [destination]
 instruction_registers (TextConstant destination _) = Right [destination]
 instruction_registers (NewObject destination _) = Right [destination]
@@ -138,6 +140,10 @@ instruction_staging (ArrayGetObject destination array index) =
   Right (destination.number > 255 || array.number > 255 || index.number > 255, 0)
 instruction_staging (IntToLong destination source) =
   Right (destination.number > 15 || source.number > 15, 0)
+instruction_staging (StaticGetObject destination field) =
+  Right (destination.number > 255, 0)
+instruction_staging (StaticPutObject source field) =
+  Right (source.number > 255, 0)
 instruction_staging _ = Right (False, 0)
 
 private
@@ -264,6 +270,16 @@ place_instruction scratch_start (ArrayGetObject destination array index) =
       suffix = if target.number <= 255 then [] else [MoveObject target scratch_zero]
   in Right (array_prefix ++ index_prefix ++
             [ArrayGetObject output array_input index_input] ++ suffix)
+place_instruction scratch_start (StaticGetObject destination field) =
+  let target = shift_register destination in
+  if low_byte_register target
+    then Right [StaticGetObject target field]
+    else Right [StaticGetObject scratch_zero field, MoveObject target scratch_zero]
+place_instruction scratch_start (StaticPutObject source field) =
+  let input = shift_register source in
+  if low_byte_register input
+    then Right [StaticPutObject input field]
+    else Right [MoveObject scratch_zero input, StaticPutObject scratch_zero field]
 place_instruction scratch_start (IntToLong destination source) =
   let target = shift_register destination
       input_register = shift_register source

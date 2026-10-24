@@ -65,6 +65,10 @@ render_instruction (ArrayGetObject destination array index) =
   "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
 render_instruction (IntToLong destination source) =
   "int-to-long " ++ show destination ++ ", " ++ show source
+render_instruction (StaticGetObject destination field) =
+  "sget-object " ++ show destination ++ ", " ++ show field
+render_instruction (StaticPutObject source field) =
+  "sput-object " ++ show source ++ ", " ++ show field
 render_instruction (NullReference destination) =
   render_constant destination 0
 render_instruction (TextConstant destination value) =
@@ -175,6 +179,9 @@ render_finalized_smali finalized =
     , ".super " ++ plan.superclass.descriptor
     , ""
     ] ++ unlines (map (\implemented => ".implements " ++ show implemented) plan.interfaces) ++
+    concat (map (\field =>
+      ".field " ++ (if field.access_flags == 10 then "private" else "public") ++
+      " static " ++ field.name ++ ":" ++ framework_descriptor field.value_type ++ "\n") plan.fields) ++
     concat (map render_method plan.methods)
 
 -- Compatibility API invokes the encoder's bounded layout pass; rendering

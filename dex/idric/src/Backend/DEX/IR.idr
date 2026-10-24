@@ -188,6 +188,33 @@ parameter_descriptors (value :: rest) =
   framework_descriptor value ++ parameter_descriptors rest
 
 ||| A concrete external DEX method reference.
+||| Typed DEX field reference; field identifiers are separate from methods.
+public export
+record FieldReference where
+  constructor MkFieldReference
+  owner : TypeReference
+  name : String
+  value_type : FrameworkValueType
+
+public export
+Eq FieldReference where
+  left == right =
+    left.owner == right.owner && left.name == right.name &&
+    left.value_type == right.value_type
+
+public export
+Show FieldReference where
+  show field = field.owner.descriptor ++ "->" ++ field.name ++ ":" ++
+    framework_descriptor field.value_type
+
+||| ART initializes unassigned static reference fields to null.
+public export
+record StaticFieldPlan where
+  constructor MkStaticFieldPlan
+  name : String
+  value_type : FrameworkValueType
+  access_flags : Integer
+
 public export
 record MethodReference where
   constructor MkMethodReference
@@ -304,6 +331,8 @@ data Instruction
   | ArrayLength Register Register
   | ArrayGetObject Register Register Register
   | IntToLong Register Register
+  | StaticGetObject Register FieldReference
+  | StaticPutObject Register FieldReference
   | NullReference Register
   | TextConstant Register String
   | NewObject Register TypeReference
@@ -343,6 +372,10 @@ Show Instruction where
     "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
   show (IntToLong destination source) =
     "int-to-long " ++ show destination ++ ", " ++ show source
+  show (StaticGetObject destination field) =
+    "sget-object " ++ show destination ++ ", " ++ show field
+  show (StaticPutObject source field) =
+    "sput-object " ++ show source ++ ", " ++ show field
   show (NullReference destination) = "const-null " ++ show destination
   show (TextConstant destination value) =
     "const-string " ++ show destination ++ ", " ++ show value
@@ -459,12 +492,20 @@ render_method_plan method =
 ||| Android UI, resource, manifest, or packaging semantics.
 public export
 record FilePlan where
-  constructor MkFlaggedClassFilePlan
+  constructor MkFieldClassFilePlan
   class_descriptor : String
   methods : List MethodPlan
+  fields : List StaticFieldPlan
   interfaces : List TypeReference
   superclass : TypeReference
   access_flags : Integer
+
+||| Retain the fieldless constructor interface for existing consumers.
+public export
+MkFlaggedClassFilePlan : String -> List MethodPlan -> List TypeReference ->
+  TypeReference -> Integer -> FilePlan
+MkFlaggedClassFilePlan descriptor methods interfaces superclass flags =
+  MkFieldClassFilePlan descriptor methods [] interfaces superclass flags
 
 public export
 MkClassFilePlan : String -> List MethodPlan -> List TypeReference -> TypeReference -> FilePlan
@@ -481,5 +522,7 @@ render_file_plan : FilePlan -> String
 render_file_plan plan =
   "class " ++ plan.class_descriptor ++ "\n" ++
   "super " ++ plan.superclass.descriptor ++ "\n" ++
+  concat (map (\field => "field " ++ field.name ++ ":" ++
+    framework_descriptor field.value_type ++ " flags=" ++ show field.access_flags ++ "\n") plan.fields) ++
   concat (map (\implemented => "implements " ++ show implemented ++ "\n") plan.interfaces) ++ "\n" ++
   concat (intersperse "\n" (map render_method_plan plan.methods))
