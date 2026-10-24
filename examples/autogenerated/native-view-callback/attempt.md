@@ -30,6 +30,13 @@ The acceptance test for future replacement must exercise real source callbacks
 through ART/JNI rather than treating this host-side class plan as source-ANF
 object lowering.
 
+Grease execution exposed two retained failures during consolidation:
+run `40143719761` rejected the inherited string-form EXIT trap, and run
+`40143999155` rejected command substitution inside a conditional because its
+status would be hidden. The correction uses the pinned source's block-form
+`trap --add EXIT` and assigns command results before comparisons. These are
+Grease runtime failures, not passing package or compiler evidence.
+
 Status: HOST_PASS; ART class load and real View click callbacks verified on API29.
 
 Purpose: let a NativeActivity construct ordinary platform Views and receive

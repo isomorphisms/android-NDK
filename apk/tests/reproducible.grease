@@ -19,6 +19,11 @@ if ! printf '%s\n' "$source_revision" | rg -q '^[0-9a-fA-F]{40}([0-9a-fA-F]{24})
 if (dex_input !== '') { test -s "$dex_input" }
 mkdir -p "$output"
 proc receipt_value(path, field) { awk -F '\t' -v field="$field" '$1 == field { print $2 }' "$path" }
+proc require_different(field, first, second) {
+  var first_value = $(receipt_value "$first" "$field")
+  var second_value = $(receipt_value "$second" "$field")
+  if (first_value === second_value) { fail "changed input preserved $field" }
+}
 proc make_equivalent_root(root, order, native_mode, stamp) {
   mkdir -p "$root/res/values" "$root/assets/nested" "$root/input"
   if (order === 'forward') {
@@ -81,27 +86,28 @@ for expected in 'source_date_epoch 1710200000' 'approved_source_date_epoch 17102
   grep -Fq -f "$output/expected-row" "$output/first.receipt.tsv"
 }
 if (dex_input !== '') {
-  test "$(receipt_value "$output/first.receipt.tsv" schema)" = android-ndk-nativeactivity-apk-v3
+  var declared_schema = $(receipt_value "$output/first.receipt.tsv" schema)
+  test "$declared_schema" = android-ndk-nativeactivity-apk-v3
   var changed_dex = "$output/changed-dex"
   cp -R -- "$first_root" "$changed_dex"
   # Byte-identity mutation only, not a new ART candidate.
   printf '\0' >> "$changed_dex/input/classes.dex"
   run_package "$packager" "$changed_dex" UTC changed-dex "$output/changed-dex.apk" > "$output/changed-dex.log"
-  test "$(receipt_value "$output/first.receipt.tsv" dex_sha256)" != "$(receipt_value "$output/changed-dex.receipt.tsv" dex_sha256)"
-  test "$(receipt_value "$output/first.receipt.tsv" material_sha256)" != "$(receipt_value "$output/changed-dex.receipt.tsv" material_sha256)"
+  require_different dex_sha256 "$output/first.receipt.tsv" "$output/changed-dex.receipt.tsv"
+  require_different material_sha256 "$output/first.receipt.tsv" "$output/changed-dex.receipt.tsv"
 }
 var changed_resource = "$output/changed-resource"
 cp -R -- "$first_root" "$changed_resource"
 sed -i 's/>one</>changed</' "$changed_resource/res/values/a.xml"
 run_package "$packager" "$changed_resource" UTC changed-resource "$output/changed-resource.apk" > "$output/changed-resource.log"
-test "$(receipt_value "$output/first.receipt.tsv" resource_closure_sha256)" != "$(receipt_value "$output/changed-resource.receipt.tsv" resource_closure_sha256)"
-test "$(receipt_value "$output/first.receipt.tsv" material_sha256)" != "$(receipt_value "$output/changed-resource.receipt.tsv" material_sha256)"
+require_different resource_closure_sha256 "$output/first.receipt.tsv" "$output/changed-resource.receipt.tsv"
+require_different material_sha256 "$output/first.receipt.tsv" "$output/changed-resource.receipt.tsv"
 var changed_native = "$output/changed-native"
 cp -R -- "$first_root" "$changed_native"
 printf '\0' >> "$changed_native/input/$native_name"
 run_package "$packager" "$changed_native" UTC changed-native "$output/changed-native.apk" > "$output/changed-native.log"
-test "$(receipt_value "$output/first.receipt.tsv" native_sha256)" != "$(receipt_value "$output/changed-native.receipt.tsv" native_sha256)"
-test "$(receipt_value "$output/first.receipt.tsv" material_sha256)" != "$(receipt_value "$output/changed-native.receipt.tsv" material_sha256)"
+require_different native_sha256 "$output/first.receipt.tsv" "$output/changed-native.receipt.tsv"
+require_different material_sha256 "$output/first.receipt.tsv" "$output/changed-native.receipt.tsv"
 if "$grease" "$verifier" "$output/first.receipt.tsv" "$output/changed-native.apk" > "$output/mismatched-pair.log" 2>&1 { fail 'mismatched receipt/APK pair passed verification' }
 grep -Fq 'APK digest does not match receipt' "$output/mismatched-pair.log"
 if env SOURCE_DATE_EPOCH=1710200001 ANDROID_EXPECTED_SOURCE_DATE_EPOCH="$epoch" ANDROID_SOURCE_COMMIT="$source_revision" ANDROID_MIN_SDK=26 \
@@ -134,5 +140,6 @@ sed -i 's/zip_options=(-X)/zip_options=()/' "$mutants/zip-metadata-packager.sh"
 run_package "$mutants/zip-metadata-packager.sh" "$first_root" UTC zip-metadata "$output/zip-metadata.apk" > "$output/zip-metadata.log"
 zipinfo -v "$output/zip-metadata.apk" > "$output/zip-metadata-archive.txt"
 grep -Fq 'Unix UID/GID' "$output/zip-metadata-archive.txt"
-printf 'android-NDK reproducible NativeActivity qualification: PASS\nMATERIAL_SHA256\t%s\nAPK_SHA256\t%s\n' \
-  "$(receipt_value "$output/first.receipt.tsv" material_sha256)" "$(receipt_value "$output/first.receipt.tsv" apk_sha256)"
+var material_sha = $(receipt_value "$output/first.receipt.tsv" material_sha256)
+var apk_sha = $(receipt_value "$output/first.receipt.tsv" apk_sha256)
+printf 'android-NDK reproducible NativeActivity qualification: PASS\nMATERIAL_SHA256\t%s\nAPK_SHA256\t%s\n' "$material_sha" "$apk_sha"

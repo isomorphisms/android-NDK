@@ -23,18 +23,24 @@ if ! awk -F '\t' 'NF != 2 { exit 1 } { print $1 }' "$receipt" > "$work/actual-fi
   fail 'receipt is not strict two-column TSV'
 }
 if ! cmp -s "$work/expected-fields" "$work/actual-fields" { fail 'receipt fields or field order do not match the schema' }
-if test "$(value schema_sha256)" != "$(digest "$schema_file")" { fail 'receipt schema digest does not match the maintained schema' }
+var declared_schema_sha = $(value schema_sha256)
+var actual_schema_sha = $(digest "$schema_file")
+if (declared_schema_sha !== actual_schema_sha) { fail 'receipt schema digest does not match the maintained schema' }
 if ! awk -F '\t' '$1 ~ /_sha256$/ && $2 !~ /^[0-9a-f]{64}$/ { exit 1 }' "$receipt" {
   fail 'receipt contains an invalid SHA-256 digest'
 }
 awk -F '\t' 'NR == FNR { role[$1] = $2; next } role[$1] == "material" { print }' \
   "$schema_file" "$receipt" > "$work/material.tsv"
 var material_sha = $(digest "$work/material.tsv")
-if test "$(value material_sha256)" != "$material_sha" { fail "material digest does not match the receipt's material rows" }
+var declared_material_sha = $(value material_sha256)
+if (declared_material_sha !== material_sha) { fail "material digest does not match the receipt's material rows" }
 var apk_sha = $(digest "$apk")
-if test "$(value apk_sha256)" != "$apk_sha" { fail 'APK digest does not match receipt' }
+var declared_apk_sha = $(value apk_sha256)
+if (declared_apk_sha !== apk_sha) { fail 'APK digest does not match receipt' }
 if (schema_id === 'android-ndk-nativeactivity-apk-v3') {
   if ! unzip -p "$apk" classes.dex > "$work/classes.dex" { fail 'missing declared DEX payload' }
-  if test "$(digest "$work/classes.dex")" != "$(value dex_sha256)" { fail 'DEX digest does not match receipt' }
+  var actual_dex_sha = $(digest "$work/classes.dex")
+  var declared_dex_sha = $(value dex_sha256)
+  if (actual_dex_sha !== declared_dex_sha) { fail 'DEX digest does not match receipt' }
 }
 printf 'ANDROID_NDK_RECEIPT\tPASS\nMATERIAL_SHA256\t%s\nAPK_SHA256\t%s\n' "$material_sha" "$apk_sha"
