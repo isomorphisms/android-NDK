@@ -1,0 +1,32 @@
+{__mainExpression:0} = []: %let v0 = (<{{__mainExpression:0}:0} underapp 1>()) in (PrimIO.unsafePerformIO(v0))
+{{__mainExpression:0}:0} = [0]: DexArithmetic.main(v0)
+_builtin.NIL = Constructor tag Just 0 arity 0 newtype by Nothing
+_builtin.CONS = Constructor tag Just 1 arity 2 newtype by Nothing
+_builtin.NOTHING = Constructor tag Just 0 arity 0 newtype by Nothing
+_builtin.JUST = Constructor tag Just 1 arity 1 newtype by Nothing
+prim__sub_Integer = [0, 1]: %op -Integer(v0, v1)
+DexArithmetic.subtract = [0, 1]: %op -Int32(v0, v1)
+DexArithmetic.negative = []: -32769
+DexArithmetic.multiply = [0, 1]: %op *Int32(v0, v1)
+DexArithmetic.main = [0]: ___
+DexArithmetic.copy = [0]: v0
+DexArithmetic.constant_min = []: -2147483648
+DexArithmetic.constant_max = []: 2147483647
+DexArithmetic.constant_4_min = []: -8
+DexArithmetic.constant_4_max = []: 7
+DexArithmetic.constant_32_min = []: -32769
+DexArithmetic.constant_32_max = []: 32768
+DexArithmetic.constant_16_min = []: -32768
+DexArithmetic.constant_16_max = []: 32767
+DexArithmetic.choose_less = [0, 1]: %let v2 = (Prelude.EqOrd.<(v0, v1)) in (%case v2 of { %constalt(1) => 41| %constalt(0) => 99 Nothing })
+DexArithmetic.add_constants = []: 19
+DexArithmetic.add = [0, 1]: %op +Int32(v0, v1)
+Prelude.Types.prim__integerToNat = [0]: %let v2 = (%let v1 = (0) in (%op <=Integer(v1, v0))) in (%case v2 of { %constalt(0) => 0 Just v0 })
+Prelude.EqOrd.compare = [0, 1]: %let v3 = (Prelude.EqOrd.<(v0, v1)) in (%case v3 of { %constalt(1) => 0| %constalt(0) => %let v2 = (Prelude.EqOrd.==(v0, v1)) in (%case v2 of { %constalt(1) => 1| %constalt(0) => 2 Nothing }) Nothing })
+Prelude.EqOrd.== = [0, 1]: %let v2 = (%op ==Integer(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.< = [0, 1]: %let v2 = (%op <Integer(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.< = [0, 1]: %let v2 = (%op <Int32(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.compareInteger = [0, 1]: Prelude.EqOrd.compare(v0, v1)
+PrimIO.unsafePerformIO = [0]: %let v1 = (<PrimIO.{unsafePerformIO:0} underapp 1>(v0)) in (PrimIO.unsafeCreateWorld(v1))
+PrimIO.{unsafePerformIO:0} = [0, 1]: v0 @ (v1)
+PrimIO.unsafeCreateWorld = [0]: %let v1 = (%MkWorld) in (v0 @ (v1))

@@ -1,0 +1,130 @@
+module ActivityPlanChecks
+
+import Backend.DEX.Callback
+import Backend.DEX.Encode
+import Backend.DEX.IR
+import Backend.DEX.Invoke
+import Backend.DEX.Smali
+import Backend.DEX.Foreign
+import Backend.DEX.Placement
+import Core.CompileExpr
+import Core.Name
+import Data.Text
+import Data.List
+import System
+
+%default covering
+
+activity_type : FrameworkValueType
+activity_type = ReferenceValue (MkTypeReference "Landroid/app/Activity;")
+view_type : FrameworkValueType
+view_type = ReferenceValue (MkTypeReference "Landroid/view/View;")
+create_export : MethodPlan
+create_export = MkMethodPlan "checked create" "create_view" 1 [activity_type]
+  VoidValue 1 [ReturnVoid]
+action_export : MethodPlan
+action_export = MkMethodPlan "checked action" "receive_action" 2 [activity_type, view_type]
+  VoidValue 2 [ReturnVoid]
+valid_plan : Either Text FilePlan
+valid_plan = with_interface_callbacks "LIdric/Generated;" [create_export, action_export]
+  ["activity create_view receive_action"]
+refuses : Either Text value → Bool
+refuses (Left _) = True
+refuses (Right _) = False
+
+create_calls_super_first : Bool
+create_calls_super_first = case valid_plan of
+  Left _ ⇒ False
+  Right plan ⇒ plan.superclass ≟ MkTypeReference "Landroid/app/Activity;" &&
+    case filter (\method ⇒ method.method_name ≟ "onCreate") plan.methods of
+      [method] ⇒ case method.instructions of
+        [InvokeMethod inherited, InvokeMethod checked, ReturnVoid] ⇒
+          inherited.kind ≟ InvokeSuper && inherited.method.name ≟ "onCreate" &&
+          inherited.arguments ≟ [MkRegister 1, MkRegister 2] &&
+          checked.kind ≟ InvokeStatic && checked.method.name ≟ "create_view" &&
+          checked.arguments ≟ [MkRegister 1] &&
+          encode_invoke 7 inherited ≟ Right [0x6f, 0x20, 7, 0, 0x21, 0]
+        _ ⇒ False
+      _ ⇒ False
+
+action_preserves_receiver : Bool
+action_preserves_receiver = case valid_plan of
+  Left _ ⇒ False
+  Right plan ⇒ case filter (\method ⇒ method.method_name ≟ "onClick") plan.methods of
+    [method] ⇒ case method.instructions of
+      [InvokeMethod checked, ReturnVoid] ⇒ checked.kind ≟ InvokeStatic &&
+        checked.arguments ≟ [MkRegister 1, MkRegister 2] &&
+        checked.method.argument_types ≟ [activity_type, view_type]
+      _ ⇒ False
+    _ ⇒ False
+
+activity_constructor : Bool
+activity_constructor = case valid_plan of
+  Left _ ⇒ False
+  Right plan ⇒ case filter (\method ⇒ method.mode ≟ ConstructorMethod) plan.methods of
+    [method] ⇒ case method.instructions of
+      [InvokeMethod inherited, ReturnVoid] ⇒ inherited.kind ≟ InvokeDirect &&
+        inherited.method.owner ≟ MkTypeReference "Landroid/app/Activity;" &&
+        inherited.method.name ≟ "<init>" && inherited.arguments ≟ [MkRegister 0]
+      _ ⇒ False
+    _ ⇒ False
+
+activity_encodes : Bool
+activity_encodes = case valid_plan of
+  Left _ ⇒ False
+  Right plan ⇒ case finalize_file_plan plan of
+    Left _ ⇒ False
+    Right final ⇒ case encode_finalized_dex final of
+      Left _ ⇒ False
+      Right bytes ⇒ not (null bytes) &&
+        isInfixOf ".super Landroid/app/Activity;" (render_finalized_smali final) &&
+        isInfixOf "invoke-super" (render_finalized_smali final)
+
+cases : List (Text, Bool)
+cases =
+  [ ("activity-super-before-checked-create", create_calls_super_first)
+  , ("activity-action-keeps-receiver-and-view", action_preserves_receiver)
+  , ("constructor-initializes-activity", activity_constructor)
+  , ("activity-binary-and-readable-super-agree", activity_encodes)
+  , ("missing-create-refuses", refuses (with_interface_callbacks "LIdric/Generated;"
+       [action_export] ["activity create_view receive_action"]))
+  , ("wrong-create-receiver-refuses", refuses (with_interface_callbacks "LIdric/Generated;"
+       [{ parameter_types := [view_type] } create_export, action_export]
+       ["activity create_view receive_action"]))
+  , ("missing-action-refuses", refuses (with_interface_callbacks "LIdric/Generated;"
+       [create_export] ["activity create_view receive_action"]))
+  , ("wrong-action-signature-refuses", refuses (with_interface_callbacks "LIdric/Generated;"
+       [create_export, { parameter_types := [view_type] } action_export]
+       ["activity create_view receive_action"]))
+  , ("duplicate-activity-refuses", refuses (with_interface_callbacks "LIdric/Generated;"
+       [create_export, action_export]
+       ["activity create_view receive_action", "activity create_view receive_action"]))
+  , ("malformed-activity-refuses", refuses (with_interface_callbacks "LIdric/Generated;"
+       [create_export, action_export] ["activity create_view"]))
+  , ("check-cast-uses-type-index-and-reference-register",
+       encode_instructions_with_types [] ["Landroid/widget/TextView;"] []
+         [CheckCast (MkRegister 3) (MkTypeReference "Landroid/widget/TextView;")]
+       ≟ Right [0x1f, 3, 0, 0])
+  , ("check-cast-missing-type-refuses", refuses
+       (encode_instructions_with_types [] [] []
+         [CheckCast (MkRegister 3) (MkTypeReference "Landroid/widget/TextView;")]))
+  , ("cast-integer-source-refuses", refuses
+       (parse_dex_foreign "dex:cast:Landroid/view/View;:Landroid/widget/TextView;"
+         [CFInt32] (CFUser (UN (Basic "TextViewReference")) [])))
+  , ("cast-extra-source-refuses", refuses
+       (parse_dex_foreign "dex:cast:Landroid/view/View;:Landroid/widget/TextView;"
+         [] (CFUser (UN (Basic "TextViewReference")) [])))
+  , ("text-widens-to-platform-charsequence", case
+       parse_dex_foreign "dex:virtual:Landroid/widget/TextView;:setText:(Ljava/lang/CharSequence;)V"
+         [CFUser (UN (Basic "TextViewReference")) [], CFString, CFWorld] (CFIORes CFUnit) of
+           Right _ ⇒ True
+           Left _ ⇒ False)
+  , ("charsequence-result-cannot-masquerade-as-text", refuses
+       (parse_dex_foreign "dex:virtual:Landroid/widget/TextView;:getText:()Ljava/lang/CharSequence;"
+         [CFUser (UN (Basic "TextViewReference")) [], CFWorld] (CFIORes CFString)))
+  ]
+
+main : IO ()
+main = do
+  traverse_ (\(name, passed) ⇒ putStrLn ((if passed then "PASS " else "FAIL ") ++ name)) cases
+  if all snd cases then putStrLn "PASS Activity typed-plan controls" else exitFailure

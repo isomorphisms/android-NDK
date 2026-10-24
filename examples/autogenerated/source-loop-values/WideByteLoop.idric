@@ -1,0 +1,16 @@
+module WideByteLoop
+
+import Data.Text
+
+-- Deliberately unsupported raw byte state: this refusal fixture must never
+-- acquire Boolean semantics merely because the compiler also uses byte flags.
+carry_byte : Bits8 → List Char → Int32
+carry_byte value [] = cast value
+carry_byte value (_ :: rest) = carry_byte value rest
+
+%export "dex:wide_byte"
+wide_byte : Text → Int32
+wide_byte source = carry_byte 2 (unpack source)
+
+main : IO ()
+main = pure ()

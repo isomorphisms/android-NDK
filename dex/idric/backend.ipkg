@@ -1,5 +1,5 @@
 package idric_dex
-version = 0.1.0
+version = 0.2.0
 
 sourcedir = "src"
 
@@ -7,9 +7,18 @@ depends = idris2
 
 modules =
   Backend.DEX.IR,
+  Backend.DEX.Placement,
+  Backend.DEX.Invoke,
+  Backend.DEX.Foreign,
+  Backend.DEX.Callback,
   Backend.DEX.Lower,
+  Backend.DEX.Unpack,
   Backend.DEX.Hash,
   Backend.DEX.Encode,
+  Backend.DEX.FrameworkClasses,
+  Backend.DEX.RuntimeArgs,
+  Backend.DEX.Heap,
+  Backend.DEX.EncodeCallbackShell,
   Backend.DEX.Smali,
   Backend.DEX.Codegen,
   Backend.DEX.Main

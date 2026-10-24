@@ -1,0 +1,36 @@
+#!/usr/bin/env grease
+# independent ART observer of generated main(String[]), wide argc/arg methods.
+if (len(ARGV) !== 6) {
+  echo 'usage: grease observe-runtime-args.grease ADB SERIAL CANDIDATE OBSERVER MUTANT EVIDENCE'
+  exit 2
+}
+var adb = ARGV[0]
+var serial = ARGV[1]
+var candidate = ARGV[2]
+var observer = ARGV[3]
+var mutant = ARGV[4]
+var evidence = ARGV[5]
+mkdir -p "$evidence"
+"$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r' | rg -x '1'
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r' | rg -x 'x86_64'
+"$adb" -s "$serial" shell mkdir -p /data/local/tmp/idric-runtime-args
+"$adb" -s "$serial" push "$candidate" /data/local/tmp/idric-runtime-args/candidate.dex
+"$adb" -s "$serial" push "$observer" /data/local/tmp/idric-runtime-args/observer.dex
+"$adb" -s "$serial" push "$mutant" /data/local/tmp/idric-runtime-args/wrong.dex
+timeout 90 "$adb" -s "$serial" shell 'CLASSPATH=/data/local/tmp/idric-runtime-args/candidate.dex:/data/local/tmp/idric-runtime-args/observer.dex app_process /system/bin acceptance.RuntimeArgObserver' > "$evidence/zero.txt" 2>&1
+rg -x -F 'PASS runtime argv: zero program arguments' "$evidence/zero.txt"
+timeout 90 "$adb" -s "$serial" shell 'CLASSPATH=/data/local/tmp/idric-runtime-args/candidate.dex:/data/local/tmp/idric-runtime-args/observer.dex app_process /system/bin acceptance.RuntimeArgObserver first second' > "$evidence/two.txt" 2>&1
+rg -x -F 'PASS runtime argv: two program arguments' "$evidence/two.txt"
+if timeout 90 "$adb" -s "$serial" shell 'CLASSPATH=/data/local/tmp/idric-runtime-args/wrong.dex:/data/local/tmp/idric-runtime-args/observer.dex app_process /system/bin acceptance.RuntimeArgObserver first second' > "$evidence/wrong.txt" 2>&1 {
+  echo 'FAIL: wrong compiled runtime count passed ART observation'
+  exit 1
+} else {
+  var status = $?
+  printf '%s\n' "$status" > "$evidence/wrong-status.txt"
+  test "$status" -eq 73
+}
+"$adb" -s "$serial" pull /data/local/tmp/idric-runtime-args/candidate.dex "$evidence/received.dex"
+cmp "$candidate" "$evidence/received.dex"
+sha256sum "$candidate" "$observer" "$mutant" > "$evidence/artifacts.sha256"
+printf 'ART_runtime_args\tPASS\nzero\tPASS\ntwo\tPASS\nwrong\tREJECTED\nSystem_prim_binding\tNOT_IMPLEMENTED\nICU_main\tNOT_VERIFIED\nphysical_A1\tNOT_VERIFIED\nphysical_C67\tNOT_VERIFIED\n' > "$evidence/receipt.tsv"
+printf '\033[32mPASS\033[0m reusable direct DEX ART argument runtime, wrong-count refusal\n'
