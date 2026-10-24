@@ -85,7 +85,9 @@ jobs:
           arch: x86_64
           emulator-options: -no-window -no-audio -no-snapshot -no-boot-anim -memory 1024 -gpu swiftshader_indirect
           disable-animations: true
-          script: grease .tools/ai-ci/dex/observe-art.grease "$ANDROID_HOME/platform-tools/adb" emulator-5554 "$RUNNER_TEMP/dex-evidence/sources/calls.dex" "$RUNNER_TEMP/dex-evidence/runner.dex" "$RUNNER_TEMP/dex-evidence/mutant.dex" "$RUNNER_TEMP/dex-evidence/art"
+          script: |
+            grease .tools/ai-ci/dex/observe-art.grease "$ANDROID_HOME/platform-tools/adb" emulator-5554 "$RUNNER_TEMP/dex-evidence/sources/calls.dex" "$RUNNER_TEMP/dex-evidence/runner.dex" "$RUNNER_TEMP/dex-evidence/mutant.dex" "$RUNNER_TEMP/dex-evidence/art"
+            grease dex/idric/observe-argv-art.grease "$ANDROID_HOME/platform-tools/adb" emulator-5554 "$GITHUB_WORKSPACE/dex/idric/build/argv-boundary.dex" "$RUNNER_TEMP/dex-evidence/argv-runner.dex" "$GITHUB_WORKSPACE/dex/idric/build/argv-wrong.dex" "$RUNNER_TEMP/dex-evidence/argv-art"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

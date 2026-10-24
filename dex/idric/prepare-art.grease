@@ -22,3 +22,8 @@ test -s "$evidence/mutant.dex"
 rg 'invoke-static' "$evidence/sources/calls-disassembly.txt"
 java -jar "$evidence/oracles/smali.jar" assemble "$aici/dex/CheckedCallsRunner.smali" -o "$evidence/runner.dex"
 test -s "$evidence/runner.dex"
+# The independently assembled observation program supplies no target methods.
+java -jar "$evidence/oracles/smali.jar" assemble "$repository/dex/idric/tests/dex/runtime/ArgvObserver.smali" -o "$evidence/argv-runner.dex"
+test -s "$evidence/argv-runner.dex"
+test -s "$repository/dex/idric/build/argv-boundary.dex"
+test -s "$repository/dex/idric/build/argv-wrong.dex"

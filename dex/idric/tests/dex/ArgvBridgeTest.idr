@@ -60,6 +60,25 @@ private
 fixture : FilePlan
 fixture = MkFilePlan "LIdric/ArgvBoundary;" [count_method, argument_method]
 
+-- Same checked target plan, one deliberately incorrect runtime count.
+-- An independent ART observer must reject this actual candidate mutation.
+private
+wrong_count_method : MethodPlan
+wrong_count_method =
+  MkMethodPlan "runtime boundary deliberate mutation" "commandLineCount"
+    1 [arguments_type] LongValue 4
+    [ ArrayLength (MkRegister 0) (MkRegister 3)
+    , IntegerConstant (MkRegister 1) 2
+    , IntegerBinary AddInteger (MkRegister 0) (MkRegister 0) (MkRegister 1)
+    , IntToLong (MkRegister 1) (MkRegister 0)
+    , ReturnWide (MkRegister 1)
+    ]
+
+private
+wrong_fixture : FilePlan
+wrong_fixture = MkFilePlan "LIdric/ArgvBoundary;"
+  [wrong_count_method, argument_method]
+
 main : IO ()
 main = do
   finalized <- case finalize_file_plan fixture of
@@ -95,8 +114,16 @@ main = do
          ReturnWide (MkRegister 0)]]) of
     Left explanation => pure ()
     Right bytes => fail "accepted 64-bit return without second register"
+  mutated <- case encode_dex wrong_fixture of
+    Left explanation => fail explanation
+    Right value => pure value
+  check "wrong count changes actual candidate bytes" (first /= mutated)
   result <- write_dex "build/argv-boundary.dex" first
   case result of
+    Left explanation => fail explanation
+    Right () => pure ()
+  wrong_result <- write_dex "build/argv-wrong.dex" mutated
+  case wrong_result of
     Left explanation => fail explanation
     Right () => pure ()
   putStrLn "PASS: DEX ART argument-array bridge plan and refusal controls"
