@@ -1,0 +1,220 @@
+module ConstructionChecks
+
+import Backend.DEX.Foreign
+import Backend.DEX.Callback
+import Backend.DEX.Encode
+import Backend.DEX.IR
+import Backend.DEX.Invoke
+import Backend.DEX.Placement
+import Core.CompileExpr
+import Core.Name
+import Data.List
+import Data.Maybe
+import Data.Buffer
+import Data.Text
+import System
+import System.File.Buffer
+
+%default covering
+
+private
+expect : Text → Bool → IO ()
+expect label True = putStrLn ("PASS " ++ label)
+expect label False = do
+  putStrLn ("FAIL " ++ label)
+  exitFailure
+
+private
+refuses : Either Text value → Bool
+refuses (Left _) = True
+refuses (Right _) = False
+
+private
+context_source : CFType
+context_source = CFUser (UN (Basic "ReaderContext")) []
+
+private
+view_source : CFType
+view_source = CFUser (UN (Basic "ReaderTextView")) []
+
+private
+constructor_call : Text
+constructor_call = "dex:construct:Landroid/widget/TextView;:<init>:(Landroid/content/Context;)V"
+
+private
+high_view : MethodPlan
+high_view = MkMethodPlan "checked construction high register control" "create_high" 1
+  [ReferenceValue (MkTypeReference "Landroid/content/Context;")]
+  (ReferenceValue (MkTypeReference "Landroid/widget/TextView;")) 302
+  [ NewObject (MkRegister 300) (MkTypeReference "Landroid/widget/TextView;")
+  , InvokeMethod (Invoke InvokeDirect
+      (MkMethodReference (MkTypeReference "Landroid/widget/TextView;") "<init>"
+        [ReferenceValue (MkTypeReference "Landroid/content/Context;")] VoidValue)
+      [MkRegister 300, MkRegister 301] Nothing)
+  , ReturnObject (MkRegister 300)
+  ]
+
+private
+activity_owner : FrameworkValueType
+activity_owner = ReferenceValue (MkTypeReference "Landroid/app/Activity;")
+
+private
+bundle_argument : FrameworkValueType
+bundle_argument = ReferenceValue (MkTypeReference "Landroid/os/Bundle;")
+
+private
+created_export : List FrameworkValueType → MethodPlan
+created_export arguments = MkMethodPlan "checked lifecycle export" "created"
+  (cast (length arguments)) arguments VoidValue (cast (length arguments) + 1) [ReturnVoid]
+
+private
+lifecycle_directives : List Text
+lifecycle_directives = ["extends Landroid/app/Activity;", "override onCreate (Landroid/os/Bundle;)V created"]
+
+private
+valid_lifecycle : List FrameworkValueType → Either Text FilePlan
+valid_lifecycle arguments = with_interface_callbacks "LIdric/Lifecycle;"
+  [created_export arguments] lifecycle_directives
+
+private
+lifecycle_checks : IO ()
+lifecycle_checks = do
+  case valid_lifecycle [activity_owner, bundle_argument] of
+    Left explanation ⇒ do
+      putStrLn explanation
+      exitFailure
+    Right plan ⇒ do
+      expect "Activity parent retained" (plan.superclass.descriptor ≟ "Landroid/app/Activity;")
+      case filter (\method ⇒ method.method_name ≟ "onCreate") plan.methods of
+        [bridge] ⇒ case bridge.instructions of
+          [InvokeMethod parent, InvokeMethod source, ReturnVoid] ⇒ do
+            expect "Bundle and receiver forwarded to parent"
+              (parent.kind ≟ InvokeSuper && parent.arguments ≟ [MkRegister 1, MkRegister 2])
+            expect "full checked lifecycle receives parent arguments"
+              (source.kind ≟ InvokeStatic && source.arguments ≟ parent.arguments)
+          _ ⇒ expect "lifecycle instruction shape" False
+        _ ⇒ expect "unique lifecycle bridge" False
+  case valid_lifecycle [activity_owner] of
+    Left explanation ⇒ do
+      putStrLn explanation
+      exitFailure
+    Right plan ⇒ case filter (\method ⇒ method.method_name ≟ "onCreate") plan.methods of
+      [bridge] ⇒ case bridge.instructions of
+        [InvokeMethod parent, InvokeMethod source, ReturnVoid] ⇒
+          expect "receiver-only source still preserves platform Bundle"
+            (parent.arguments ≟ [MkRegister 1, MkRegister 2] && source.arguments ≟ [MkRegister 1])
+        _ ⇒ expect "receiver-only lifecycle instruction shape" False
+      _ ⇒ expect "unique receiver-only lifecycle bridge" False
+  expect "wrong checked lifecycle receiver refused" (refuses (valid_lifecycle [bundle_argument]))
+  expect "missing checked lifecycle export refused"
+    (refuses (with_interface_callbacks "LIdric/Lifecycle;" [] lifecycle_directives))
+  expect "lifecycle without superclass refused"
+    (refuses (with_interface_callbacks "LIdric/Lifecycle;" [created_export [activity_owner]]
+      ["override onCreate (Landroid/os/Bundle;)V created"]))
+  expect "repeated superclass refused"
+    (refuses (with_interface_callbacks "LIdric/Lifecycle;" [created_export [activity_owner]]
+      ("extends Landroid/app/Activity;" :: lifecycle_directives)))
+  expect "unsupported parent refused"
+    (refuses (with_interface_callbacks "LIdric/Lifecycle;" [created_export [activity_owner]]
+      ["extends Landroid/app/Service;"]))
+  expect "unsupported lifecycle refused"
+    (refuses (with_interface_callbacks "LIdric/Lifecycle;" [created_export [activity_owner]]
+      ["extends Landroid/app/Activity;", "override onResume ()V created"]))
+  expect "repeated lifecycle signature refused by finalization"
+    (refuses (do
+      plan ← with_interface_callbacks "LIdric/Lifecycle;" [created_export [activity_owner]]
+        (lifecycle_directives ++ ["override onCreate (Landroid/os/Bundle;)V created"])
+      finalize_file_plan plan))
+
+private
+hex_digit : Int → Char
+hex_digit 0 = '0'
+hex_digit 1 = '1'
+hex_digit 2 = '2'
+hex_digit 3 = '3'
+hex_digit 4 = '4'
+hex_digit 5 = '5'
+hex_digit 6 = '6'
+hex_digit 7 = '7'
+hex_digit 8 = '8'
+hex_digit 9 = '9'
+hex_digit 10 = 'a'
+hex_digit 11 = 'b'
+hex_digit 12 = 'c'
+hex_digit 13 = 'd'
+hex_digit 14 = 'e'
+hex_digit 15 = 'f'
+hex_digit _ = '?'
+
+private
+hex_byte : Int → Text
+hex_byte byte = pack [hex_digit (byte `div` 16), hex_digit (byte `mod` 16)]
+
+private
+fill_bytes : Buffer → Int → List Int → IO ()
+fill_bytes buffer position [] = pure ()
+fill_bytes buffer position (byte :: rest) = do
+  setByte buffer position byte
+  fill_bytes buffer (position + 1) rest
+
+private
+write_dex : Text → List Int → IO ()
+write_dex destination bytes = do
+  Just buffer ← newBuffer (cast (length bytes))
+    | Nothing ⇒ do
+      putStrLn "FAIL high constructor buffer allocation"
+      exitFailure
+  fill_bytes buffer 0 bytes
+  Right () ← writeBufferToFile destination buffer (cast (length bytes))
+    | Left error ⇒ do
+      putStrLn ("FAIL high constructor file: " ++ show error)
+      exitFailure
+  pure ()
+
+main : IO ()
+main = do
+  lifecycle_checks
+  case parse_dex_foreign constructor_call [context_source, CFWorld] (CFIORes view_source) of
+    Left explanation ⇒ do
+      putStrLn explanation
+      exitFailure
+    Right call ⇒ do
+      expect "constructor owns allocated receiver"
+        (construction call ≟ Just (MkTypeReference "Landroid/widget/TextView;"))
+      expect "source arguments exclude allocated receiver" (length (foreign_argument_types call) ≟ 1)
+      expect "constructor returns initialized owner"
+        (foreign_result_type call ≟ ReferenceValue (MkTypeReference "Landroid/widget/TextView;"))
+      expect "raw constructor returns void" (case call.operation of
+        MethodInvocation InvokeDirect method ⇒ method.result ≟ VoidValue
+        _ ⇒ False)
+  expect "pure allocation refused" (refuses (parse_dex_foreign constructor_call [context_source] view_source))
+  expect "wrong source result refused" (refuses (parse_dex_foreign constructor_call [context_source, CFWorld] (CFIORes CFString)))
+  expect "missing constructor argument refused" (refuses (parse_dex_foreign constructor_call [CFWorld] (CFIORes view_source)))
+  expect "constructor through ordinary static call refused"
+    (refuses (parse_dex_foreign "dex:static:Landroid/widget/TextView;:<init>:(Landroid/content/Context;)V"
+      [context_source, CFWorld] (CFIORes view_source)))
+  expect "nonvoid constructor refused"
+    (refuses (parse_dex_foreign "dex:construct:Landroid/widget/TextView;:<init>:(Landroid/content/Context;)I"
+      [context_source, CFWorld] (CFIORes view_source)))
+  expect "wrong constructor name refused"
+    (refuses (parse_dex_foreign "dex:construct:Landroid/widget/TextView;:factory:(Landroid/content/Context;)V"
+      [context_source, CFWorld] (CFIORes view_source)))
+  case finalize_file_plan (MkFilePlan "LIdric/HighConstruction;" [high_view]) of
+    Left explanation ⇒ do
+      putStrLn explanation
+      exitFailure
+    Right finalized ⇒ case encode_finalized_dex finalized of
+      Left explanation ⇒ do
+        putStrLn explanation
+        exitFailure
+      Right bytes ⇒ do
+        expect "high constructor encoded" (length bytes > 112)
+        expect "encoded bytes fit octets" (all (\byte ⇒ byte >= 0 && byte <= 255) bytes)
+        putStrLn ("high_constructor_hex " ++ concat (map hex_byte bytes))
+        arguments ← getArgs
+        case arguments of
+          [program, destination] ⇒ write_dex destination bytes
+          _ ⇒ do
+            putStrLn "FAIL expected fresh output DEX path"
+            exitFailure
+  putStrLn "PASS checked framework constructor controls"

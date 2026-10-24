@@ -51,3 +51,26 @@ for IB's existing source collections/records. Its actual retained-source title
 consumer typechecks, then fails DEX lowering with the precise tail-loop
 representation diagnostic. Execute that original consumer on DEX/ART before
 claiming full source recovery or retiring its incomplete-migration blocker.
+# Pre-ICU integration
+
+The integration retains both the explicit `extends`/`override` lifecycle form
+from framework construction and this branch's `activity` shorthand. Mixing
+the two parent/lifecycle ownership declarations fails closed. Both keep the
+original Bundle in the superclass call and pass the actual Activity receiver
+to checked source. One `FilePlan` and one encoder serve both forms.
+
+`ForeignOperation` remains the tagged call/cast representation. Constructor
+calls use its `MethodInvocation InvokeDirect` case, allocate their own receiver,
+exclude that receiver from source arguments, require PrimIO and a void JVM
+constructor, and return the initialized opaque owner. Compatibility views
+`construction`, `foreign_argument_types` and `foreign_result_type` preserve the
+constructor checks without inventing a method for a cast. The raw-constructor
+test now inspects the tagged operation and still requires a void result.
+
+The encoder keeps the existing string/type argument order, modified UTF-8,
+UTF-16 ordering and cast type-pool discovery, and includes `NewObject` in the
+same type-pool discovery. Allocation and casts keep their separate high-register
+placement rules. Both original fixture families and both runtime suites remain
+in qualification; no negative fixture was removed. Two additional controls
+exercise conflicting declaration ownership. No fallback compiler is introduced.
+Hosted qualification, rather than local parsing, must establish execution.

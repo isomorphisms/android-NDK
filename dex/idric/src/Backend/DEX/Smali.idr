@@ -65,6 +65,8 @@ render_instruction (TextConstant destination value) =
   "const-string " ++ show destination ++ ", " ++ render_literal value
 render_instruction (CheckCast register target) =
   "check-cast " ++ show register ++ ", " ++ target.descriptor
+render_instruction (NewObject destination object_type) =
+  "new-instance " ++ show destination ++ ", " ++ show object_type
 render_instruction (IntegerBinary operation destination left right) =
   show operation ++ " " ++ show destination ++ ", " ++
   show left ++ ", " ++ show right

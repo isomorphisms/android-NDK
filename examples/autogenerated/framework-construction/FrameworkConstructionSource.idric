@@ -1,0 +1,27 @@
+module FrameworkConstructionSource
+
+import Data.Text
+import IB.Android.ReaderText
+
+data ReaderContext : Type where [external]
+
+%foreign "dex:construct:Landroid/widget/TextView;:<init>:(Landroid/content/Context;)V"
+construct_text_view : ReaderContext → PrimIO ReaderTextView
+
+%export "dex:create_reader_view"
+create_reader_view : ReaderContext → Text → IO ReaderTextView
+create_reader_view context text = do
+  view ← primIO (construct_text_view context)
+  present_reader_text view text
+  pure view
+
+%export "dex:reader_text"
+reader_text : ReaderTextView → Text → IO ()
+reader_text = present_reader_text
+
+%export "dex:read_reader_text"
+read_reader_text : ReaderTextView → IO Text
+read_reader_text = observed_reader_text
+
+main : IO ()
+main = pure ()

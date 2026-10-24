@@ -597,6 +597,10 @@ lower_foreign_call destination destination_type name arguments state =
               (foreign_target_arguments foreign)
               ordinary state
           case foreign.operation of
+            MethodInvocation InvokeDirect method => Right
+              (emit (InvokeMethod (Invoke InvokeDirect method
+                       (destination :: registers) Nothing))
+                (emit (NewObject destination method.owner) state))
             MethodInvocation kind method => Right
               (emit (InvokeMethod (Invoke kind method registers
                 (if result_type == VoidValue then Nothing else Just destination))) state)

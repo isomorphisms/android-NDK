@@ -279,6 +279,7 @@ data Instruction
   | NullReference Register
   | TextConstant Register String
   | CheckCast Register TypeReference
+  | NewObject Register TypeReference
   | IntegerBinary IntegerBinaryOperation Register Register Register
   | TextEqual Register Register Register
   | InvokeMethod InvocationPlan
@@ -313,6 +314,8 @@ Show Instruction where
     "const-string " ++ show destination ++ ", " ++ show value
   show (CheckCast register target) =
     "check-cast " ++ show register ++ ", " ++ show target
+  show (NewObject destination object_type) =
+    "new-instance " ++ show destination ++ ", " ++ show object_type
   show (IntegerBinary operation destination left right) =
     show operation ++ " " ++ show destination ++ ", " ++
     show left ++ ", " ++ show right
@@ -412,6 +415,6 @@ public export
 render_file_plan : FilePlan -> String
 render_file_plan plan =
   "class " ++ plan.class_descriptor ++ "\n" ++
-  "super " ++ plan.superclass.descriptor ++ "\n" ++
+  "extends " ++ show plan.superclass ++ "\n" ++
   concat (map (\implemented => "implements " ++ show implemented ++ "\n") plan.interfaces) ++ "\n" ++
   concat (intersperse "\n" (map render_method_plan plan.methods))

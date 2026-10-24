@@ -101,6 +101,13 @@ cases =
        ["activity create_view receive_action", "activity create_view receive_action"]))
   , ("malformed-activity-refuses", refuses (with_interface_callbacks "LIdric/Generated;"
        [create_export, action_export] ["activity create_view"]))
+  , ("mixed-parent-declarations-refuse", refuses (with_interface_callbacks "LIdric/Generated;"
+       [create_export, action_export]
+       ["activity create_view receive_action", "extends Landroid/app/Activity;"]))
+  , ("mixed-lifecycle-declarations-refuse", refuses (with_interface_callbacks "LIdric/Generated;"
+       [create_export, action_export]
+       ["activity create_view receive_action", "extends Landroid/app/Activity;",
+        "override onCreate (Landroid/os/Bundle;)V create_view"]))
   , ("check-cast-uses-type-index-and-reference-register",
        encode_instructions_with_types [] ["Landroid/widget/TextView;"] []
          [CheckCast (MkRegister 3) (MkTypeReference "Landroid/widget/TextView;")]

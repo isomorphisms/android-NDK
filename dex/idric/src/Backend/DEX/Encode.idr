@@ -120,6 +120,10 @@ instruction_width (CheckCast register _) =
   if register.number >= 0 && register.number <= 255
     then Right 2
     else Left "DEX check-cast requires register v0..v255"
+instruction_width (NewObject destination _) =
+  if valid_register 255 destination
+    then Right 2
+    else Left "DEX new-instance requires a destination in v0..v255"
 instruction_width (TextConstant destination value) =
   if valid_register 255 destination
     then Right 2
@@ -289,6 +293,13 @@ encode_instruction strings descriptors method_ids labels address instruction@(Ch
   index <- lookup_index "check-cast type" target.descriptor descriptors
   if index > 65535 then Left "DEX check-cast type index exceeds 65535"
     else Right (u16le (0x1f + cast register.number * 256) ++ u16le (cast index))
+encode_instruction strings descriptors method_ids labels address
+  instruction@(NewObject destination object_type) = do
+  _ <- instruction_width instruction
+  type_index <- lookup_index "new-instance type" object_type.descriptor descriptors
+  if type_index > 65535
+    then Left "DEX new-instance type index exceeds 16 bits"
+    else Right (u16le (0x22 + cast destination.number * 256) ++ u16le (cast type_index))
 encode_instruction strings descriptors method_ids labels address
   instruction@(IntegerConstant destination value) = do
   width <- instruction_width instruction
@@ -642,6 +653,7 @@ prototype_descriptors prototype =
 private
 instruction_type_descriptors : Instruction -> List String
 instruction_type_descriptors (CheckCast register target) = [target.descriptor]
+instruction_type_descriptors (NewObject _ object_type) = [object_type.descriptor]
 instruction_type_descriptors _ = []
 
 private

@@ -118,8 +118,11 @@ validate_reference_descriptor descriptor =
     _ => Left ("Invalid DEX reference descriptor `" ++ descriptor ++ "`")
 
 private
-validate_foreign_method_name : String -> Either String ()
-validate_foreign_method_name name =
+validate_foreign_method_name : InvokeKind -> String -> Either String ()
+validate_foreign_method_name InvokeDirect "<init>" = Right ()
+validate_foreign_method_name InvokeDirect name =
+  Left "DEX construction requires the <init> method"
+validate_foreign_method_name kind name =
   if name == "<init>" || name == "<clinit>"
     then Left "DEX static/virtual/interface foreign calls cannot name a constructor or class initializer"
     else if not (null (unpack name)) && all supported_name_character (unpack name)
@@ -184,6 +187,7 @@ parse_invoke_kind : String -> Either String InvokeKind
 parse_invoke_kind "static" = Right InvokeStatic
 parse_invoke_kind "virtual" = Right InvokeVirtual
 parse_invoke_kind "interface" = Right InvokeInterface
+parse_invoke_kind "construct" = Right InvokeDirect
 parse_invoke_kind other =
   Left ("Unsupported dex foreign invocation kind " ++ show other)
 
@@ -201,7 +205,7 @@ parse_fields chars = do
       (split_once ':' after_owner)
   kind <- parse_invoke_kind (pack kind_chars)
   validate_reference_descriptor (pack owner_chars)
-  validate_foreign_method_name (pack name_chars)
+  validate_foreign_method_name kind (pack name_chars)
   Right
     ( kind
     , MkTypeReference (pack owner_chars)
@@ -264,14 +268,32 @@ target_argument_types InvokeSuper method =
 public export
 foreign_target_arguments : DEXForeign -> List FrameworkValueType
 foreign_target_arguments foreign = case foreign.operation of
+  MethodInvocation InvokeDirect method => method.argument_types
   MethodInvocation kind method => target_argument_types kind method
   CheckedReferenceCast source target => [reference_type (unpack source.descriptor)]
 
 public export
 foreign_target_result : DEXForeign -> FrameworkValueType
 foreign_target_result foreign = case foreign.operation of
+  MethodInvocation InvokeDirect method => ReferenceValue method.owner
   MethodInvocation kind method => method.result
   CheckedReferenceCast source target => reference_type (unpack target.descriptor)
+
+||| Compatibility views for constructor consumers; casts and calls retain one
+||| tagged representation rather than a second compiler or nullable method.
+public export
+construction : DEXForeign -> Maybe TypeReference
+construction foreign = case foreign.operation of
+  MethodInvocation InvokeDirect method => Just method.owner
+  _ => Nothing
+
+public export
+foreign_argument_types : DEXForeign -> List FrameworkValueType
+foreign_argument_types = foreign_target_arguments
+
+public export
+foreign_result_type : DEXForeign -> FrameworkValueType
+foreign_result_type = foreign_target_result
 
 public export
 describe_foreign : DEXForeign -> String
@@ -294,15 +316,21 @@ validate_signature :
 validate_signature kind method source_arguments source_result = do
   (effect, ordinary_arguments, ordinary_result) <-
     normalise_signature source_arguments source_result
-  let expected_arguments = target_argument_types kind method
+  let expected_arguments = if kind == InvokeDirect then method.argument_types
+                             else target_argument_types kind method
   if signatures_match ordinary_arguments expected_arguments
     then Right ()
     else
       Left
         ("dex foreign argument types do not match " ++ show method)
-  if (case (ordinary_result, method.result) of
+  if kind == InvokeDirect && (method.result /= VoidValue || effect /= PrimitiveIOForeign)
+    then Left "DEX construction requires PrimIO and a void JVM constructor result"
+    else Right ()
+  let expected_result = if kind == InvokeDirect then ReferenceValue method.owner
+                          else method.result
+  if (case (ordinary_result, expected_result) of
         (CFString, ReferenceValue _) => False
-        _ => source_matches_target ordinary_result method.result)
+        _ => source_matches_target ordinary_result expected_result)
     then Right effect
     else
       Left
@@ -311,6 +339,9 @@ validate_signature kind method source_arguments source_result = do
 ||| Parse and type-check one backend-specific calling convention:
 |||
 ||| dex:<static|virtual|interface>:<owner-descriptor>:<name>:<method-descriptor>
+|||
+||| dex:construct:<owner-descriptor>:<init>:(<arguments>)V allocates its own
+||| receiver and requires an opaque owner result through PrimIO.
 |||
 ||| Example:
 ||| dex:static:Landroid/os/Binder;:getCallingUid:()I
