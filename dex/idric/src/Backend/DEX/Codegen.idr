@@ -409,7 +409,9 @@ managed_plan program_name native [entry] reachable definitions = do
   (checked, arity) <- maybe (Left "Managed DEX entry has no checked body") Right (lookup entry.internal_name abis)
   if arity /= 1 then Left "Managed IO entry must retain exactly its checked World argument" else Right ()
   let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
-  let all_methods = methods ++ [heap_apply abis, heap_match_failure, heap_entry entry.method_name checked] ++ native_methods
+  let all_methods = methods ++ [heap_apply abis, heap_match_failure,
+        heap_exact_number False, heap_exact_number True, heap_character,
+        heap_entry entry.method_name checked] ++ native_methods
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed JNI/generated method name collision: " ++ name)
     Nothing => Right ()

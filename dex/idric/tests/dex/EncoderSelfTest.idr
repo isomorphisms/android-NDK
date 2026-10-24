@@ -187,4 +187,13 @@ main = do
     (encode_instructions [] [] [Goto (MkLabel 12)])
   expect_left "duplicate goto label is forbidden"
     (encode_instructions [] [] [Mark destination, Mark destination])
+  thrown <- encoded_stream "throw reference format 11x" [ThrowObject (MkRegister 2)]
+  expect_equal "throw opcode and register" [0x27, 0x02] thrown
+  expect_left "throw rejects raw byte-register overflow"
+    (encode_instructions [] [] [ThrowObject (MkRegister 256)])
+  case encode_dex (single_method_file
+    (MkMethodPlan "high throw" "throwHigh" 0 [] VoidValue 512
+      [NullReference (MkRegister 511), ThrowObject (MkRegister 511)])) of
+      Left explanation => fail ("high-register throw staging: " ++ explanation)
+      Right bytes => expect_equal "high-register throw DEX" [100, 101, 120, 10] (take 4 bytes)
   putStrLn "PASS: DEX encoder self-test"

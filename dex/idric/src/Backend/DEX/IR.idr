@@ -350,6 +350,7 @@ data Instruction
   | ReturnInteger Register
   | ReturnObject Register
   | ReturnWide Register
+  | ThrowObject Register
   | ReturnVoid
 
 private
@@ -411,6 +412,7 @@ Show Instruction where
   show (ReturnInteger register) = "return " ++ show register
   show (ReturnObject register) = "return-object " ++ show register
   show (ReturnWide register) = "return-wide " ++ show register
+  show (ThrowObject register) = "throw " ++ show register
   show ReturnVoid = "return-void"
 
 ||| Instance receivers belong to the platform ABI, never to the checked

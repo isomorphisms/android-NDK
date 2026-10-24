@@ -189,6 +189,10 @@ instruction_width (ReturnWide register) =
     then Right 1
     else Left "DEX return-wide requires a pair beginning in v0..v255"
 instruction_width ReturnVoid = Right 1
+instruction_width (ThrowObject register) =
+  if valid_register 255 register
+    then Right 1
+    else Left "DEX throw requires a reference in v0..v255"
 
 private
 find_label : Label -> List (Label, Int) -> Either String Int
@@ -464,6 +468,11 @@ encode_instruction strings descriptors method_ids field_ids labels address
   Right (u16le (0x10 + cast register.number * 256))
 encode_instruction strings descriptors method_ids field_ids labels address ReturnVoid =
   Right (u16le 0x0e)
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(ThrowObject register) = do
+  _ <- instruction_width instruction
+  -- DEX format 11x: opcode 0x27 followed by the reference-register byte.
+  Right (u16le (0x27 + cast register.number * 256))
 
 private
 encode_instruction_stream :

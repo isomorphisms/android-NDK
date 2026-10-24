@@ -88,6 +88,7 @@ instruction_registers (Goto32 _) = Right []
 instruction_registers (Mark _) = Right []
 instruction_registers (ReturnInteger register) = Right [register]
 instruction_registers (ReturnObject register) = Right [register]
+instruction_registers (ThrowObject register) = Right [register]
 instruction_registers (ReturnWide register) = Right [register, next_register register]
 instruction_registers ReturnVoid = Right []
 
@@ -138,6 +139,7 @@ instruction_staging (InvokeMethod invocation) = call_staging invocation
 instruction_staging (TextEqual destination left right) =
   call_staging (text_call destination left right)
 instruction_staging (CheckCast register _) = Right (register.number > 255, 0)
+instruction_staging (ThrowObject register) = Right (register.number > 255, 0)
 instruction_staging (NewObject destination _) = Right (destination.number > 255, 0)
 instruction_staging (ArrayLength destination array) =
   Right (destination.number > 15 || array.number > 15, 0)
@@ -356,6 +358,11 @@ place_instruction scratch_start (ReturnWide register) =
   if low_byte_register target
     then Right [ReturnWide target]
     else Right [MoveWide scratch_zero target, ReturnWide scratch_zero]
+place_instruction scratch_start (ThrowObject register) =
+  let target = shift_register register in
+  if target.number <= 255
+    then Right [ThrowObject target]
+    else Right [MoveObject scratch_zero target, ThrowObject scratch_zero]
 place_instruction scratch_start ReturnVoid = Right [ReturnVoid]
 
 private

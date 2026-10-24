@@ -52,3 +52,18 @@ functions, strings, finite-width casts, output, exit and native transport.
 
 Host generation, independently decoded DEX, ART execution, HTTP/TLS behavior,
 packaging and each physical device remain separate acceptance results.
+
+API review found that BigInteger.intValueExact/longValueExact require API 31,
+while the emulator lane uses API 29. The runtime now checks signed bit lengths
+before the API 1 narrowing conversions and throws ArithmeticException on loss.
+The independent observer covers both signed minima/maxima and both overflow
+directions at 32 and 64 bits; the host gate refuses API 31 exact-conversion
+references. Android reference: https://developer.android.com/reference/java/math/BigInteger#longValueExact().
+
+The next unchanged-ICU compile exposed the required numeric-to-Char primitive
+in Network.HTTP.ascii_lower. Its implementation now follows the pinned checked
+frontend's Unicode scalar contract: valid scalars retain their value; negative,
+surrogate and out-of-range values map to NUL. CharacterCasts checks those bounds.
+The pinned frontend rejects both prefix `−1` and binary `0 − 1`, with nonzero
+process status. The fixture uses descriptive `negate 1`; both failed source
+forms remain in initial/. No frontend syntax change is claimed.

@@ -12,6 +12,7 @@ mkdir -p "$evidence"
 "$adb" -s "$serial" push "$input/arguments.dex" /data/local/tmp/idric-checked-arguments/candidate.dex
 "$adb" -s "$serial" push "$input/mutant/arguments.dex" /data/local/tmp/idric-checked-arguments/mutant.dex
 "$adb" -s "$serial" push "$input/index-observer.dex" /data/local/tmp/idric-checked-arguments/index-observer.dex
+"$adb" -s "$serial" push "$input/characters.dex" /data/local/tmp/idric-checked-arguments/characters.dex
 timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/candidate.dex app_process /system/bin Idric.Generated' > "$evidence/zero.actual" 2> "$evidence/zero.stderr"
 printf '%s\n' arg:arguments > "$evidence/zero.expected"
 cmp "$evidence/zero.expected" "$evidence/zero.actual"
@@ -26,6 +27,9 @@ if cmp -s "$evidence/one.expected" "$evidence/mutant.actual" { echo 'FAIL checke
 rg -x 'wrong:first' "$evidence/mutant.actual"
 timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/candidate.dex:/data/local/tmp/idric-checked-arguments/index-observer.dex app_process /system/bin acceptance.ArgumentIndexObserver' > "$evidence/index-refusals.txt" 2>&1
 rg -x 'PASS checked argument index refusals' "$evidence/index-refusals.txt"
+timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/characters.dex app_process /system/bin Idric.Generated' > "$evidence/characters.actual" 2> "$evidence/characters.stderr"
+printf '%s\n' 0 0 55295 0 0 57344 1114111 0 0 > "$evidence/characters.expected"
+cmp "$evidence/characters.expected" "$evidence/characters.actual"
 "$adb" -s "$serial" pull /data/local/tmp/idric-checked-arguments/candidate.dex "$evidence/received.dex"
 cmp "$input/arguments.dex" "$evidence/received.dex"
 sha256sum "$input/arguments.dex" "$input/mutant/arguments.dex" > "$evidence/artifacts.sha256"

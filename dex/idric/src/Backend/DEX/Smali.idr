@@ -141,6 +141,7 @@ render_instruction (Mark label) = show label
 render_instruction (ReturnInteger register) = "return " ++ show register
 render_instruction (ReturnObject register) = "return-object " ++ show register
 render_instruction (ReturnWide register) = "return-wide " ++ show register
+render_instruction (ThrowObject register) = "throw " ++ show register
 render_instruction ReturnVoid = "return-void"
 
 private

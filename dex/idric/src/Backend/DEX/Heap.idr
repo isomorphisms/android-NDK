@@ -94,11 +94,7 @@ box_int destination source =
 private
 unbox_int : Register -> Register -> List Instruction
 unbox_int destination source =
-  [ MoveObject (register 4) source
-  , CheckCast (register 4) number_type
-  , call InvokeVirtual number_type "intValueExact" [] integer_value
-      [register 4] (Just destination)
-  ]
+  [call InvokeStatic generated_type "__idricIntExact" [object_value] integer_value [source] (Just destination)]
 
 private
 node_get : Register -> Register -> Int -> List Instruction
@@ -246,12 +242,13 @@ primitive destination (Cast from StringType) [value] state =
   else if from == IntegerType || isJust (integer_width from)
     then Right (emit [call InvokeVirtual (MkTypeReference "Ljava/lang/Object;") "toString" [] text_value [value] (Just destination)] state)
     else Left ("Managed DEX unsupported text cast from " ++ show from)
+primitive destination (Cast from CharType) [value] state =
+  if from == IntegerType || from == CharType || isJust (integer_width from)
+    then Right (emit [call InvokeStatic generated_type "__idricChar" [object_value] object_value [value] (Just destination)] state)
+    else Left ("Managed DEX unsupported Char cast from " ++ show from)
 primitive destination (Cast from to) [value] state = do
   if from == IntegerType || from == CharType || isJust (integer_width from)
     then Right () else Left ("Managed DEX unsupported numeric cast from " ++ show from)
-  if to == CharType && from /= CharType
-    then Left "Managed DEX numeric-to-Char conversion is not qualified"
-    else Right ()
   restored <- restore_width destination to
   Right (emit ([MoveObject destination value, CheckCast destination number_type] ++ restored) state)
 primitive destination operation [left, right] state =
@@ -538,8 +535,7 @@ heap_foreign method (Make_Administrative_Normal_Form_Foreign_Function convention
     else if elem "C:idris2_getArg, libidris2_support, idris_support.h" conventions &&
             cf_arguments_equal arguments [CFInt, CFWorld] && cf_equal result (CFIORes CFString)
       then Right
-        [MoveObject (register 4) (parameter 0), CheckCast (register 4) number_type
-        , call InvokeVirtual number_type "longValueExact" [] LongValue [register 4] (Just (register 2))
+        [call InvokeStatic generated_type "__idricLongExact" [object_value] LongValue [parameter 0] (Just (register 2))
         , call InvokeStatic generated_type "__idricArg" [LongValue] text_value [register 2] (Just (register 16))]
     else if elem "C:idris2_putStr, libidris2_support, idris_support.h" conventions &&
             cf_arguments_equal arguments [CFString, CFWorld] && cf_equal result (CFIORes CFUnit)
@@ -591,8 +587,7 @@ native_argument CFString (ExistingValue TextValue) source destination = Right
   [MoveObject destination source, CheckCast destination (MkTypeReference "Ljava/lang/String;")]
 native_argument CFInt (ExistingValue IntegerValue) source destination = Right (unbox_int destination source)
 native_argument CFInt LongValue source destination = Right
-  [MoveObject (register 4) source, CheckCast (register 4) number_type
-  , call InvokeVirtual number_type "longValueExact" [] LongValue [register 4] (Just destination)]
+  [call InvokeStatic generated_type "__idricLongExact" [object_value] LongValue [source] (Just destination)]
 native_argument source_type target_type source destination =
   Left ("Managed JNI argument cannot cross from " ++ show source_type ++ " to " ++ show target_type)
 
@@ -651,3 +646,47 @@ heap_native_loader property = MkBoundMethodPlan "explicit JNI library path prope
   , call InvokeStatic (MkTypeReference "Ljava/lang/System;") "load" [text_value]
       VoidValue [register 0] Nothing
   , ReturnVoid] ClassInitializerMethod
+
+-- BigInteger's *ValueExact methods are API 31. The supported ART lane is API
+-- 29: bitLength plus the API 1 conversions preserves the same signed bounds.
+-- bitLength excludes the sign bit, including for the minimum negative value.
+public export
+heap_exact_number : Bool -> MethodPlan
+heap_exact_number wide = MkMethodPlan "checked signed managed integer narrowing"
+  (if wide then "__idricLongExact" else "__idricIntExact")
+  1 [object_value] (if wide then LongValue else integer_value) 6
+  [CheckCast (register 5) number_type
+  , call InvokeVirtual number_type "bitLength" [] integer_value [register 5] (Just (register 0))
+  , IntegerConstant (register 1) (if wide then 63 else 31)
+  , IntegerBranch LessEqualInteger (register 0) (register 1) (MkLabel 0)
+  , NewObject (register 2) (MkTypeReference "Ljava/lang/ArithmeticException;")
+  , TextConstant (register 3) "Idriç integer exceeds the signed platform boundary"
+  , call InvokeDirect (MkTypeReference "Ljava/lang/ArithmeticException;") "<init>" [text_value]
+      VoidValue [register 2, register 3] Nothing
+  , ThrowObject (register 2)
+  , Mark (MkLabel 0)
+  , call InvokeVirtual number_type (if wide then "longValue" else "intValue") []
+      (if wide then LongValue else integer_value) [register 5] (Just (register 0))
+  , if wide then ReturnWide (register 0) else ReturnInteger (register 0)]
+
+-- The pinned frontend maps invalid Unicode scalars to NUL. The surrogate
+-- interval and maximum scalar below come from that checked primitive contract.
+public export
+heap_character : MethodPlan
+heap_character = MkMethodPlan "checked numeric Unicode scalar conversion" "__idricChar"
+  1 [object_value] object_value 6
+  ([CheckCast (register 5) number_type
+   , call InvokeVirtual number_type "bitLength" [] integer_value [register 5] (Just (register 0))
+   , IntegerConstant (register 1) 21
+   , IntegerBranch GreaterThanInteger (register 0) (register 1) (MkLabel 1)
+   , call InvokeVirtual number_type "intValue" [] integer_value [register 5] (Just (register 0))
+   , IntegerConstant (register 1) 0
+   , IntegerBranch LessThanInteger (register 0) (register 1) (MkLabel 1)
+   , IntegerConstant (register 1) 0x10ffff
+   , IntegerBranch GreaterThanInteger (register 0) (register 1) (MkLabel 1)
+   , IntegerConstant (register 1) 0xd800
+   , IntegerBranch LessThanInteger (register 0) (register 1) (MkLabel 0)
+   , IntegerConstant (register 1) 0xdfff
+   , IntegerBranch LessEqualInteger (register 0) (register 1) (MkLabel 1)
+   , Mark (MkLabel 0), ReturnObject (register 5), Mark (MkLabel 1)
+   ] ++ number_literal (register 2) "0" ++ [ReturnObject (register 2)])
