@@ -50,13 +50,13 @@ proc make_equivalent_root(root, order, native_mode, stamp) {
   }
   if (native_mode === '0644') {
     chmod 0700 "$root/res/values" "$root/assets/nested"
-    chmod 0600 "$root/res/values/"*.xml "$root/assets/a.txt" "$root/assets/nested/z.txt"
+    chmod 0600 "$root/res/values/a.xml" "$root/res/values/z.xml" "$root/assets/a.txt" "$root/assets/nested/z.txt"
   } else {
     chmod 0755 "$root/res" "$root/res/values" "$root/assets" "$root/assets/nested"
-    chmod 0644 "$root/res/values/"*.xml "$root/assets/a.txt" "$root/assets/nested/z.txt"
+    chmod 0644 "$root/res/values/a.xml" "$root/res/values/z.xml" "$root/assets/a.txt" "$root/assets/nested/z.txt"
   }
   touch -d "$stamp" "$root/input/AndroidManifest.xml" "$root/input/$native_name"
-  find "$root/res" "$root/assets" -exec touch -d "$stamp" {} +
+  find "$root/res" "$root/assets" -exec touch -d "$stamp" '{}' +
 }
 proc run_package(selected_packager, root, timezone, attempt, destination) {
   var dex_file = ''

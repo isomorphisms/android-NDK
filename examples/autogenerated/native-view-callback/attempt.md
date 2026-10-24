@@ -44,6 +44,9 @@ Run `40144448250` then exposed Grease's refusal of a multi-status pipeline as
 a command conditional. The source-revision check now validates one recorded
 line with one command status; embedded newlines and wrong-length revisions
 remain refusals.
+Run `40144673293` reached fixture construction and rejected a partially quoted
+shell glob. The two declared resource fixture paths are now explicit, retaining
+both order/mode variations without depending on Bash word expansion.
 
 Status: HOST_PASS; ART class load and real View click callbacks verified on API29.
 
