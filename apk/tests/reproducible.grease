@@ -8,11 +8,13 @@ var script_directory = $(dirname "$0")
 var directory = $(realpath "$script_directory")
 var packager = $(realpath "$directory/../build-nativeactivity-apk.sh")
 var verifier = $(realpath "$directory/../verify-nativeactivity-receipt.grease")
-var grease = ENV.get('ANDROID_GREASE', '')
-var dex_input = ENV.get('ANDROID_TEST_DEX_FILE', '')
+var grease = get(ENV, 'ANDROID_GREASE')
+var dex_input = get(ENV, 'ANDROID_TEST_DEX_FILE')
+if (dex_input === null) { setvar dex_input = '' }
 var native_name = $(basename -- "$native")
 var epoch = '1710200000'
-var source_revision = ENV.get('GITHUB_SHA', '0000000000000000000000000000000000000000')
+var source_revision = get(ENV, 'GITHUB_SHA')
+if (source_revision === null) { setvar source_revision = '0000000000000000000000000000000000000000' }
 proc fail(message) { echo "android-NDK reproducibility qualification failed: $message" >&2; exit 1 }
 test -x "$grease"
 if ! printf '%s\n' "$source_revision" | rg -q '^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$' { fail 'qualification source revision is not exact' }

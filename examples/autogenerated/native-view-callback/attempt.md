@@ -36,6 +36,10 @@ run `40143719761` rejected the inherited string-form EXIT trap, and run
 status would be hidden. The correction uses the pinned source's block-form
 `trap --add EXIT` and assigns command results before comparisons. These are
 Grease runtime failures, not passing package or compiler evidence.
+Run `40144236422` subsequently passed real receipt verification, then exposed
+the pinned environment object's lack of an `.get` method. The qualifier now
+uses that source pin's documented `get(ENV, key)` operation and explicit null
+defaults. This failed qualifier attempt remains distinct from acceptance.
 
 Status: HOST_PASS; ART class load and real View click callbacks verified on API29.
 
