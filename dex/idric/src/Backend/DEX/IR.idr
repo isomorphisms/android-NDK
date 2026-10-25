@@ -41,6 +41,7 @@ data ValueType
   | TextValue
   | BooleanValue
   | ObjectValue
+  | ByteValue | ShortValue | CharacterValue | FloatValue | DoubleValue
 
 public export
 Eq ValueType where
@@ -48,6 +49,11 @@ Eq ValueType where
   TextValue == TextValue = True
   BooleanValue == BooleanValue = True
   ObjectValue == ObjectValue = True
+  ByteValue == ByteValue = True
+  ShortValue == ShortValue = True
+  CharacterValue == CharacterValue = True
+  FloatValue == FloatValue = True
+  DoubleValue == DoubleValue = True
   _ == _ = False
 
 public export
@@ -56,6 +62,11 @@ Show ValueType where
   show TextValue = "Text"
   show BooleanValue = "Boolean"
   show ObjectValue = "Object"
+  show ByteValue = "Byte"
+  show ShortValue = "Short"
+  show CharacterValue = "Char"
+  show FloatValue = "Float"
+  show DoubleValue = "Double"
 
 public export
 value_descriptor : ValueType -> String
@@ -63,6 +74,11 @@ value_descriptor IntegerValue = "I"
 value_descriptor TextValue = "Ljava/lang/String;"
 value_descriptor BooleanValue = "Z"
 value_descriptor ObjectValue = "Ljava/lang/Object;"
+value_descriptor ByteValue = "B"
+value_descriptor ShortValue = "S"
+value_descriptor CharacterValue = "C"
+value_descriptor FloatValue = "F"
+value_descriptor DoubleValue = "D"
 
 public export
 shorty_character : ValueType -> Char
@@ -70,6 +86,11 @@ shorty_character IntegerValue = 'I'
 shorty_character TextValue = 'L'
 shorty_character BooleanValue = 'Z'
 shorty_character ObjectValue = 'L'
+shorty_character ByteValue = 'B'
+shorty_character ShortValue = 'S'
+shorty_character CharacterValue = 'C'
+shorty_character FloatValue = 'F'
+shorty_character DoubleValue = 'D'
 
 ||| A validated DEX reference descriptor such as Landroid/os/IBinder;.
 ||| Validation still belongs to the encoder boundary.
@@ -126,6 +147,7 @@ public export
 register_width : FrameworkValueType -> Maybe RegisterWidth
 register_width VoidValue = Nothing
 register_width LongValue = Just RegisterPair
+register_width (ExistingValue DoubleValue) = Just RegisterPair
 register_width _ = Just SingleRegister
 
 public export
@@ -152,6 +174,9 @@ parameter_register_words (VoidValue :: rest) =
 parameter_register_words (LongValue :: rest) = do
   count <- parameter_register_words rest
   Right (2 + count)
+parameter_register_words (ExistingValue DoubleValue :: rest) = do
+  count <- parameter_register_words rest
+  Right (2 + count)
 parameter_register_words (_ :: rest) = do
   count <- parameter_register_words rest
   Right (1 + count)
@@ -163,6 +188,33 @@ parameter_descriptors (value :: rest) =
   framework_descriptor value ++ parameter_descriptors rest
 
 ||| A concrete external DEX method reference.
+||| Typed DEX field reference; field identifiers are separate from methods.
+public export
+record FieldReference where
+  constructor MkFieldReference
+  owner : TypeReference
+  name : String
+  value_type : FrameworkValueType
+
+public export
+Eq FieldReference where
+  left == right =
+    left.owner == right.owner && left.name == right.name &&
+    left.value_type == right.value_type
+
+public export
+Show FieldReference where
+  show field = field.owner.descriptor ++ "->" ++ field.name ++ ":" ++
+    framework_descriptor field.value_type
+
+||| ART initializes unassigned static reference fields to null.
+public export
+record StaticFieldPlan where
+  constructor MkStaticFieldPlan
+  name : String
+  value_type : FrameworkValueType
+  access_flags : Integer
+
 public export
 record MethodReference where
   constructor MkMethodReference
@@ -276,10 +328,17 @@ data Instruction
   | MoveWide Register Register
   | MoveObject Register Register
   | IntegerConstant Register Int
+  | ArrayLength Register Register
+  | ArrayGetObject Register Register Register
+  | IntToLong Register Register
+  | LongConstant Register Int
+  | AddLong Register Register Register
+  | StaticGetObject Register FieldReference
+  | StaticPutObject Register FieldReference
   | NullReference Register
   | TextConstant Register String
-  | CheckCast Register TypeReference
   | NewObject Register TypeReference
+  | CheckCast Register TypeReference
   | IntegerBinary IntegerBinaryOperation Register Register Register
   | TextEqual Register Register Register
   | InvokeMethod InvocationPlan
@@ -291,6 +350,7 @@ data Instruction
   | ReturnInteger Register
   | ReturnObject Register
   | ReturnWide Register
+  | ThrowObject Register
   | ReturnVoid
 
 private
@@ -309,13 +369,27 @@ Show Instruction where
     "move-object " ++ show destination ++ ", " ++ show source
   show (IntegerConstant destination value) =
     "const " ++ show destination ++ ", " ++ show value
+  show (ArrayLength destination array) =
+    "array-length " ++ show destination ++ ", " ++ show array
+  show (ArrayGetObject destination array index) =
+    "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
+  show (IntToLong destination source) =
+    "int-to-long " ++ show destination ++ ", " ++ show source
+  show (LongConstant destination value) =
+    "const-wide/16 " ++ show destination ++ ", " ++ show value
+  show (AddLong destination left right) =
+    "add-long " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
+  show (StaticGetObject destination field) =
+    "sget-object " ++ show destination ++ ", " ++ show field
+  show (StaticPutObject source field) =
+    "sput-object " ++ show source ++ ", " ++ show field
   show (NullReference destination) = "const-null " ++ show destination
   show (TextConstant destination value) =
     "const-string " ++ show destination ++ ", " ++ show value
-  show (CheckCast register target) =
-    "check-cast " ++ show register ++ ", " ++ show target
   show (NewObject destination object_type) =
     "new-instance " ++ show destination ++ ", " ++ show object_type
+  show (CheckCast register target) =
+    "check-cast " ++ show register ++ ", " ++ show target
   show (IntegerBinary operation destination left right) =
     show operation ++ " " ++ show destination ++ ", " ++
     show left ++ ", " ++ show right
@@ -338,18 +412,25 @@ Show Instruction where
   show (ReturnInteger register) = "return " ++ show register
   show (ReturnObject register) = "return-object " ++ show register
   show (ReturnWide register) = "return-wide " ++ show register
+  show (ThrowObject register) = "throw " ++ show register
   show ReturnVoid = "return-void"
 
 ||| Instance receivers belong to the platform ABI, never to the checked
 ||| static export's declared parameter list.
 public export
 data MethodMode = StaticMethod | InstanceMethod | ConstructorMethod
+                | ClassInitializerMethod | NativeStaticMethod | NativeInstanceMethod
+                | ProtectedInstanceMethod
 
 public export
 Eq MethodMode where
   StaticMethod == StaticMethod = True
   InstanceMethod == InstanceMethod = True
   ConstructorMethod == ConstructorMethod = True
+  ClassInitializerMethod == ClassInitializerMethod = True
+  NativeStaticMethod == NativeStaticMethod = True
+  NativeInstanceMethod == NativeInstanceMethod = True
+  ProtectedInstanceMethod == ProtectedInstanceMethod = True
   _ == _ = False
 
 public export
@@ -357,6 +438,23 @@ method_access_flags : MethodMode -> Integer
 method_access_flags StaticMethod = 9
 method_access_flags InstanceMethod = 1
 method_access_flags ConstructorMethod = 0x10001
+method_access_flags ClassInitializerMethod = 0x10008
+method_access_flags NativeStaticMethod = 0x109
+method_access_flags NativeInstanceMethod = 0x101
+method_access_flags ProtectedInstanceMethod = 4
+
+public export
+native_method : MethodMode -> Bool
+native_method NativeStaticMethod = True
+native_method NativeInstanceMethod = True
+native_method _ = False
+
+public export
+virtual_method : MethodMode -> Bool
+virtual_method InstanceMethod = True
+virtual_method NativeInstanceMethod = True
+virtual_method ProtectedInstanceMethod = True
+virtual_method _ = False
 
 ||| One checked Idriç export or mechanical platform bridge after placement.
 public export
@@ -382,6 +480,8 @@ public export
 incoming_parameter_types : MethodPlan -> List FrameworkValueType
 incoming_parameter_types method = case method.mode of
   StaticMethod => method.parameter_types
+  ClassInitializerMethod => method.parameter_types
+  NativeStaticMethod => method.parameter_types
   _ => ExistingValue ObjectValue :: method.parameter_types
 
 public export
@@ -400,11 +500,25 @@ render_method_plan method =
 ||| Android UI, resource, manifest, or packaging semantics.
 public export
 record FilePlan where
-  constructor MkClassFilePlan
+  constructor MkFieldClassFilePlan
   class_descriptor : String
   methods : List MethodPlan
+  fields : List StaticFieldPlan
   interfaces : List TypeReference
   superclass : TypeReference
+  access_flags : Integer
+
+||| Retain the fieldless constructor interface for existing consumers.
+public export
+MkFlaggedClassFilePlan : String -> List MethodPlan -> List TypeReference ->
+  TypeReference -> Integer -> FilePlan
+MkFlaggedClassFilePlan descriptor methods interfaces superclass flags =
+  MkFieldClassFilePlan descriptor methods [] interfaces superclass flags
+
+public export
+MkClassFilePlan : String -> List MethodPlan -> List TypeReference -> TypeReference -> FilePlan
+MkClassFilePlan name methods interfaces superclass =
+  MkFlaggedClassFilePlan name methods interfaces superclass 0x11
 
 public export
 MkFilePlan : String -> List MethodPlan -> FilePlan
@@ -415,6 +529,8 @@ public export
 render_file_plan : FilePlan -> String
 render_file_plan plan =
   "class " ++ plan.class_descriptor ++ "\n" ++
-  "extends " ++ show plan.superclass ++ "\n" ++
+  "super " ++ plan.superclass.descriptor ++ "\n" ++
+  concat (map (\field => "field " ++ field.name ++ ":" ++
+    framework_descriptor field.value_type ++ " flags=" ++ show field.access_flags ++ "\n") plan.fields) ++
   concat (map (\implemented => "implements " ++ show implemented ++ "\n") plan.interfaces) ++ "\n" ++
   concat (intersperse "\n" (map render_method_plan plan.methods))

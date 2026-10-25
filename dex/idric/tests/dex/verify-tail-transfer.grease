@@ -1,0 +1,84 @@
+#!/usr/bin/env grease
+# Compile the actual copied production lowerer, never a rewritten oracle.
+if (len(ARGV) !== 3) {
+  echo 'usage: verify-tail-transfer.grease REPOSITORY IDRIC_REPOSITORY NEW_EVIDENCE'
+  exit 2
+}
+var repository = ARGV[0]
+var frontend = ARGV[1]
+var evidence = ARGV[2]
+for path in "$repository" "$frontend" "$evidence" {
+  if (len(path) === 0 or path[0] !== '/') { echo 'absolute path required'; exit 2 }
+}
+if test -e "$evidence" { echo 'refusing reused tail-transfer evidence'; exit 1 }
+var compiler = "$frontend/_/build/exec/idris2"
+var support = "$frontend/_/build/exec/idris2_app"
+setglobal ENV.IDRIS2_PREFIX = "$frontend/_/bootstrap-build"
+setglobal ENV.IDRIS2_PACKAGE_PATH = "$frontend/_/bootstrap-build/idris2-0.8.0"
+setglobal ENV.IDRIS2_PATH = ''
+setglobal ENV.IDRIS2_DATA = "$frontend/_/support"
+setglobal ENV.IDRIS2_LIBS = support
+setglobal ENV.LD_LIBRARY_PATH = support
+setglobal ENV.CHEZ = "$frontend/_/.tools/bin/scheme"
+mkdir -p "$evidence"
+git -C "$repository" rev-parse HEAD > "$evidence/backend-head.txt"
+sha256sum "$repository/dex/idric/src/Backend/DEX/Heap.idr" \
+  "$repository/dex/idric/src/Backend/DEX/Placement.idr" \
+  "$repository/dex/idric/tests/dex/TailTransferTest.idr" > "$evidence/source-sha256.txt"
+for mode in original swap-mutant retention-mutant placement-mutant {
+  var output = "$evidence/$mode"
+  mkdir -p "$output"
+  cp -R "$repository/dex/idric/src" "$output/src"
+  cp "$repository/dex/idric/tests/dex/TailTransferTest.idr" "$output/src/TailTransferTest.idr"
+  var heap = "$output/src/Backend/DEX/Heap.idr"
+  var changed_source = heap
+  if (mode === 'swap-mutant') {
+    rg -q -F 'let assign = zipWith MoveObject context.common_parameters staged' "$heap"
+    sed 's/let assign = zipWith MoveObject context.common_parameters staged/let assign = zipWith MoveObject context.common_parameters inputs/' "$heap" > "$output/changed-heap.idr"
+    mv "$output/changed-heap.idr" "$heap"
+  }
+  if (mode === 'retention-mutant') {
+    rg -q -F 'save ++ assign ++ clear ++ release ++' "$heap"
+    sed 's/save ++ assign ++ clear ++ release ++/save ++ assign ++ clear ++/' "$heap" > "$output/changed-heap.idr"
+    mv "$output/changed-heap.idr" "$heap"
+  }
+  if (mode === 'placement-mutant') {
+    setvar changed_source = "$output/src/Backend/DEX/Placement.idr"
+    rg -q -F 'instructions := prologue ++ release_incoming ++ placed' "$changed_source"
+    sed 's/instructions := prologue ++ release_incoming ++ placed/instructions := prologue ++ placed/' "$changed_source" > "$output/changed-placement.idr"
+    mv "$output/changed-placement.idr" "$changed_source"
+  }
+  if (mode !== 'original') {
+    var canonical_source = "$repository/dex/idric/src/Backend/DEX/Heap.idr"
+    if (mode === 'placement-mutant') { setvar canonical_source = "$repository/dex/idric/src/Backend/DEX/Placement.idr" }
+    if cmp -s "$canonical_source" "$changed_source" {
+      echo "FAIL unchanged production mutation: $mode"; exit 1
+    }
+  }
+  printf '\033[36mACTION\033[0m compile %s actual production lowerer\n' "$mode"
+  "$compiler" --cg chez -p idris2 --source-dir "$output/src" \
+    --build-dir "$output/build" --output-dir "$output" \
+    "$output/src/TailTransferTest.idr" -o tail-transfer-check > "$output/compile.txt" 2>&1
+  try { rg -n '^[[:space:]]*(Error:|INTERNAL ERROR)' "$output/compile.txt" }
+  if (_error.code !== 1) { cat "$output/compile.txt"; exit 1 }
+  test -x "$output/tail-transfer-check"
+  cp "$support/libidris2_support.so" "$output/tail-transfer-check_app/"
+  try { "$output/tail-transfer-check" > "$output/run.txt" 2>&1 }
+  var status = _error.code
+  printf '%s\n' "$status" > "$output/status.txt"
+  if (mode === 'original') {
+    if (status !== 0) { cat "$output/run.txt"; exit 1 }
+    rg -q -x -F 'PASS actual tail plans preserve swaps, varying arities and reference liveness' "$output/run.txt"
+  } else {
+    if (status !== 1) { cat "$output/run.txt"; echo 'FAIL production mutation escaped execution'; exit 1 }
+    rg -q -F 'FAIL tail transfer:' "$output/run.txt"
+    if (mode === 'swap-mutant') { rg -q -F 'simultaneous parameter swap:' "$output/run.txt" }
+    if (mode === 'retention-mutant') { rg -q -F 'dead staging or member-local reference survived swap' "$output/run.txt" }
+    if (mode === 'placement-mutant') { rg -q -F 'placed incoming/outgoing aliases retained old references' "$output/run.txt" }
+  }
+  sha256sum "$changed_source" "$output/tail-transfer-check" > "$output/sha256.txt"
+  printf '%s\t%s\n' "$mode" "$status" >> "$evidence/status.tsv"
+  printf '\033[32mPASS\033[0m %s independent register-machine observation\n' "$mode"
+}
+echo 'PASS real tail lowering and three compiled production mutations' > "$evidence/result.txt"
+cat "$evidence/result.txt"

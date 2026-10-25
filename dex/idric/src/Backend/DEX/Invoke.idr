@@ -45,6 +45,11 @@ expand_argument register LongValue =
     then Right [register, high]
     else Left
       "DEX wide invocation argument exceeds a register pair in v0..v65535"
+expand_argument register (ExistingValue DoubleValue) =
+  let high = next_register register in
+  if valid_register 65534 register && valid_register 65535 high
+    then Right [register, high]
+    else Left "DEX double invocation argument exceeds a register pair"
 expand_argument register value =
   if valid_register 65535 register
     then Right [register]
@@ -129,6 +134,9 @@ validate_result_register LongValue (Just register) =
   if valid_register 65534 register
     then Right ()
     else Left "DEX long result exceeds a register pair in v0..v65535"
+validate_result_register (ExistingValue DoubleValue) (Just register) =
+  if valid_register 65534 register then Right ()
+    else Left "DEX double result exceeds a register pair"
 validate_result_register result (Just register) =
   if valid_register 65535 register
     then Right ()
@@ -159,6 +167,9 @@ move_result_width result Nothing = Right 0
 move_result_width LongValue (Just register) =
   if valid_register 255 register
     then Right 1
+    else Left "DEX move-result-wide requires a pair beginning in v0..v255"
+move_result_width (ExistingValue DoubleValue) (Just register) =
+  if valid_register 255 register then Right 1
     else Left "DEX move-result-wide requires a pair beginning in v0..v255"
 move_result_width (ReferenceValue reference) (Just register) =
   if valid_register 255 register
@@ -247,6 +258,10 @@ encode_move_result VoidValue (Just register) =
   Left "DEX void invocation cannot have a result register"
 encode_move_result result Nothing = Right []
 encode_move_result LongValue (Just register) =
+  if valid_register 255 register
+    then Right (u16le (0x0b + cast register.number * 256))
+    else Left "DEX move-result-wide requires a pair beginning in v0..v255"
+encode_move_result (ExistingValue DoubleValue) (Just register) =
   if valid_register 255 register
     then Right (u16le (0x0b + cast register.number * 256))
     else Left "DEX move-result-wide requires a pair beginning in v0..v255"

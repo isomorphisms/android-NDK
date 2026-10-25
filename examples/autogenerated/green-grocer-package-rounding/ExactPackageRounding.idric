@@ -1,0 +1,21 @@
+module ExactPackageRounding
+
+import Data.Nat
+
+%export "dex:packages"
+packages : Int32 → Int32
+packages grams_needed =
+  if grams_needed < 0
+    then -1
+    else cast (divNatNZ (the Number (cast grams_needed) + 299) 300 ItIsSucc)
+
+main : IO ()
+main = do
+  printLn (packages (-1))
+  printLn (packages 0)
+  printLn (packages 1)
+  printLn (packages 300)
+  printLn (packages 301)
+  printLn (packages 500)
+  printLn (packages 600)
+  printLn (packages 601)

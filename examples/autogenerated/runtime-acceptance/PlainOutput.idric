@@ -1,0 +1,5 @@
+module PlainOutput
+
+%export "dex:plain_output"
+main : IO ()
+main = putStrLn "plain-output-ok"

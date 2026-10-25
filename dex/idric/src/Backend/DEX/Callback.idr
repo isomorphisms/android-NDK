@@ -54,6 +54,17 @@ parse_callback directive = case words directive of
   _ => Left "Unsupported DEX directive; expected unquoted callback, activity, extends or override declaration"
 
 private
+explicit_parent : String -> Bool
+explicit_parent directive = words directive == ["extends", "Landroid/app/Activity;"]
+
+private
+explicit_override : String -> Maybe LifecycleOverride
+explicit_override directive = case words directive of
+  ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] =>
+    Just (DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export)
+  _ => Nothing
+
+private
 argument_registers : Int -> List FrameworkValueType -> List Register
 argument_registers start [] = []
 argument_registers start (value :: rest) =
@@ -150,14 +161,8 @@ select_activity_adapter class_descriptor methods [(create_name, action_name)] = 
 select_activity_adapter class_descriptor methods _ =
   Left "DEX class requires at most one Activity declaration"
 
-private
-lifecycle_declarations : List String -> List LifecycleOverride
-lifecycle_declarations [] = []
-lifecycle_declarations (directive :: rest) = case words directive of
-  ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] =>
-    DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export :: lifecycle_declarations rest
-  _ => lifecycle_declarations rest
-
+-- Preserve the separately qualified Material-screen declaration surface.
+-- This and the create/action shorthand use the same typed MethodPlan writer.
 private
 override_method : String -> TypeReference -> List MethodPlan -> LifecycleOverride ->
   Either String MethodPlan
@@ -196,20 +201,19 @@ with_interface_callbacks class_descriptor methods directives = do
   let callbacks = mapMaybe id parsed
   bridges <- traverse (bridge_method class_descriptor methods) callbacks
   let declarations = activity_declarations directives
-  let parents = filter (\directive => words directive == ["extends", "Landroid/app/Activity;"]) directives
+  let parents = filter explicit_parent directives
+  let overrides = mapMaybe explicit_override directives
   if length parents > 1 then Left "DEX class has repeated superclass declarations" else Right ()
-  let lifecycle = lifecycle_declarations directives
-  if not (null lifecycle) && null parents
+  if not (null overrides) && null parents
     then Left "DEX lifecycle override requires its Activity superclass"
     else Right ()
-  if not (null declarations) && (not (null parents) || not (null lifecycle))
-    then Left "DEX class cannot mix activity shorthand with extends/override declarations"
+  if not (null declarations) && (not (null parents) || not (null overrides))
+    then Left "DEX activity shorthand cannot be combined with explicit superclass/lifecycle declarations"
     else Right ()
-  (adapter_superclass, adapter_methods) <- select_activity_adapter class_descriptor methods declarations
-  let superclass = if null parents then adapter_superclass else MkTypeReference "Landroid/app/Activity;"
-  overrides <- traverse (override_method class_descriptor superclass methods) lifecycle
-  let needs_constructor = not (null callbacks) || not (null declarations) || not (null parents)
+  (selected_parent, lifecycle) <- select_activity_adapter class_descriptor methods declarations
+  let superclass = if null parents then selected_parent else MkTypeReference "Landroid/app/Activity;"
+  explicit_lifecycle <- traverse (override_method class_descriptor superclass methods) overrides
   let plan = MkFilePlan class_descriptor
-        (methods ++ (if needs_constructor then [platform_constructor superclass] else []) ++
-         bridges ++ adapter_methods ++ overrides)
+        (methods ++ if null callbacks && null declarations && null parents then []
+                    else platform_constructor superclass :: bridges ++ lifecycle ++ explicit_lifecycle)
   Right ({ interfaces := nub (map implemented_type callbacks), superclass := superclass } plan)

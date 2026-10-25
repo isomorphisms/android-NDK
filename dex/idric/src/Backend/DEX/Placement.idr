@@ -19,6 +19,7 @@ reference_type _ = False
 private
 typed_move : FrameworkValueType -> Register -> Register -> Instruction
 typed_move LongValue destination source = MoveWide destination source
+typed_move (ExistingValue DoubleValue) destination source = MoveWide destination source
 typed_move value destination source =
   if reference_type value
     then MoveObject destination source
@@ -27,6 +28,7 @@ typed_move value destination source =
 private
 value_words : FrameworkValueType -> Int
 value_words LongValue = 2
+value_words (ExistingValue DoubleValue) = 2
 value_words VoidValue = 0
 value_words _ = 1
 
@@ -47,6 +49,7 @@ result_registers invocation =
     Just register =>
       case invocation.method.result of
         LongValue => [register, next_register register]
+        ExistingValue DoubleValue => [register, next_register register]
         _ => [register]
 
 private
@@ -56,10 +59,21 @@ instruction_registers (MoveWide destination source) =
   Right [destination, next_register destination, source, next_register source]
 instruction_registers (MoveObject destination source) = Right [destination, source]
 instruction_registers (IntegerConstant destination _) = Right [destination]
+instruction_registers (ArrayLength destination array) = Right [destination, array]
+instruction_registers (ArrayGetObject destination array index) = Right [destination, array, index]
+instruction_registers (IntToLong destination source) =
+  Right [destination, next_register destination, source]
+instruction_registers (LongConstant destination value) =
+  Right [destination, next_register destination]
+instruction_registers (AddLong destination left right) =
+  Right [destination, next_register destination, left, next_register left,
+         right, next_register right]
+instruction_registers (StaticGetObject destination field) = Right [destination]
+instruction_registers (StaticPutObject source field) = Right [source]
 instruction_registers (NullReference destination) = Right [destination]
 instruction_registers (TextConstant destination _) = Right [destination]
-instruction_registers (CheckCast register _) = Right [register]
 instruction_registers (NewObject destination _) = Right [destination]
+instruction_registers (CheckCast register _) = Right [register]
 instruction_registers (IntegerBinary _ destination left right) =
   Right [destination, left, right]
 instruction_registers (TextEqual destination left right) =
@@ -74,6 +88,7 @@ instruction_registers (Goto32 _) = Right []
 instruction_registers (Mark _) = Right []
 instruction_registers (ReturnInteger register) = Right [register]
 instruction_registers (ReturnObject register) = Right [register]
+instruction_registers (ThrowObject register) = Right [register]
 instruction_registers (ReturnWide register) = Right [register, next_register register]
 instruction_registers ReturnVoid = Right []
 
@@ -83,6 +98,10 @@ validate_return VoidValue ReturnVoid = Right ()
 validate_return _ ReturnVoid = Left "DEX return-void requires a void method result"
 validate_return (ExistingValue IntegerValue) (ReturnInteger _) = Right ()
 validate_return (ExistingValue BooleanValue) (ReturnInteger _) = Right ()
+validate_return (ExistingValue ByteValue) (ReturnInteger _) = Right ()
+validate_return (ExistingValue ShortValue) (ReturnInteger _) = Right ()
+validate_return (ExistingValue CharacterValue) (ReturnInteger _) = Right ()
+validate_return (ExistingValue FloatValue) (ReturnInteger _) = Right ()
 validate_return _ (ReturnInteger _) =
   Left "DEX return requires an Int32 or Boolean method result"
 validate_return result (ReturnObject _) =
@@ -90,6 +109,7 @@ validate_return result (ReturnObject _) =
     then Right ()
     else Left "DEX return-object requires a reference method result"
 validate_return LongValue (ReturnWide _) = Right ()
+validate_return (ExistingValue DoubleValue) (ReturnWide _) = Right ()
 validate_return _ (ReturnWide _) = Left "DEX return-wide requires a long method result"
 validate_return _ _ = Right ()
 
@@ -119,7 +139,22 @@ instruction_staging (InvokeMethod invocation) = call_staging invocation
 instruction_staging (TextEqual destination left right) =
   call_staging (text_call destination left right)
 instruction_staging (CheckCast register _) = Right (register.number > 255, 0)
+instruction_staging (ThrowObject register) = Right (register.number > 255, 0)
 instruction_staging (NewObject destination _) = Right (destination.number > 255, 0)
+instruction_staging (ArrayLength destination array) =
+  Right (destination.number > 15 || array.number > 15, 0)
+instruction_staging (ArrayGetObject destination array index) =
+  Right (destination.number > 255 || array.number > 255 || index.number > 255, 0)
+instruction_staging (IntToLong destination source) =
+  Right (destination.number > 15 || source.number > 15, 0)
+instruction_staging (LongConstant destination value) =
+  Right (destination.number > 255, 0)
+instruction_staging (AddLong destination left right) =
+  Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
+instruction_staging (StaticGetObject destination field) =
+  Right (destination.number > 255, 0)
+instruction_staging (StaticPutObject source field) =
+  Right (source.number > 255, 0)
 instruction_staging _ = Right (False, 0)
 
 private
@@ -147,6 +182,22 @@ private
 low_byte_register : Register -> Bool
 low_byte_register register = register.number <= 255
 
+-- Placement owns these disjoint temporary slots. Drop only object/reference
+-- aliases after their destination has received the value; integer and wide
+-- words retain their opcode family. High slots use the reserved scratch v0.
+private
+clear_reference_slot : Int -> List Instruction
+clear_reference_slot slot =
+  if slot <= 255 then [NullReference (MkRegister slot)]
+    else [NullReference scratch_zero, MoveObject (MkRegister slot) scratch_zero]
+
+private
+release_reference_arguments : Int -> List FrameworkValueType -> List Instruction
+release_reference_arguments start [] = []
+release_reference_arguments start (value :: rest) =
+  (if reference_type value then clear_reference_slot start else []) ++
+  release_reference_arguments (start + value_words value) rest
+
 private
 copy_arguments :
   Int -> List Register -> List FrameworkValueType ->
@@ -167,25 +218,26 @@ place_invocation scratch_start invocation = do
         { arguments := map shift_register invocation.arguments
         , result_register := map shift_register invocation.result_register
         } invocation
-  (argument_moves, placed) <-
+  (argument_moves, placed, release_arguments) <-
     case invocation_format shifted of
-      Right format => Right ([], shifted)
+      Right format => Right ([], shifted, [])
       Left explanation => do
         (moves, registers) <-
           copy_arguments scratch_start shifted.arguments
             (invocation_argument_types shifted)
-        Right (moves, Invoke shifted.kind shifted.method registers shifted.result_register)
+        Right (moves, Invoke shifted.kind shifted.method registers shifted.result_register,
+          release_reference_arguments scratch_start (invocation_argument_types shifted))
   case placed.result_register of
-    Nothing => Right (argument_moves ++ [InvokeMethod placed])
+    Nothing => Right (argument_moves ++ [InvokeMethod placed] ++ release_arguments)
     Just destination =>
       if low_byte_register destination
-        then Right (argument_moves ++ [InvokeMethod placed])
+        then Right (argument_moves ++ [InvokeMethod placed] ++ release_arguments)
         else
           Right
             (argument_moves ++
              [ InvokeMethod ({ result_register := Just scratch_zero } placed)
              , typed_move placed.method.result destination scratch_zero
-             ])
+             ] ++ release_arguments)
 
 private
 place_instruction : Int -> Instruction -> Either String (List Instruction)
@@ -221,6 +273,61 @@ place_instruction scratch_start (NewObject destination object_type) =
   if low_byte_register target
     then Right [NewObject target object_type]
     else Right [NewObject scratch_zero object_type, MoveObject target scratch_zero]
+-- ART String[] operations use the same disjoint v0/v1 scratch area as calls.
+-- For aget-object, the output may overlap the array source (DEX reads the
+-- array before writing the object result).
+place_instruction scratch_start (ArrayLength destination array) =
+  let target = shift_register destination
+      source = shift_register array
+      input = if source.number <= 15 then source else scratch_zero
+      output = if target.number <= 15 then target else scratch_one
+      moves_before = if source.number <= 15 then [] else [MoveObject scratch_zero source]
+      suffix = if target.number <= 15 then [] else [Move target scratch_one]
+  in Right (moves_before ++ [ArrayLength output input] ++ suffix)
+place_instruction scratch_start (ArrayGetObject destination array index) =
+  let target = shift_register destination
+      array_source = shift_register array
+      index_source = shift_register index
+      array_input = if array_source.number <= 255 then array_source else scratch_zero
+      index_input = if index_source.number <= 255 then index_source else scratch_one
+      output = if target.number <= 255 then target else scratch_zero
+      array_prefix = if array_source.number <= 255 then []
+                       else [MoveObject scratch_zero array_source]
+      index_prefix = if index_source.number <= 255 then []
+                       else [Move scratch_one index_source]
+      suffix = if target.number <= 255 then [] else [MoveObject target scratch_zero]
+  in Right (array_prefix ++ index_prefix ++
+            [ArrayGetObject output array_input index_input] ++ suffix)
+place_instruction scratch_start (LongConstant destination value) =
+  let target = shift_register destination in
+  if low_byte_register target
+    then Right [LongConstant target value]
+    else Right [LongConstant scratch_zero value, MoveWide target scratch_zero]
+place_instruction scratch_start (AddLong destination left right) =
+  let target = shift_register destination
+      left_input = shift_register left
+      right_input = shift_register right in
+  if low_byte_register target && low_byte_register left_input && low_byte_register right_input
+    then Right [AddLong target left_input right_input]
+    else Left "DEX add-long register staging needs three disjoint wide pairs"
+place_instruction scratch_start (StaticGetObject destination field) =
+  let target = shift_register destination in
+  if low_byte_register target
+    then Right [StaticGetObject target field]
+    else Right [StaticGetObject scratch_zero field, MoveObject target scratch_zero]
+place_instruction scratch_start (StaticPutObject source field) =
+  let input = shift_register source in
+  if low_byte_register input
+    then Right [StaticPutObject input field]
+    else Right [MoveObject scratch_zero input, StaticPutObject scratch_zero field]
+place_instruction scratch_start (IntToLong destination source) =
+  let target = shift_register destination
+      input_register = shift_register source
+      input = if input_register.number <= 15 then input_register else scratch_zero
+      output = if target.number <= 15 then target else scratch_zero
+      moves_before = if input_register.number <= 15 then [] else [Move scratch_zero input_register]
+      suffix = if target.number <= 15 then [] else [MoveWide target scratch_zero]
+  in Right (moves_before ++ [IntToLong output input] ++ suffix)
 place_instruction scratch_start (IntegerBinary operation destination left right) =
   let target = shift_register destination
       first = shift_register left
@@ -268,6 +375,11 @@ place_instruction scratch_start (ReturnWide register) =
   if low_byte_register target
     then Right [ReturnWide target]
     else Right [MoveWide scratch_zero target, ReturnWide scratch_zero]
+place_instruction scratch_start (ThrowObject register) =
+  let target = shift_register register in
+  if target.number <= 255
+    then Right [ThrowObject target]
+    else Right [MoveObject scratch_zero target, ThrowObject scratch_zero]
 place_instruction scratch_start ReturnVoid = Right [ReturnVoid]
 
 private
@@ -321,6 +433,7 @@ prepare_method_invocations method = do
       let prologue =
             copy_incoming incoming_start
               (method.register_count - incoming_words + 2) (incoming_parameter_types method)
+      let release_incoming = release_reference_arguments incoming_start (incoming_parameter_types method)
       Right ({ register_count := register_count
-             , instructions := prologue ++ placed
+             , instructions := prologue ++ release_incoming ++ placed
              } method)

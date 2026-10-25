@@ -1,0 +1,43 @@
+#!/usr/bin/env grease
+# Native fixture observation; expected values are independent of the producer.
+if (len(ARGV) !== 4) { echo 'usage: grease observe.grease ADB SERIAL INPUT EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var input = ARGV[2]
+var evidence = ARGV[3]
+if test -e "$evidence" { echo 'FAIL refusing reused JNI ART evidence' >&2; exit 1 }
+mkdir -p "$evidence"
+"$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r' | rg -x 1
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r' | rg -x x86_64
+"$adb" -s "$serial" shell mkdir -p /data/local/tmp/idric-native-contracts
+"$adb" -s "$serial" push "$input/native-contract.dex" /data/local/tmp/idric-native-contracts/candidate.dex
+"$adb" -s "$serial" push "$input/libcontract.so" /data/local/tmp/idric-native-contracts/libcontract.so
+var base = 'CLASSPATH=/data/local/tmp/idric-native-contracts/candidate.dex app_process -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin Idric.Generated'
+timeout 45 "$adb" -s "$serial" shell -T "$base identity 'café🦉'" > "$evidence/identity.stdout" 2> "$evidence/identity.stderr"
+printf '%s\n' 'café🦉' > "$evidence/identity.expected"
+cmp "$evidence/identity.expected" "$evidence/identity.stdout"
+timeout 60 "$adb" -s "$serial" shell -T "$base repeat 'café🦉'" > "$evidence/repeat.stdout" 2> "$evidence/repeat.stderr"
+cmp "$evidence/identity.expected" "$evidence/repeat.stdout"
+timeout 45 "$adb" -s "$serial" shell -T "$base narrow 2147483647" > "$evidence/narrow.stdout" 2> "$evidence/narrow.stderr"
+printf '%s\n' 2147483647 > "$evidence/narrow.expected"
+cmp "$evidence/narrow.expected" "$evidence/narrow.stdout"
+rg -F 'native narrow invoked' "$evidence/narrow.stderr"
+proc rejects(label, command, diagnostic) {
+  var status = 0
+  try {
+    timeout 45 "$adb" -s "$serial" shell -T "$base $command" > "$evidence/$label.stdout" 2> "$evidence/$label.stderr"
+  }
+  setvar status = _error.code
+  if (status === 0 or status === 124) { echo "FAIL $label did not reject with a completed failure" >&2; exit 1 }
+  rg -F "$diagnostic" "$evidence/$label.stdout" "$evidence/$label.stderr"
+  printf '%s\tREJECTED\n' "$label" >> "$evidence/receipt.tsv"
+}
+rejects null-result null 'JNI contract rejects null String result'
+rejects native-exception throw 'native contract fixture failure'
+rejects narrow-overflow 'narrow 2147483648' 'ArithmeticException'
+if rg -F 'native narrow invoked' "$evidence/narrow-overflow.stderr" { echo 'FAIL overflow invoked native code before refusal' >&2; exit 1 }
+"$adb" -s "$serial" pull /data/local/tmp/idric-native-contracts/candidate.dex "$evidence/received.dex"
+cmp "$input/native-contract.dex" "$evidence/received.dex"
+sha256sum "$input/native-contract.dex" "$input/libcontract.so" > "$evidence/artifacts.sha256"
+printf 'identity_non_BMP\tPASS\nrepeated_scoped_acquire_release\tPASS\nexact_narrowing\tPASS\nphysical_A1\tNOT_RUN\nphysical_C67\tNOT_RUN\n' >> "$evidence/receipt.tsv"
+printf '\033[32mPASS\033[0m declared JNI string/null/exception/narrowing behavior on x86_64 ART\n'

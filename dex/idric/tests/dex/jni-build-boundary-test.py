@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise build-script control flow with a mock NDK, not Android compilation."""
+"""Exercise build-script control flow with mock ICK/NDK, not compilation."""
 
 import os
 from pathlib import Path
@@ -15,6 +15,12 @@ TARGETS = {
     "x86_64": "x86_64-linux-android",
     "x86": "i686-linux-android",
 }
+GNU_TARGETS = {
+    "armeabi-v7a": "arm-linux-gnueabi",
+    "arm64-v8a": "aarch64-linux-gnu",
+    "x86_64": "x86_64-linux-gnu",
+    "x86": "i686-linux-gnu",
+}
 SYMBOLS = {
     "reddit": ["Java_org_isomorphisms_reddit_RedditCli_run"],
     "wegert": [
@@ -26,6 +32,17 @@ MOCK_CLANG = '''import os
 from pathlib import Path
 import sys
 
+if "-dumpmachine" in sys.argv:
+    print(os.environ["JNI_TEST_GNU_TARGET"])
+    sys.exit(0)
+if "-print-file-name=include" in sys.argv:
+    print(os.environ["JNI_TEST_BUILTIN_INCLUDE"])
+    sys.exit(0)
+if os.environ.get("JNI_TEST_REQUIRE_ICK") == "1":
+    if Path(sys.argv[0]).name == "ick":
+        assert "-S" in sys.argv
+    else:
+        assert not any(arg.endswith(".c") for arg in sys.argv[1:])
 if os.environ.get("JNI_TEST_COMPILER_FAIL") == "1":
     sys.exit(23)
 output = Path(sys.argv[sys.argv.index("-o") + 1])
@@ -63,6 +80,11 @@ class JniBuildBoundaryTest(unittest.TestCase):
             ndk = work / "ndk"
             ndk_bin = ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin"
             ndk_bin.mkdir(parents=True)
+            builtin_include = work / "ick builtin headers"
+            builtin_include.mkdir()
+            ick = work / "ick"
+            ick.write_text(f"#!{sys.executable}\n" + MOCK_CLANG)
+            ick.chmod(0o755)
             api = 24 if program == "reddit" else 29
             for name, source in (
                 (f"{TARGETS[abi]}{api}-clang", MOCK_CLANG),
@@ -73,8 +95,12 @@ class JniBuildBoundaryTest(unittest.TestCase):
                 executable.chmod(0o755)
             marker = work / "readelf-state"
             env = {key: value for key, value in os.environ.items()
-                   if not key.startswith(("ANDROID_", "JNI_TEST_"))}
+                   if not key.startswith(("ANDROID_", "JNI_TEST_", "ICK_"))}
             env.update(
+                ICK_CC=str(ick),
+                JNI_TEST_GNU_TARGET=GNU_TARGETS[abi],
+                JNI_TEST_BUILTIN_INCLUDE=str(builtin_include),
+                JNI_TEST_REQUIRE_ICK="1" if program == "reddit" else "0",
                 ANDROID_NDK_HOME=str(ndk),
                 ANDROID_ABI=abi,
                 JNI_TEST_SYMBOLS=" ".join(SYMBOLS[program]),

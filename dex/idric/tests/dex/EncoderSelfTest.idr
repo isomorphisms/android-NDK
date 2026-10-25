@@ -118,6 +118,20 @@ main = do
   expect_equal "deterministic direct encoding" first second
   expect_equal "DEX 035 magic" [100, 101, 120, 10, 48, 51, 53, 0]
     (take 8 first)
+  -- Direct DEX array/64-bit conversion bytes, checked against format 12x/23x.
+  argv_bytes <- encoded_stream "ART argument primitives"
+    [ ArrayLength (MkRegister 0) (MkRegister 1)
+    , ArrayGetObject (MkRegister 2) (MkRegister 3) (MkRegister 4)
+    , IntToLong (MkRegister 5) (MkRegister 6)
+    ]
+  expect_equal "array-length, aget-object, int-to-long opcodes"
+    [0x21, 0x10, 0x46, 0x02, 0x03, 0x04, 0x81, 0x65] argv_bytes
+  expect_left "array-length rejects 4-bit overflow"
+    (encode_instructions [] [] [ArrayLength (MkRegister 16) (MkRegister 0)])
+  expect_left "aget-object rejects 8-bit overflow"
+    (encode_instructions [] [] [ArrayGetObject (MkRegister 0) (MkRegister 256) (MkRegister 1)])
+  expect_left "int-to-long rejects 4-bit overflow"
+    (encode_instructions [] [] [IntToLong (MkRegister 0) (MkRegister 16)])
   expect_left "format 23x register limit"
     (encode_dex (single_method_file bad_arithmetic_method))
   expect_left "format 22t register limit"
@@ -173,4 +187,13 @@ main = do
     (encode_instructions [] [] [Goto (MkLabel 12)])
   expect_left "duplicate goto label is forbidden"
     (encode_instructions [] [] [Mark destination, Mark destination])
+  thrown <- encoded_stream "throw reference format 11x" [ThrowObject (MkRegister 2)]
+  expect_equal "throw opcode and register" [0x27, 0x02] thrown
+  expect_left "throw rejects raw byte-register overflow"
+    (encode_instructions [] [] [ThrowObject (MkRegister 256)])
+  case encode_dex (single_method_file
+    (MkMethodPlan "high throw" "throwHigh" 0 [] VoidValue 512
+      [NullReference (MkRegister 511), ThrowObject (MkRegister 511)])) of
+      Left explanation => fail ("high-register throw staging: " ++ explanation)
+      Right bytes => expect_equal "high-register throw DEX" [100, 101, 120, 10] (take 4 bytes)
   putStrLn "PASS: DEX encoder self-test"

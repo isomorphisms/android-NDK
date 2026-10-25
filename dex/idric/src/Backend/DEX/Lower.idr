@@ -597,10 +597,6 @@ lower_foreign_call destination destination_type name arguments state =
               (foreign_target_arguments foreign)
               ordinary state
           case foreign.operation of
-            MethodInvocation InvokeDirect method => Right
-              (emit (InvokeMethod (Invoke InvokeDirect method
-                       (destination :: registers) Nothing))
-                (emit (NewObject destination method.owner) state))
             MethodInvocation kind method => Right
               (emit (InvokeMethod (Invoke kind method registers
                 (if result_type == VoidValue then Nothing else Just destination))) state)
@@ -608,6 +604,10 @@ lower_foreign_call destination destination_type name arguments state =
               [source_register] => Right (emit (CheckCast destination target)
                 (emit (MoveObject destination source_register) state))
               _ => Left "DEX checked cast has no single source reference"
+            ObjectConstruction method => Right
+              (emit (InvokeMethod (Invoke InvokeDirect method
+                       (destination :: registers) Nothing))
+                (emit (NewObject destination method.owner) state))
 
 private
 lower_comparison :
@@ -734,6 +734,11 @@ lower_copy destination destination_type variable state =
                    ExistingValue BooleanValue => Move destination source
                    ExistingValue TextValue => MoveObject destination source
                    ExistingValue ObjectValue => MoveObject destination source
+                   ExistingValue DoubleValue => MoveWide destination source
+                   ExistingValue ByteValue => Move destination source
+                   ExistingValue ShortValue => Move destination source
+                   ExistingValue CharacterValue => Move destination source
+                   ExistingValue FloatValue => Move destination source
                    ReferenceValue _ => MoveObject destination source
                    LongValue => MoveWide destination source
                    VoidValue => Move destination source)
@@ -1009,6 +1014,11 @@ finish_method result_type body state = do
           ExistingValue BooleanValue => ReturnInteger lowered.result_register
           ExistingValue TextValue => ReturnObject lowered.result_register
           ExistingValue ObjectValue => ReturnObject lowered.result_register
+          ExistingValue ByteValue => ReturnInteger lowered.result_register
+          ExistingValue ShortValue => ReturnInteger lowered.result_register
+          ExistingValue CharacterValue => ReturnInteger lowered.result_register
+          ExistingValue FloatValue => ReturnInteger lowered.result_register
+          ExistingValue DoubleValue => ReturnWide lowered.result_register
           ReferenceValue _ => ReturnObject lowered.result_register
           LongValue => ReturnWide lowered.result_register
           VoidValue => ReturnVoid

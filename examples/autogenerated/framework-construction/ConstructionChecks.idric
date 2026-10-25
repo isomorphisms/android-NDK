@@ -51,6 +51,8 @@ high_view = MkMethodPlan "checked construction high register control" "create_hi
       (MkMethodReference (MkTypeReference "Landroid/widget/TextView;") "<init>"
         [ReferenceValue (MkTypeReference "Landroid/content/Context;")] VoidValue)
       [MkRegister 300, MkRegister 301] Nothing)
+  , MoveObject (MkRegister 0) (MkRegister 300)
+  , CheckCast (MkRegister 0) (MkTypeReference "Landroid/widget/TextView;")
   , ReturnObject (MkRegister 300)
   ]
 
@@ -119,7 +121,7 @@ lifecycle_checks = do
       ["extends Landroid/app/Service;"]))
   expect "unsupported lifecycle refused"
     (refuses (with_interface_callbacks "LIdric/Lifecycle;" [created_export [activity_owner]]
-      ["extends Landroid/app/Activity;", "override onResume ()V created"]))
+      ["extends Landroid/app/Activity;", "override onMadeUp ()V created"]))
   expect "repeated lifecycle signature refused by finalization"
     (refuses (do
       plan ← with_interface_callbacks "LIdric/Lifecycle;" [created_export [activity_owner]]
@@ -174,19 +176,27 @@ write_dex destination bytes = do
 main : IO ()
 main = do
   lifecycle_checks
+  expect "mixed Activity declaration forms refused"
+    (refuses (with_interface_callbacks "LIdric/MixedLifecycle;" []
+      ["activity create action", "extends Landroid/app/Activity;"]))
+  expect "array allocation refused"
+    (refuses (finalize_file_plan (MkFilePlan "LIdric/BadAllocation;"
+      [{ instructions := [NewObject (MkRegister 0) (MkTypeReference "[I"),
+                           ReturnObject (MkRegister 0)] } high_view])))
   case parse_dex_foreign constructor_call [context_source, CFWorld] (CFIORes view_source) of
     Left explanation ⇒ do
       putStrLn explanation
       exitFailure
     Right call ⇒ do
-      expect "constructor owns allocated receiver"
-        (construction call ≟ Just (MkTypeReference "Landroid/widget/TextView;"))
-      expect "source arguments exclude allocated receiver" (length (foreign_argument_types call) ≟ 1)
+      case call.operation of
+        ObjectConstruction method ⇒ do
+          expect "constructor owns allocated receiver"
+            (method.owner ≟ MkTypeReference "Landroid/widget/TextView;")
+          expect "raw constructor returns void" (method.result ≟ VoidValue)
+        _ ⇒ expect "constructor operation retained" False
+      expect "source arguments exclude allocated receiver" (length (foreign_target_arguments call) ≟ 1)
       expect "constructor returns initialized owner"
-        (foreign_result_type call ≟ ReferenceValue (MkTypeReference "Landroid/widget/TextView;"))
-      expect "raw constructor returns void" (case call.operation of
-        MethodInvocation InvokeDirect method ⇒ method.result ≟ VoidValue
-        _ ⇒ False)
+        (foreign_target_result call ≟ ReferenceValue (MkTypeReference "Landroid/widget/TextView;"))
   expect "pure allocation refused" (refuses (parse_dex_foreign constructor_call [context_source] view_source))
   expect "wrong source result refused" (refuses (parse_dex_foreign constructor_call [context_source, CFWorld] (CFIORes CFString)))
   expect "missing constructor argument refused" (refuses (parse_dex_foreign constructor_call [CFWorld] (CFIORes view_source)))

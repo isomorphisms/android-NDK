@@ -1,6 +1,7 @@
 IDRIC ?= idris2
+GREASE ?= grease
 IDRIC_REPO ?= $(CURDIR)/Idric
-IDRIC_COMPILER_REF ?= Idriç
+IDRIC_COMPILER_REF ?= 740bbf2b1d9e811fd00c719c3473eede17ceea3b
 
 .PHONY: webview-shell
 webview-shell:
@@ -69,12 +70,12 @@ DEX_VALIDATION_RECEIPT := build/exec/dex-validation-receipt.txt
 	dex-malformed-test dex-test dex-device test verify clean
 
 branch-separation:
-	tests/dex/branch-separation-self-test.sh
-	tests/dex/branch-separation.sh
+	$(GREASE) tests/dex/source-boundary-self-test.grease "$(CURDIR)"
+	$(GREASE) tests/dex/source-boundary.grease "$(CURDIR)"
 
 check-compiler:
 	@$(IDRIC) --version
-	@git -C "$(IDRIC_REPO)" rev-parse --verify HEAD >/dev/null
+	@test "$$(git -C "$(IDRIC_REPO)" rev-parse HEAD)" = "$(IDRIC_COMPILER_REF)"
 
 check: check-compiler
 	$(IDRIC) --typecheck backend.ipkg
@@ -141,18 +142,10 @@ dex-determinism: $(DEX_FILE) $(DEX_REPEAT_FILE)
 	cmp $(DEX_FILE) $(DEX_REPEAT_FILE)
 
 dex-reject: $(DRIVER) tests/source/InvalidDexInt.idric
-	@set -e; \
-	test ! -e $(DEX_INVALID_ARTIFACT) || { \
-		echo 'Remove stale $(DEX_INVALID_ARTIFACT) before rejection test'; \
-		exit 1; \
-	}; \
 	IDRIS2_PATH="$(CURDIR)/build/ttc:$${IDRIS2_PATH}" \
-		./$(DRIVER) --cg dex --source-dir tests/source \
-		tests/source/InvalidDexInt.idric -o invalid-dex-int \
-		>$(DEX_INVALID_LOG) 2>&1 || true
-	grep -q 'dex rejected source ABI' $(DEX_INVALID_LOG)
-	grep -q 'Int32' $(DEX_INVALID_LOG)
-	test ! -e $(DEX_INVALID_ARTIFACT)
+		$(GREASE) tests/dex/reject-source.grease "$(CURDIR)/$(DRIVER)" \
+		"$(CURDIR)/tests/source" "$(CURDIR)/tests/source/InvalidDexInt.idric" \
+		"$(CURDIR)/$(DEX_INVALID_LOG)" "$(CURDIR)/$(DEX_INVALID_ARTIFACT)"
 
 dex-header-validation: $(DEX_FILE) $(DEX_HEADER_CHECK)
 	python3 $(DEX_HEADER_CHECK) $(DEX_FILE)

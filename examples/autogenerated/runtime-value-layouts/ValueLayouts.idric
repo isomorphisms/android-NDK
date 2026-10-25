@@ -1,0 +1,29 @@
+module ValueLayouts
+
+import Data.Text
+import System
+
+data Message = Empty | Pair Text Text
+
+render_message : Message → Text
+render_message Empty = "empty"
+render_message (Pair left right) = left ++ ":" ++ right
+
+join : Text → Text → Text
+join left right = left ++ right
+
+apply_twice : (Text → Text) → Text → Text
+apply_twice function text = function (function text)
+
+%export "dex:value_layouts"
+main : IO ()
+main = do
+  arguments ← getArgs
+  let prefix = case arguments of
+        (_ :: first :: _) => first
+        _ => "x"
+  let retained = join prefix
+  putStrLn (render_message Empty)
+  putStrLn (render_message (Pair prefix "right"))
+  putStrLn (apply_twice retained "a")
+  putStrLn (retained "b")

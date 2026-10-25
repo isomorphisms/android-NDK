@@ -1,0 +1,4 @@
+host_control	PASS
+dex_compiler_exit	1
+dex_emission	FAIL
+art_execution	NOT_RUN
