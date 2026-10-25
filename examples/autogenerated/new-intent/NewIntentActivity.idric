@@ -1,0 +1,23 @@
+module NewIntentActivity
+
+import Data.Text
+
+data ActivityReference : Type where [external]
+data IntentReference : Type where [external]
+
+%foreign "dex:virtual:Landroid/app/Activity;:setIntent:(Landroid/content/Intent;)V"
+retain_current_intent : ActivityReference → IntentReference → PrimIO ()
+
+-- Used by the deliberately wrong receiver-only qualification mutant.
+%foreign "dex:virtual:Landroid/app/Activity;:getIntent:()Landroid/content/Intent;"
+earlier_intent : ActivityReference → PrimIO IntentReference
+
+%export "dex:receive_new_intent"
+receive_new_intent : ActivityReference → IntentReference → IO ()
+receive_new_intent activity intent = primIO (retain_current_intent activity intent)
+
+%cg dex extends Landroid/app/Activity;
+%cg dex override onNewIntent (Landroid/content/Intent;)V receive_new_intent
+
+main : IO ()
+main = pure ()

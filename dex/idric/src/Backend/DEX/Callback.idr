@@ -48,8 +48,11 @@ parse_callback directive = case words directive of
   ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] => do
     _ <- validate_method_name checked_export
     Right Nothing
+  ["override", "onNewIntent", "(Landroid/content/Intent;)V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
   "extends" :: _ => Left "DEX checked subclass currently admits android.app.Activity only"
-  "override" :: _ => Left "DEX checked lifecycle currently admits onCreate(Bundle) only"
+  "override" :: _ => Left "DEX checked lifecycle admits onCreate(Bundle) and onNewIntent(Intent) only"
   [] => Right Nothing
   _ => Left "Unsupported DEX directive; expected unquoted callback, activity, extends or override declaration"
 
@@ -62,6 +65,8 @@ explicit_override : String -> Maybe LifecycleOverride
 explicit_override directive = case words directive of
   ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] =>
     Just (DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export)
+  ["override", "onNewIntent", "(Landroid/content/Intent;)V", checked_export] =>
+    Just (DeclaredOverride "onNewIntent" "(Landroid/content/Intent;)V" checked_export)
   _ => Nothing
 
 private
@@ -174,7 +179,11 @@ override_method class_descriptor superclass methods lifecycle = do
     _ => Left "DEX lifecycle has no unique checked static export"
   let expected_arguments = ReferenceValue superclass :: arguments
   let receiver_only = [ReferenceValue superclass]
-  if (target.parameter_types /= expected_arguments && target.parameter_types /= receiver_only) || target.result_type /= result
+  -- A warm delivery must receive this event's Intent, never retrieve an old
+  -- Activity.getIntent value by silently dropping the new framework argument.
+  let permitted_receiver_only = lifecycle.method_name == "onCreate" &&
+                                target.parameter_types == receiver_only
+  if (target.parameter_types /= expected_arguments && not permitted_receiver_only) || target.result_type /= result
     then Left "DEX lifecycle signature must include its checked Activity receiver"
     else Right ()
   words <- parameter_register_words arguments
