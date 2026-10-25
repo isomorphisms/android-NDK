@@ -1,0 +1,38 @@
+module ClickListener
+
+import Backend.DEX.FrameworkClasses
+import System
+
+refuses : Either String value -> Bool
+refuses (Left _) = True
+refuses (Right _) = False
+
+||| Platform-only callback plan: application and music semantics live elsewhere.
+listener : FrameworkClass
+listener = Subclass "Lorg/isomorphisms/NativeClickListener;"
+  "Ljava/lang/Object;" Nothing
+  [Callback "onClick" "V" ["Landroid/view/View;"]]
+
+platform_activity : FrameworkClass
+platform_activity = Subclass "Lorg/isomorphisms/NativeViewActivity;"
+  "Landroid/app/NativeActivity;" Nothing
+  [Callback "onActivityResult" "V" ["I", "I", "Landroid/content/Intent;"],
+   Callback "onNewIntent" "V" ["Landroid/content/Intent;"]]
+
+covering
+main : IO ()
+main = do
+  if refuses (encode_framework_classes_implementing [(listener, ["invalid"])]) &&
+     refuses (encode_framework_classes [listener, listener]) &&
+     refuses (encode_framework_classes [{ callbacks := [Callback "onClick" "V" ["Junk"]] } listener])
+    then pure ()
+    else do putStrLn "FAIL native callback refusal controls"; exitFailure
+  arguments ← getArgs
+  case arguments of
+    [_, path] ⇒ do
+      result ← write_framework_classes_implementing
+        [(listener, ["Landroid/view/View$OnClickListener;"]), (platform_activity, [])] path
+      case result of
+        Left problem ⇒ do putStrLn problem; exitFailure
+        Right () ⇒ putStrLn "PASS checked native View callback plan; ART execution not implied"
+    _ ⇒ do putStrLn "usage: native-view-callback OUTPUT.dex"; exitFailure

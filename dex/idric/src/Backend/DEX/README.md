@@ -132,3 +132,9 @@ checked-ANF lowering above.
 APK/UI machinery remains outside the generic semantic lowering. A framework
 call or other Android-facing extension to that lowering should be added with a
 concrete checked Idriç fixture that requires it.
+# Current inventory and historical scope
+
+The [pre-ICU consolidation inventory](../../../../../provenance/pre-icu-dex-baseline.md)
+records the current compiler stages, bounded runtime representations, Android
+interfaces and source provenance. The original slice and its historical
+qualification elsewhere in this document do not define the full consolidated capability.

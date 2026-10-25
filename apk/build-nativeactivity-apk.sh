@@ -149,6 +149,16 @@ elif [[ -n ${ANDROID_EXPECTED_SOURCE_DATE_EPOCH:-} ]]; then
 fi
 [[ "$ANDROID_PACKAGE_ID" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] ||
     fail "invalid package id: $ANDROID_PACKAGE_ID"
+expected_activity=${ANDROID_ACTIVITY_CLASS:-android.app.NativeActivity}
+[[ "$expected_activity" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] ||
+    fail "invalid declared NativeActivity class: $expected_activity"
+if [[ "$expected_activity" != android.app.NativeActivity ]]; then
+    [[ -n ${ANDROID_DEX_FILE:-} ]] || fail "a declared NativeActivity subclass requires a direct DEX input"
+    [[ -f ${ANDROID_BAKSMALI_JAR:-} ]] || fail "a declared NativeActivity subclass requires pinned baksmali"
+    oracle_sha=$(sha256sum "$ANDROID_BAKSMALI_JAR" | awk '{print $1}')
+    [[ "$oracle_sha" == 37ae4a41a8886e15c20b8362fa4250f96bbdb55e1a608199ad8b5dff068b588f ]] ||
+        fail "NativeActivity subclass disassembler digest changed"
+fi
 
 for value_name in \
     ANDROID_PACKAGE_ID ANDROID_VERSION_CODE ANDROID_VERSION_NAME \
@@ -187,7 +197,14 @@ zip_tool=$(command -v zip)
 
 packager_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 schema_file="$packager_dir/nativeactivity-receipt-v2.schema.tsv"
-verifier_file="$packager_dir/verify-nativeactivity-receipt.sh"
+schema_id=android-ndk-nativeactivity-apk-v2
+if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+    schema_file="$packager_dir/nativeactivity-receipt-v3.schema.tsv"
+    schema_id=android-ndk-nativeactivity-apk-v3
+fi
+verifier_file="$packager_dir/verify-nativeactivity-receipt.grease"
+grease_runtime=${ANDROID_GREASE:-}
+[[ -x "$grease_runtime" ]] || fail "ANDROID_GREASE must name the verified Grease runtime"
 [[ -f "$schema_file" ]] || fail "missing receipt schema: $schema_file"
 [[ -f "$verifier_file" ]] || fail "missing receipt verifier: $verifier_file"
 packager_sha=$(sha256sum "$0" | awk '{print $1}')
@@ -230,6 +247,17 @@ trap 'rm -rf "$work"; if [[ -n ${publish_stage:-} ]]; then rm -rf "$publish_stag
 libname=$(basename -- "$native_library")
 mkdir -p "$work/payload/lib/$abi"
 cp "$native_library" "$work/payload/lib/$abi/$libname"
+if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+    [[ -f "$ANDROID_DEX_FILE" ]] || fail "missing declared direct DEX input: $ANDROID_DEX_FILE"
+    [[ ! -L "$ANDROID_DEX_FILE" ]] || fail "declared direct DEX input must not be a symlink"
+    [[ ${ANDROID_REQUIRE_NO_DEX:-1} == 0 ]] ||
+        fail "declared DEX input requires ANDROID_REQUIRE_NO_DEX=0"
+    cp "$ANDROID_DEX_FILE" "$work/payload/classes.dex"
+    if [[ -n ${SOURCE_DATE_EPOCH:-} ]]; then
+        touch -d "@$SOURCE_DATE_EPOCH" "$work/payload/classes.dex"
+        chmod 0644 "$work/payload/classes.dex"
+    fi
+fi
 if [[ -n ${SOURCE_DATE_EPOCH:-} ]]; then
     touch -d "@$SOURCE_DATE_EPOCH" "$work/payload/lib/$abi/$libname"
     chmod 0644 "$work/payload/lib/$abi/$libname"
@@ -274,6 +302,9 @@ cp "$manifest_apk" "$unaligned"
 (
     cd "$work/payload"
     "$zip_tool" -q -u "${zip_options[@]}" "$unaligned" "lib/$abi/$libname"
+    if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+        "$zip_tool" -q -u "${zip_options[@]}" "$unaligned" classes.dex
+    fi
     if [[ -n "$asset_root" ]]; then
         if [[ -n ${SOURCE_DATE_EPOCH:-} ]]; then
             stage_normalized_tree "$asset_root" assets "$asset_listing"
@@ -374,8 +405,8 @@ observed_launcher_label=$(
     fail "finished APK package changed: expected $ANDROID_PACKAGE_ID got ${observed_package:-missing}"
 [[ "$observed_version_code" == "$ANDROID_VERSION_CODE" ]] ||
     fail "finished APK versionCode changed: expected $ANDROID_VERSION_CODE got ${observed_version_code:-missing}"
-[[ "$observed_activity" == "android.app.NativeActivity" ]] ||
-    fail "finished APK launcher is not android.app.NativeActivity: ${observed_activity:-missing}"
+[[ "$observed_activity" == "$expected_activity" ]] ||
+    fail "finished APK launcher changed: expected $expected_activity got ${observed_activity:-missing}"
 if [[ -n ${ANDROID_EXPECTED_LABEL:-} ]]; then
     # aapt2 reports label='' for an activity that inherits the app label.
     # Only an explicit, nonempty activity label can override that default.
@@ -393,6 +424,21 @@ grep -Eq "[[:space:]]lib/$abi/$libname$" "$contents" ||
 if [[ ${ANDROID_REQUIRE_NO_DEX:-1} == 1 ]] &&
    grep -Eq '[[:space:]]classes[0-9]*\.dex$' "$contents"; then
     fail "finished NativeActivity APK unexpectedly contains DEX"
+fi
+if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+    expected_dex_sha=$(sha256sum "$ANDROID_DEX_FILE" | awk '{print $1}')
+    observed_dex_sha=$(unzip -p "$signed" classes.dex | sha256sum | awk '{print $1}')
+    [[ "$observed_dex_sha" == "$expected_dex_sha" ]] ||
+        fail "finished APK direct DEX payload differs from its declared input"
+fi
+if [[ "$expected_activity" != android.app.NativeActivity ]]; then
+    unzip -p "$signed" classes.dex > "$work/finished-classes.dex"
+    java -jar "$ANDROID_BAKSMALI_JAR" disassemble "$work/finished-classes.dex" -o "$work/class-disassembly"
+    activity_path=${expected_activity//.//}
+    activity_source="$work/class-disassembly/$activity_path.smali"
+    [[ -f "$activity_source" ]] || fail "declared NativeActivity subclass is absent from finished DEX"
+    grep -Fxq '.super Landroid/app/NativeActivity;' "$activity_source" ||
+        fail "declared launcher does not directly extend framework NativeActivity"
 fi
 
 apk_sha=$(sha256sum "$signed" | awk '{print $1}')
@@ -420,7 +466,7 @@ staged_sha=$(sha256sum "$publish_stage/artifact.apk" | awk '{print $1}')
 
 material="$work/material.tsv"
 {
-    printf 'schema\tandroid-ndk-nativeactivity-apk-v2\n'
+    printf 'schema\t%s\n' "$schema_id"
     printf 'schema_sha256\t%s\n' "$schema_sha"
     printf 'package\t%s\n' "$observed_package"
     printf 'version_code\t%s\n' "$observed_version_code"
@@ -444,6 +490,11 @@ material="$work/material.tsv"
     printf 'resource_closure_sha256\t%s\n' "$resource_closure_sha"
     printf 'asset_closure_sha256\t%s\n' "$asset_closure_sha"
     printf 'native_sha256\t%s\n' "$native_sha"
+    if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
+        printf 'launcher_activity\t%s\n' "$observed_activity"
+        printf 'dex_sha256\t%s\n' "$observed_dex_sha"
+        printf 'baksmali_sha256\t%s\n' "${oracle_sha:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}"
+    fi
     printf 'signer_cert_sha256\t%s\n' "$apk_cert"
     printf 'packager_sha256\t%s\n' "$packager_sha"
     printf 'verifier_sha256\t%s\n' "$verifier_sha"
@@ -466,7 +517,7 @@ material_sha=$(sha256sum "$material" | awk '{print $1}')
     printf 'apk_sha256\t%s\n' "$apk_sha"
 } > "$publish_stage/receipt.tsv"
 
-bash "$verifier_file" \
+"$grease_runtime" "$verifier_file" \
     "$publish_stage/receipt.tsv" "$publish_stage/artifact.apk"
 
 # Both renames stay on one filesystem. A failed or interrupted stage/copy

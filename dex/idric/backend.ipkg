@@ -15,6 +15,7 @@ modules =
   Backend.DEX.Unpack,
   Backend.DEX.Hash,
   Backend.DEX.Encode,
+  Backend.DEX.FrameworkClasses,
   Backend.DEX.Smali,
   Backend.DEX.Codegen,
   Backend.DEX.Main
