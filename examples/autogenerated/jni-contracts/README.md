@@ -10,6 +10,12 @@ These legacy rows keep their previous null/string conversions. They have no
 newly inferred ownership, threading or nullability promise. In particular this
 repair does not strengthen ICU's existing map or change its transport.
 
+Compiler API migration: the internal `JNIService` record now carries a
+`boundary_contract` field. Direct `MkJNIService` callers must supply
+`LegacyUnqualifiedNativeBoundary` to preserve the old behavior, or the explicit
+contract constructor when that obligation is actually declared. The map parser
+supplies this field; existing three-column application maps need no change.
+
 An explicit row appends this complete policy:
 
 ```text

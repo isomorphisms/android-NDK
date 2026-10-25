@@ -25,7 +25,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [29, 34]
+        include:
+          - api: 29
+            target: default
+          - api: 34
+            target: google_apis
     env:
       ASAN_OPTIONS: detect_leaks=0
     steps:
@@ -107,7 +111,7 @@ jobs:
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: ${{ matrix.api }}
-          target: default
+          target: ${{ matrix.target }}
           arch: x86_64
           emulator-options: -no-window -no-audio -no-snapshot -no-boot-anim -memory 2048 -gpu swiftshader_indirect
           disable-animations: true

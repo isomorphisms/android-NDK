@@ -53,3 +53,24 @@ source produces different bytes, ready for independent ART mutant rejection.
 These counts describe distinct programs and must not be interpreted as a
 comparative performance result. Actual ART observations and physical-device
 acceptance remain NOT_RUN locally.
+
+## Exact native compiler profile
+
+Inspection of the pinned `isomorphisms/ai-ci/ick-host` provider at
+`32cb45b3a3a257aeb07881c75f3b846495cfb2c9` established that its compiler output
+is a qualified native GCC driver. The original preparation incorrectly assumed
+Clang's `--target` and absolute `-fuse-ld` command-line conventions.
+
+Native preparation now refuses any driver whose `-dumpmachine` is not x86_64
+Linux. That same qualified ICK driver compiles only a PIC object using `-m64`,
+the explicit NDK sysroot/architecture headers, and Android/API29 macros. NDK
+`ld.lld` then links that object against the API29 bionic stub. The small JNI
+fixture uses fixed-width JNI integers, pointers, function-table calls and a
+libc stderr marker; this narrow shared-x86_64-ABI profile does not establish
+general Android ICK support. It introduces no stock-compiler fallback.
+
+The lane records driver/linker versions and digests, target triple, object
+digest, ELF64/x86_64 identity and dynamic dependencies. It rejects any needed
+library other than `libc.so` and any GLIBC symbol-version dependency. No local
+NDK is available, so the corrected native compilation/link and actual ART
+execution remain pending hosted verification rather than claimed as PASS.
