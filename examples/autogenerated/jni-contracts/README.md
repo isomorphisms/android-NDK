@@ -56,3 +56,13 @@ case performs 10,000 native calls, each acquiring and releasing a temporary glob
 reference within the same invocation. It checks successful scoped reuse, not a
 measured proof of absence of every native leak. Physical device acceptance is a
 separate evidence category.
+
+The observer captures AndroidRuntime logcat for uncaught app_process exceptions
+and requires their exact diagnostics plus completed failure statuses. It also
+checks a null String input before native entry and executes the legacy map:
+Unicode identity succeeds, while consuming a legacy null still fails at the
+existing Object.toString conversion, without the explicit adapter diagnostic.
+`IntegerBoundaryObserver.smali` preserves the independent int/long min/max and
+overflow assertions against this candidate, whose checked JNI use legitimately
+retains both helpers. The argument-only candidate keeps its separate four
+index-refusal checks and continues pruning unused int narrowing.

@@ -5,8 +5,10 @@ compiler owns checked ANF lowering and direct DEX emission. Consumer-native
 implementations keep their own semantics and cross explicit JNI boundaries.
 
 Use a pinned Idriç frontend with its matching `idris2` compiler API installed.
-The executed frontend is 0e8cfdd1106ebdeffd01b6c519880ea3afc7dc35 with the
-Driver error-status repair published at 740bbf2b1d9e811fd00c719c3473eede17ceea3b.
+The qualification workflows use frontend
+740bbf2b1d9e811fd00c719c3473eede17ceea3b, including its Driver error-status
+repair. `install-frontend.grease` regenerates its path metadata before API
+installation, including after a bootstrap cache restore.
 No Java/Kotlin/Gradle/d8 or new refC stage produces candidate DEX.
 
 `backend.ipkg` builds independently with Idriç's `--build` interface. The
@@ -21,9 +23,11 @@ The separate ai-ci observer executes source-generated calls under ART and
 rejects a compiled wrong-helper mutation. Host checks do not imply ART or
 physical-phone acceptance.
 
-See RECONCILIATION.md for source ownership, provenance, implemented behavior
-and the precise real ICU blocker. Source and dependency pins, executable DEX
-identities and evidence categories live in reconciliation-receipt.tsv.
+See [RUNTIME-REPAIR.md](RUNTIME-REPAIR.md) for current managed capabilities,
+checked layouts, direct tail groups, JNI contracts and qualification boundaries.
+RECONCILIATION.md and reconciliation-receipt.tsv retain the earlier ownership
+and integration checkpoints. ICU HTTP/TLS integration is separate from the
+standalone runtime qualification and is not required by its workflows.
 
 The checked command runtime in Backend.DEX.Heap connects System.getArgs to the
 ART argument adapter, and lowers internal constructors, closures, recursive

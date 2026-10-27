@@ -15,7 +15,7 @@ for path in "$repository" "$core" "$upstream" "$dexdump" "$evidence" {
   if (path[0] !== '/') { echo 'absolute path required' >&2; exit 2 }
 }
 test "$(git -C "$repository" rev-parse HEAD)" = "$expected_head"
-test "$(git -C "$core" rev-parse HEAD)" = ff4d852862a3942592f8ade9afde8d409d9803be
+test "$(git -C "$core" rev-parse HEAD)" = 740bbf2b1d9e811fd00c719c3473eede17ceea3b
 if test -e "$evidence" { echo 'refusing reused callback evidence' >&2; exit 1 }
 mkdir -p "$evidence"
 var compiler = "$core/_/build/exec/idris2"

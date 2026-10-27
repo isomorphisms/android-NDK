@@ -121,9 +121,81 @@ native entry, legacy Unicode/null execution, and CheckJNI. It compares both
 candidate DEX files and the native library after pulling the executed bytes
 back from the emulator. Its bounded GCC/NDK/bionic profile is unchanged.
 
-These changes require new exact-head hosted evidence. Workflow artifacts retain
-source revisions, expected/actual outputs, independent decoding, compiled
-mutation outcomes, DEX identities and native toolchain receipts. A green source
-or decode stage alone is not ART acceptance. Physical A1/C67 acceptance remains
-NOT_RUN. This section records the diagnosed failures and implemented harness
-repairs, not a claim that the pending new run has passed.
+Canonical emulator preparation also uses the explicit KVM access step already
+used by the runtime lane. The framework harnesses pin the repaired frontend
+exactly, including the unpack and callback consumers, and share its bootstrap
+cache paths. No refusal assertion is relaxed.
+
+The first canonical ART run confirmed that missing KVM access selected software
+emulation. It still booted and passed checked calls, argv and runtime-argument
+observers, then exposed a stale combined index/narrowing observer: its
+argument-only candidate correctly prunes unused `__idricIntExact`. Index
+refusals remain with that candidate. The unchanged int/long limits and overflow
+assertions now execute through a separate observer against the checked JNI
+candidate, where both narrowing helpers are reachable. Independent decoding
+requires the unused int helper to stay absent from the argument fixture and
+present in the JNI fixture. This preserves pruning and every boundary assertion
+rather than keeping unreachable runtime code alive for the observer.
+
+## Hosted ART checkpoint, October 27
+
+At `74637745bd85ee7782f609b643b18a60e55d67c2`,
+[runtime qualification run 40522558907](https://github.com/isomorphisms/android-NDK/actions/runs/40522558907)
+executed the exact generated managed candidates successfully on both API29 and
+API34 x86_64 ART. Plain IO, lists/records/reused partial applications, Unicode
+argv, both million-transition tail runs, swaps, thirteen arguments, differing
+member arities and nested effect order matched the separate observer's
+expectations. Pulled-back candidates matched their generated inputs byte for
+byte, and all four also matched the starting head's API34 ART-tested bytes.
+The original production lowerer passed the independent register-machine
+observer; compiled staging, retention and placement mutants each exited 1 for
+the intended invariant. These are host mutant observations, not ART heap
+profiling.
+
+Both APIs also executed the qualified GCC/NDK/bionic library: Unicode identity,
+10,000 scoped acquire/release calls and exact narrowing passed. Explicit null
+result/input, pending native exception and overflow each failed with its exact
+expected AndroidRuntime diagnostic. The complete workflow at this checkpoint
+was **FAIL**, because the newly added legacy-null observer incorrectly expected
+printable `null`. The baseline legacy DEX already dereferences the result with
+`Object.toString()`. The corrected observer requires that existing downstream
+NullPointerException, checks the call site, and refuses any explicit adapter
+null diagnostic in the legacy case. It captures each rejection's logcat/status
+before checking the result. Legacy Unicode identity already passed.
+
+Managed output with no extra argument:
+
+```text
+self=1000000
+mutual=7
+swap=right
+wide=1000078
+varying=1000009
+before
+nested=75
+after
+```
+
+With one extra argument, the first five lines are `self=1000001`, `mutual=9`,
+`swap=left`, `wide=1000079`, `varying=1000001`; the final three are unchanged.
+
+The checkpoint's generated identities are:
+
+| Candidate | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Plain IO | 896 | `fee9b05b6a227468fe41477fb2c6074c6d80376266600974163a5e1a19adf76f` |
+| Values | 24,376 | `1c41f1203a309ddcf8bb0a2f2c0d234bf7be85d6a21645d8a51319671a7e8de0` |
+| Arguments | 22,572 | `06b7efa8699acd7c3bc259f6e9c28ee45a5799bfb03ee058d9edea42650cdbdb` |
+| Tail calls | 29,044 | `694afada096a71c7bd80edaf3005130a82a704a0c0979084e51d19eac2c2c770` |
+| Explicit JNI | 26,208 | `c4b66640c766007dac397645adb48ae32dd293b4dd54f36db915b90062a7f531` |
+| Legacy JNI | 25,956 | `76f5ff4bc3c5855394495d4953ea946ea3723c9efa761002c6d99b5ddc4b83d7` |
+| Native library | 4,472 | `1977fe4e47e191270890de8ef58ffb49e545b21924486597b5826b473523a55c` |
+
+Review qualification requires the complete canonical, runtime-repair and
+framework-effects workflows on the **current published head**. The checkpoint
+above is bounded historical evidence and does not turn that failed workflow
+green. Each new run retains source revisions, expected/actual outputs,
+independent decoding, compiled mutation outcomes, DEX identities, pulled-back
+bytes and native toolchain receipts. Physical A1/C67 acceptance is NOT_RUN;
+general Android ICK qualification, heap benchmarks and ICU/OpenSSL integration
+are not inferred from these results.

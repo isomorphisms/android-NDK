@@ -113,6 +113,9 @@ jobs:
         run: grease dex/idric/prepare-art.grease "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/.tools/ai-ci" "$GITHUB_WORKSPACE/dex/idric/build/exec/idric-dex" "$RUNNER_TEMP/dex-evidence"
       # ICU/OpenSSL transport remains qualified by its separate integration PR.
       # Runtime argument fixtures below have no ICU dependency.
+      - name: Prepare emulator KVM access
+        shell: sh
+        run: grease -c 'sudo chmod 666 /dev/kvm'
       - name: Execute actual checked calls and require mutant rejection on ART
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:

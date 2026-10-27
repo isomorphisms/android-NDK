@@ -17,7 +17,7 @@ for path in "$repository" "$compiler_repository" "$upstream" "$dexdump" "$ib" "$
   if (path[0] !== '/') { echo 'absolute path required' >&2; exit 2 }
 }
 test "$(git -C "$repository" rev-parse HEAD)" = "$expected_head"
-test "$(git -C "$compiler_repository" rev-parse HEAD)" = ff4d852862a3942592f8ade9afde8d409d9803be
+test "$(git -C "$compiler_repository" rev-parse HEAD)" = 740bbf2b1d9e811fd00c719c3473eede17ceea3b
 test "$(git -C "$ib" rev-parse HEAD)" = 446a183e245632608bf2868d4a34eb2f5225bd67
 if test -e "$evidence" { echo 'refusing reused unpack evidence' >&2; exit 1 }
 mkdir -p "$evidence"

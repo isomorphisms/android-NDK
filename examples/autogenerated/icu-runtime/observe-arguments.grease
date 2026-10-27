@@ -25,7 +25,11 @@ cmp "$evidence/multiple.expected" "$evidence/multiple.actual"
 timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/mutant.dex app_process /system/bin Idric.Generated first' > "$evidence/mutant.actual" 2> "$evidence/mutant.stderr"
 if cmp -s "$evidence/one.expected" "$evidence/mutant.actual" { echo 'FAIL checked-source mutant passed independent observation' >&2; exit 1 }
 rg -x 'wrong:first' "$evidence/mutant.actual"
-timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/candidate.dex:/data/local/tmp/idric-checked-arguments/index-observer.dex app_process /system/bin acceptance.ArgumentIndexObserver' > "$evidence/index-refusals.txt" 2>&1
+"$adb" -s "$serial" logcat -c
+try { timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/candidate.dex:/data/local/tmp/idric-checked-arguments/index-observer.dex app_process /system/bin acceptance.ArgumentIndexObserver' > "$evidence/index-refusals.txt" 2>&1 }
+var index_status = _error.code
+"$adb" -s "$serial" logcat -d -v threadtime -s AndroidRuntime:E > "$evidence/index-refusals.logcat"
+test "$index_status" = 0
 rg -x 'PASS checked argument index refusals' "$evidence/index-refusals.txt"
 timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/characters.dex app_process /system/bin Idric.Generated' > "$evidence/characters.actual" 2> "$evidence/characters.stderr"
 printf '%s\n' 0 0 55295 0 0 57344 1114111 0 0 > "$evidence/characters.expected"

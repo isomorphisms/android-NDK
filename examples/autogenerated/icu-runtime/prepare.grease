@@ -16,6 +16,9 @@ cmp "$evidence/arguments.dex" "$evidence/repeated/arguments.dex"
 java -jar "$baksmali" disassemble "$evidence/arguments.dex" -o "$evidence/decoded"
 rg -F '.method public static main([Ljava/lang/String;)V' "$evidence/decoded/Idric/Generated.smali"
 rg -F '.method public static __idricArgCount()J' "$evidence/decoded/Idric/Generated.smali"
+if rg -F '.method public static __idricIntExact(' "$evidence/decoded/Idric/Generated.smali" {
+  echo 'FAIL argument-only candidate retained unused JNI int narrowing' >&2; exit 1
+}
 rg -F '.method public static __idricApply(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;' "$evidence/decoded/Idric/Generated.smali"
 if rg 'Ljava/math/BigInteger;->(int|long)ValueExact' "$evidence/decoded/Idric/Generated.smali" {
   echo 'FAIL candidate requires API 31 narrowing on the API 29 lane' >&2; exit 1

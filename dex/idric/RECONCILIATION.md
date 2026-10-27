@@ -1,5 +1,12 @@
 # Canonical checked DEX and JNI reconciliation
 
+This document preserves the reconciliation checkpoints before the managed
+runtime repair. Current capability selection, layouts, argument limits, direct
+tail dispatch and native contracts are described in
+[RUNTIME-REPAIR.md](RUNTIME-REPAIR.md). The standalone qualification workflows
+do not require the ICU/OpenSSL transport described in the historical section
+below; its integration remains a separate work item.
+
 The reusable compiler is maintained in `isomorphisms/android-NDK/dex/idric`.
 Version 0.2.0 preserves the existing checked frontend/ANF handoff. DEX remains
 separate from the ARM/Thumb branch and its machine-code/runtime work.
@@ -80,10 +87,12 @@ conversion, ordered bindings, standard output and process exit. Runtime argument
 services call the existing `Backend.DEX.RuntimeArgs` adapter. All methods use
 the canonical typed plan, placement, layout and serializer.
 
-The command path currently requires one `IO ()` export and supports up to twelve
-checked arguments per internal function. It does not promise stack-safe tail
-calls, arbitrary primitives or a public ABI for ordinary heap data. Unsupported
-foreign declarations and primitives remain compiler errors.
+At this checkpoint the command path required one `IO ()` export and imposed a
+twelve-argument internal limit without a tail stack-safety guarantee. The
+managed repair supersedes those restrictions with actual checked DEX arity
+limits and direct self/mutual tail dispatch. Arbitrary primitives and a public
+ABI for ordinary heap data remain outside its promise. Unsupported foreign
+declarations and primitives remain compiler errors.
 
 An explicit `--directive jni-map=PATH` binds checked foreign declarations to JNI
 method descriptors. The TSV starts with `library_property PROPERTY`, followed

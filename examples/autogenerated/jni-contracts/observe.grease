@@ -14,6 +14,7 @@ mkdir -p "$evidence"
 "$adb" -s "$serial" push "$input/native-contract.dex" /data/local/tmp/idric-native-contracts/candidate.dex
 "$adb" -s "$serial" push "$input/libcontract.so" /data/local/tmp/idric-native-contracts/libcontract.so
 "$adb" -s "$serial" push "$input/legacy-contract.dex" /data/local/tmp/idric-native-contracts/legacy.dex
+"$adb" -s "$serial" push "$input/integer-observer.dex" /data/local/tmp/idric-native-contracts/integer-observer.dex
 var base = 'CLASSPATH=/data/local/tmp/idric-native-contracts/candidate.dex app_process -Xcheck:jni -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin Idric.Generated'
 timeout 45 "$adb" -s "$serial" shell -T "$base identity 'café🦉'" > "$evidence/identity.stdout" 2> "$evidence/identity.stderr"
 printf '%s\n' 'café🦉' > "$evidence/identity.expected"
@@ -24,13 +25,13 @@ timeout 45 "$adb" -s "$serial" shell -T "$base narrow 2147483647" > "$evidence/n
 printf '%s\n' 2147483647 > "$evidence/narrow.expected"
 cmp "$evidence/narrow.expected" "$evidence/narrow.stdout"
 rg -F 'native narrow invoked' "$evidence/narrow.stderr"
-proc rejects(label, command, diagnostic) {
+proc rejects(label, invocation, command, diagnostic) {
   # app_process installs Android's uncaught-exception handler. Its diagnostic
   # goes to logcat before the process is killed, rather than to stderr.
   "$adb" -s "$serial" logcat -c
   var status = 0
   try {
-    timeout 45 "$adb" -s "$serial" shell -T "$base $command" > "$evidence/$label.stdout" 2> "$evidence/$label.stderr"
+    timeout 45 "$adb" -s "$serial" shell -T "$invocation $command" > "$evidence/$label.stdout" 2> "$evidence/$label.stderr"
   }
   setvar status = _error.code
   printf '%s\n' "$status" > "$evidence/$label.status"
@@ -39,18 +40,28 @@ proc rejects(label, command, diagnostic) {
   rg -F "$diagnostic" "$evidence/$label.stdout" "$evidence/$label.stderr" "$evidence/$label.logcat"
   printf '%s\tREJECTED\n' "$label" >> "$evidence/receipt.tsv"
 }
-rejects null-result null 'JNI contract rejects null String result'
-rejects null-argument null-argument 'JNI contract rejects null String argument'
+rejects null-result "$base" null 'JNI contract rejects null String result'
+rejects null-argument "$base" null-argument 'JNI contract rejects null String argument'
 if rg -F 'native identity received null' "$evidence/null-argument.stderr" { echo 'FAIL null input invoked native code before refusal' >&2; exit 1 }
-rejects native-exception throw 'native contract fixture failure'
-rejects narrow-overflow 'narrow 2147483648' 'ArithmeticException'
+rejects native-exception "$base" throw 'native contract fixture failure'
+rejects narrow-overflow "$base" 'narrow 2147483648' 'ArithmeticException'
 if rg -F 'native narrow invoked' "$evidence/narrow-overflow.stderr" { echo 'FAIL overflow invoked native code before refusal' >&2; exit 1 }
 var legacy_base = 'CLASSPATH=/data/local/tmp/idric-native-contracts/legacy.dex app_process -Xcheck:jni -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin Idric.Generated'
 timeout 45 "$adb" -s "$serial" shell -T "$legacy_base identity 'café🦉'" > "$evidence/legacy-identity.stdout" 2> "$evidence/legacy-identity.stderr"
 cmp "$evidence/identity.expected" "$evidence/legacy-identity.stdout"
-timeout 45 "$adb" -s "$serial" shell -T "$legacy_base null" > "$evidence/legacy-null.stdout" 2> "$evidence/legacy-null.stderr"
-printf '%s\n' null > "$evidence/legacy-null.expected"
-cmp "$evidence/legacy-null.expected" "$evidence/legacy-null.stdout"
+# A legacy null passes the native adapter and fails at the existing Object
+# toString conversion used by putStrLn. Do not invent a printable null value.
+rejects legacy-null "$legacy_base" null 'java.lang.NullPointerException'
+rg -F 'java.lang.Object.toString()' "$evidence/legacy-null.logcat"
+if rg -F 'JNI contract rejects null String' "$evidence/legacy-null.logcat" { echo 'FAIL explicit null contract leaked into legacy behavior' >&2; exit 1 }
+var integer_observation = 'CLASSPATH=/data/local/tmp/idric-native-contracts/candidate.dex:/data/local/tmp/idric-native-contracts/integer-observer.dex app_process -Xcheck:jni -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin acceptance.IntegerBoundaryObserver'
+"$adb" -s "$serial" logcat -c
+try { timeout 45 "$adb" -s "$serial" shell -T "$integer_observation" > "$evidence/integer-boundaries.stdout" 2> "$evidence/integer-boundaries.stderr" }
+var integer_status = _error.code
+"$adb" -s "$serial" logcat -d -v threadtime -s AndroidRuntime:E > "$evidence/integer-boundaries.logcat"
+test "$integer_status" = 0
+rg -x 'PASS checked integer boundary refusals' "$evidence/integer-boundaries.stdout"
+printf 'integer_and_long_boundaries\tPASS\n' >> "$evidence/receipt.tsv"
 "$adb" -s "$serial" pull /data/local/tmp/idric-native-contracts/candidate.dex "$evidence/received.dex"
 cmp "$input/native-contract.dex" "$evidence/received.dex"
 "$adb" -s "$serial" pull /data/local/tmp/idric-native-contracts/legacy.dex "$evidence/legacy.received.dex"

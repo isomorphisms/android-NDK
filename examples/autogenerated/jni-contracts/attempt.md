@@ -7,7 +7,15 @@ Add one deliberately legacy `PrimIO Text` producer of a null String and pass
 its result to that explicit identity boundary. The producer is a fixture-only
 escape from the nonnull promise; the explicit adapter must refuse the input
 before the C identity function runs. The same source and legacy map must still
-execute Unicode identity and render the legacy null result as `null`.
+execute Unicode identity and preserve the unguarded null result. Using that
+null as Text reaches the existing `Object.toString` conversion and throws a
+NullPointerException; it does not acquire the explicit adapter's diagnostic.
+
+The first hosted extension incorrectly expected printable `null`. API29
+reached and passed every explicit JNI check before disproving that expectation.
+The original baseline's independently decoded legacy DEX already invokes
+`Object.toString()` for this Text conversion. The observer now requires that
+legacy failure and proves the explicit null guard did not leak into the map.
 
 The observer must retain stdout, stderr, process status and AndroidRuntime
 logcat for each refused call. Android's app_process handler logs uncaught
@@ -16,6 +24,17 @@ Only a completed nonzero exit with the exact expected exception diagnostic
 counts as rejection. Candidate DEX and native-library bytes must be pulled back
 and compared with the built input. This extension adds no parsing primitive,
 retained ownership, asynchronous callback or alternate code-generation stage.
+
+Canonical run 40522558822 exposed an observer dependency made stale by pruning:
+the argument-only candidate no longer retains `__idricIntExact`. All four
+argument-index refusal checks stay with that candidate. The int/long boundary
+assertions move unchanged into `IntegerBoundaryObserver.smali` and execute
+against the JNI candidate, which legitimately uses both narrowing helpers.
+The argument fixture must continue pruning the unused int helper; the JNI
+fixture must contain it. No helper is kept alive merely to satisfy an oracle.
+Smali assembles only this independent observer; checked Idriç still generates
+the candidate being observed. The generated candidate/native bytes are unchanged
+by splitting these observer assertions.
 
 ## Type/effect sketch, before implementation
 
