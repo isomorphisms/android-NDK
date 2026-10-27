@@ -28,14 +28,19 @@ rg -F 'native narrow invoked' "$evidence/narrow.stderr"
 proc rejects(label, invocation, command, diagnostic) {
   # app_process installs Android's uncaught-exception handler. Its diagnostic
   # goes to logcat before the process is killed, rather than to stderr.
-  "$adb" -s "$serial" logcat -c
+  "$adb" -s "$serial" logcat -b main -b system -b crash -c
   var status = 0
+  # exec preserves the shell PID as the actual VM PID. Filter every diagnostic
+  # to that process: API29 can retain earlier crash-buffer messages after -c.
+  var observed_command = 'echo $$; exec env ' ++ invocation ++ ' ' ++ command
   try {
-    timeout 45 "$adb" -s "$serial" shell -T "$invocation $command" > "$evidence/$label.stdout" 2> "$evidence/$label.stderr"
+    timeout 45 "$adb" -s "$serial" shell -T "$observed_command" > "$evidence/$label.stdout" 2> "$evidence/$label.stderr"
   }
   setvar status = _error.code
   printf '%s\n' "$status" > "$evidence/$label.status"
-  "$adb" -s "$serial" logcat -d -v threadtime -s AndroidRuntime:E > "$evidence/$label.logcat"
+  var runtime_pid = $(head -n 1 "$evidence/$label.stdout" | tr -d '\r')
+  printf '%s\n' "$runtime_pid" | rg -x '[1-9][0-9]*' > "$evidence/$label.pid"
+  "$adb" -s "$serial" logcat -b main -b system -b crash -d --pid="$runtime_pid" -v threadtime -s AndroidRuntime:E > "$evidence/$label.logcat"
   if (status === 0 or status === 124) { echo "FAIL $label did not reject with a completed failure" >&2; exit 1 }
   rg -F "$diagnostic" "$evidence/$label.stdout" "$evidence/$label.stderr" "$evidence/$label.logcat"
   printf '%s\tREJECTED\n' "$label" >> "$evidence/receipt.tsv"
@@ -50,9 +55,9 @@ var legacy_base = 'CLASSPATH=/data/local/tmp/idric-native-contracts/legacy.dex a
 timeout 45 "$adb" -s "$serial" shell -T "$legacy_base identity 'café🦉'" > "$evidence/legacy-identity.stdout" 2> "$evidence/legacy-identity.stderr"
 cmp "$evidence/identity.expected" "$evidence/legacy-identity.stdout"
 # A legacy null passes the native adapter and fails at the existing Object
-# toString conversion used by putStrLn. Do not invent a printable null value.
+# concat used to append putStrLn's newline. Do not invent a printable null value.
 rejects legacy-null "$legacy_base" null 'java.lang.NullPointerException'
-rg -F 'java.lang.Object.toString()' "$evidence/legacy-null.logcat"
+rg -F 'java.lang.String.concat(java.lang.String)' "$evidence/legacy-null.logcat"
 if rg -F 'JNI contract rejects null String' "$evidence/legacy-null.logcat" { echo 'FAIL explicit null contract leaked into legacy behavior' >&2; exit 1 }
 var integer_observation = 'CLASSPATH=/data/local/tmp/idric-native-contracts/candidate.dex:/data/local/tmp/idric-native-contracts/integer-observer.dex app_process -Xcheck:jni -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin acceptance.IntegerBoundaryObserver'
 "$adb" -s "$serial" logcat -c

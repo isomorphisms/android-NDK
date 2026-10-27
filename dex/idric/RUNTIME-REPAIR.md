@@ -125,6 +125,10 @@ Canonical emulator preparation also uses the explicit KVM access step already
 used by the runtime lane. The framework harnesses pin the repaired frontend
 exactly, including the unpack and callback consumers, and share its bootstrap
 cache paths. No refusal assertion is relaxed.
+The already qualified native compiler is saved with the pinned provider's own
+source/runtime key before consumer tests begin. A later observer failure no
+longer discards successful compiler provisioning. Restores still pass through
+the unchanged pinned provider and its qualification checks.
 
 The first canonical ART run confirmed that missing KVM access selected software
 emulation. It still booted and passed checked calls, argv and runtime-argument
@@ -158,10 +162,15 @@ result/input, pending native exception and overflow each failed with its exact
 expected AndroidRuntime diagnostic. The complete workflow at this checkpoint
 was **FAIL**, because the newly added legacy-null observer incorrectly expected
 printable `null`. The baseline legacy DEX already dereferences the result with
-`Object.toString()`. The corrected observer requires that existing downstream
+`String.concat` when appending the newline. The corrected observer requires
+that existing downstream
 NullPointerException, checks the call site, and refuses any explicit adapter
 null diagnostic in the legacy case. It captures each rejection's logcat/status
 before checking the result. Legacy Unicode identity already passed.
+API29 also showed earlier processes' crash-buffer entries surviving a default
+log clear. Rejection diagnostics are now filtered to the recorded PID of the
+actual exec'd VM across main/system/crash buffers. Earlier failures cannot
+satisfy a later assertion or contaminate the legacy-map check.
 
 Managed output with no extra argument:
 
@@ -199,3 +208,8 @@ independent decoding, compiled mutation outcomes, DEX identities, pulled-back
 bytes and native toolchain receipts. Physical A1/C67 acceptance is NOT_RUN;
 general Android ICK qualification, heap benchmarks and ICU/OpenSSL integration
 are not inferred from these results.
+
+The final current-head ledger and exact workflow links are maintained on
+[isomorphisms/android-NDK PR #33, “Repair managed DEX capabilities, tail calls and JNI contracts”](https://github.com/isomorphisms/android-NDK/pull/33).
+It binds the published head to the complete workflow outcomes and their
+source/output/DEX/native receipts; the dated checkpoints here remain historical.

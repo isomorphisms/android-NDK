@@ -8,14 +8,21 @@ its result to that explicit identity boundary. The producer is a fixture-only
 escape from the nonnull promise; the explicit adapter must refuse the input
 before the C identity function runs. The same source and legacy map must still
 execute Unicode identity and preserve the unguarded null result. Using that
-null as Text reaches the existing `Object.toString` conversion and throws a
+null as Text reaches the existing `String.concat` newline append and throws a
 NullPointerException; it does not acquire the explicit adapter's diagnostic.
 
 The first hosted extension incorrectly expected printable `null`. API29
 reached and passed every explicit JNI check before disproving that expectation.
 The original baseline's independently decoded legacy DEX already invokes
-`Object.toString()` for this Text conversion. The observer now requires that
-legacy failure and proves the explicit null guard did not leak into the map.
+`String.concat` to append the newline. The first correction inferred a later
+`Object.toString` call site; run 40529334216 instead recorded the actual
+`java.lang.String.concat(java.lang.String)` null dereference on API34. The
+observer now requires that observed legacy failure and proves the explicit null
+guard did not leak into the map.
+The API29 trace also retained older crash-buffer entries after the default
+clear. Each rejected invocation now execs the VM at a recorded PID and reads
+only that PID's main/system/crash messages. An earlier explicit-contract error
+can neither satisfy a later rejection nor falsely fail the legacy check.
 
 The observer must retain stdout, stderr, process status and AndroidRuntime
 logcat for each refused call. Android's app_process handler logs uncaught
