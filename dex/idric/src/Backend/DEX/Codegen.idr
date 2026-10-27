@@ -653,7 +653,10 @@ compile_dex definitions syntax temporary_directory output_directory
         [entry] => entry.effect == PrimitiveIOForeign && entry.result_type == VoidValue && null entry.parameter_types
         _ => False
   let framework_calls = any (\foreign => elem (fst foreign) reachable) foreigns
-  let managed_command = command_entry && not framework_calls
+  -- An explicit checked-export boundary wins over automatic command selection.
+  -- In particular, a lone IO Unit export is not necessarily an ART main entry.
+  let managed_command = command_entry && not framework_calls &&
+                        not (elem "managed-exports" directives)
   plan <-
     if managed_command
       then case managed_plan requested_output_name native_services export_abis reachable (anf resolved_compile_data) of
