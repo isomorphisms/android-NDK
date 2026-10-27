@@ -227,6 +227,37 @@ primitive destination StrLength [value] state = Right (emit
    , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "length" [] integer_value [register 8] (Just (register 1))
    , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "codePointCount" [integer_value, integer_value]
        integer_value [register 8, register 0, register 1] (Just (register 1))] ++ box_int destination (register 1)) state)
+primitive destination StrReverse [value] state = Right (emit
+  [ MoveObject (register 8) value, CheckCast (register 8) (MkTypeReference "Ljava/lang/String;")
+  , NewObject (register 9) (MkTypeReference "Ljava/lang/StringBuilder;")
+  , call InvokeDirect (MkTypeReference "Ljava/lang/StringBuilder;") "<init>" [text_value]
+      VoidValue [register 9, register 8] Nothing
+  , call InvokeVirtual (MkTypeReference "Ljava/lang/StringBuilder;") "reverse" []
+      (ReferenceValue (MkTypeReference "Ljava/lang/StringBuilder;")) [register 9] Nothing
+  , call InvokeVirtual (MkTypeReference "Ljava/lang/StringBuilder;") "toString" [] text_value
+      [register 9] (Just destination)
+  ] state)
+-- Source indexing counts Unicode characters, while String.substring uses
+-- UTF-16 offsets. Convert the one-character tail offset before slicing.
+primitive destination StrTail [value] state = Right (emit
+  [ MoveObject (register 8) value, CheckCast (register 8) (MkTypeReference "Ljava/lang/String;")
+  , IntegerConstant (register 0) 0, IntegerConstant (register 1) 1
+  , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "offsetByCodePoints"
+      [integer_value, integer_value] integer_value
+      [register 8, register 0, register 1] (Just (register 0))
+  , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "substring" [integer_value]
+      text_value [register 8, register 0] (Just destination)
+  ] state)
+primitive destination StrCons [character, text] state = Right (emit
+  (unbox_int (register 0) character ++
+   [ call InvokeStatic (MkTypeReference "Ljava/lang/Character;") "toChars" [integer_value]
+       (ReferenceValue (MkTypeReference "[C")) [register 0] (Just (register 8))
+   , call InvokeStatic (MkTypeReference "Ljava/lang/String;") "valueOf"
+       [ReferenceValue (MkTypeReference "[C")] text_value [register 8] (Just (register 8))
+   , MoveObject (register 9) text, CheckCast (register 9) (MkTypeReference "Ljava/lang/String;")
+   , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "concat" [text_value]
+       text_value [register 8, register 9] (Just destination)
+   ]) state)
 primitive destination StrAppend [left, right] state = Right (emit
   [ MoveObject (register 8) left, CheckCast (register 8) (MkTypeReference "Ljava/lang/String;")
   , MoveObject (register 9) right, CheckCast (register 9) (MkTypeReference "Ljava/lang/String;")

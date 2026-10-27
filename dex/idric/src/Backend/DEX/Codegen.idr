@@ -6,6 +6,7 @@ import Backend.DEX.Foreign
 import Backend.DEX.IR
 import Backend.DEX.Lower
 import Backend.DEX.Heap
+import Backend.DEX.ManagedBoundary
 import Backend.DEX.RuntimeArgs
 import Backend.DEX.Unpack
 import Backend.DEX.Smali
@@ -378,17 +379,19 @@ managed_abis next ((name, definition) :: rest) =
     _ => managed_abis next rest
 
 private
-managed_methods : List JNIService -> List (Name, (String, Int)) ->
+managed_methods : List JNIService -> List (Name, DEXForeign) -> List (Name, (String, Int)) ->
   List (Name, Administrative_Normal_Form_Definition) -> Either String (List MethodPlan)
-managed_methods services abis [] = Right []
-managed_methods services abis ((name, definition) :: rest) = do
-  more <- managed_methods services abis rest
+managed_methods services foreigns abis [] = Right []
+managed_methods services foreigns abis ((name, definition) :: rest) = do
+  more <- managed_methods services foreigns abis rest
   case lookup name abis of
     Nothing => Right more
     Just (method, arity) => do
       if arity > 12 then Left ("Managed DEX checked arity exceeds current closure frame: " ++ show name) else Right ()
       lowered <- case (case definition of
-        Make_Administrative_Normal_Form_Foreign_Function {} => heap_foreign_linked services method definition
+        Make_Administrative_Normal_Form_Foreign_Function {} => case lookup name foreigns of
+          Just foreign => managed_foreign_bridge method foreign
+          Nothing => heap_foreign_linked services method definition
         _ => heap_method abis name method definition) of
           Left explanation => Left ("In " ++ show name ++ ": " ++ explanation)
           Right accepted => Right accepted
@@ -405,7 +408,7 @@ managed_plan program_name native [entry] reachable definitions = do
   let live = filter (\definition => elem (fst definition) reachable) definitions
   let abis = managed_abis 0 live
   let services = maybe [] snd native
-  methods <- managed_methods services abis live
+  methods <- managed_methods services [] abis live
   (checked, arity) <- maybe (Left "Managed DEX entry has no checked body") Right (lookup entry.internal_name abis)
   if arity /= 1 then Left "Managed IO entry must retain exactly its checked World argument" else Right ()
   let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
@@ -418,6 +421,34 @@ managed_plan program_name native [entry] reachable definitions = do
   let plan = MkFilePlan "LIdric/Generated;" all_methods
   with_runtime_arguments program_name entry.method_name plan
 managed_plan _ _ _ _ _ = Left "Managed command execution requires exactly one IO export"
+
+-- Explicit qualification lane for checked heap semantics behind the existing
+-- framework/scalar ABI. Ordinary source data never acquires a foreign ABI.
+private
+managed_exports_plan : Maybe (String, List JNIService) -> List (Name, DEXForeign) ->
+  List ExportABI -> List Name -> List (Name, Administrative_Normal_Form_Definition) ->
+  Either String FilePlan
+managed_exports_plan native foreigns exports reachable definitions = do
+  let live = filter (\definition => elem (fst definition) reachable) definitions
+  let abis = managed_abis 0 live
+  methods <- managed_methods (maybe [] snd native) foreigns abis live
+  bridges <- traverse (bridge abis) exports
+  let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
+  let all_methods = methods ++ [heap_apply abis, heap_match_failure,
+        heap_exact_number False, heap_exact_number True, heap_character] ++ bridges ++ native_methods
+  case find_duplicate_name (map method_name all_methods) of
+    Just name => Left ("Managed framework/generated method name collision: " ++ name)
+    Nothing => Right (MkFilePlan "LIdric/Generated;" all_methods)
+  where
+    bridge : List (Name, (String, Int)) -> ExportABI -> Either String MethodPlan
+    bridge abis entry = do
+      (checked, arity) <- maybe (Left ("Managed export has no checked body: " ++ show entry.internal_name))
+        Right (lookup entry.internal_name abis)
+      let expected : Int = cast (length entry.parameter_types) +
+            if entry.effect == PrimitiveIOForeign then 1 else 0
+      if arity /= expected
+        then Left ("Managed export checked arity differs from its source ABI: " ++ show entry.internal_name)
+        else managed_export_bridge entry.effect entry.method_name checked entry.parameter_types entry.result_type
 
 private
 parse_jni_services : List String -> Either String (List JNIService)
@@ -495,10 +526,15 @@ compile_dex definitions syntax temporary_directory output_directory
         Left explanation => throw (UserError ("dex rejected checked runtime: " ++ explanation))
         Right accepted => pure accepted
       else do
-        methods <- case lower_exports integer_less_name calls compiled_abis (anf resolved_compile_data) of
-          Left explanation => throw (UserError ("dex rejected checked program: " ++ explanation))
-          Right accepted => pure accepted
-        case with_interface_callbacks "LIdric/Generated;" methods directives of
+        methods <- if elem "managed-exports" directives
+          then case managed_exports_plan native_services foreigns export_abis reachable (anf resolved_compile_data) of
+            Left explanation => throw (UserError ("dex rejected managed exports: " ++ explanation))
+            Right accepted => pure accepted.methods
+          else case lower_exports integer_less_name calls compiled_abis (anf resolved_compile_data) of
+            Left explanation => throw (UserError ("dex rejected checked program: " ++ explanation))
+            Right accepted => pure accepted
+        let callback_directives = filter (/= "managed-exports") directives
+        case with_interface_callbacks "LIdric/Generated;" methods callback_directives of
           Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
           Right accepted => pure accepted
   finalized <-

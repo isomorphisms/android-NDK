@@ -18,6 +18,7 @@ modules =
   Backend.DEX.FrameworkClasses,
   Backend.DEX.RuntimeArgs,
   Backend.DEX.Heap,
+  Backend.DEX.ManagedBoundary,
   Backend.DEX.EncodeCallbackShell,
   Backend.DEX.Smali,
   Backend.DEX.Codegen,
