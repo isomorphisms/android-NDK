@@ -143,6 +143,30 @@ rather than keeping unreachable runtime code alive for the observer.
 
 ## Hosted ART checkpoint, October 27
 
+### Complete managed and native lane
+
+At `ee00358de05193e26d688bc0441cc9a40ccb3ae6`,
+[runtime qualification run 40534699247](https://github.com/isomorphisms/android-NDK/actions/runs/40534699247)
+passed completely on **both API29 and API34 x86_64 ART**. This includes all
+managed cases below, the three compiled production mutations, real JNI Unicode
+identity and 10,000 scoped reference calls under CheckJNI, explicit null
+input/result and native-exception refusals, pre-call integer overflow refusal,
+legacy Unicode/null behavior, and the separate int/long min/max/overflow
+observer. Generated and pulled-back explicit/legacy DEX and native-library
+bytes matched. Source revisions and observed outputs are retained in the
+per-API artifacts. The candidate/native identities in the table below remain
+unchanged.
+
+The framework workflow then exposed a missing fixture input: its old
+`ib-reader` checkout had ReaderText but no material ReaderActivity. Construction
+qualification now consumes the already pinned `ib-screen` checkout at
+`e53df40034f7e0413f07b5f34b0510f17ae52fd2`, the same source used by its existing
+package/UI tests. Its ReaderText blob is identical to the canonical lane's
+fixture (`caaee0c93736168865d74fb5c8dc588bcde4724a`). No IB source, resources,
+signer, application behavior or dependency pin is rewritten.
+
+### Earlier failure and diagnostic checkpoints
+
 At `74637745bd85ee7782f609b643b18a60e55d67c2`,
 [runtime qualification run 40522558907](https://github.com/isomorphisms/android-NDK/actions/runs/40522558907)
 executed the exact generated managed candidates successfully on both API29 and
