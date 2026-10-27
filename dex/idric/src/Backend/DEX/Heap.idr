@@ -606,6 +606,18 @@ heap_entry exported checked = MkMethodPlan "checked managed IO entrypoint" expor
   , ReturnVoid
   ]
 
+-- Only this checked boundary exposes managed computation as ordinary Text.
+-- Internal constructor/closure values never acquire a foreign descriptor.
+public export
+heap_text_entry : String -> String -> MethodPlan
+heap_text_entry exported checked = MkMethodPlan "checked managed pure Text entrypoint" exported
+  1 [text_value] text_value 3
+  [ call InvokeStatic generated_type checked [object_value] object_value
+      [register 2] (Just (register 0))
+  , CheckCast (register 0) (MkTypeReference "Ljava/lang/String;")
+  , ReturnObject (register 0)
+  ]
+
 public export
 record JNIService where
   constructor MkJNIService

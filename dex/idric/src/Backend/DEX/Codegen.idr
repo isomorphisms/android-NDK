@@ -450,6 +450,92 @@ managed_exports_plan native foreigns exports reachable definitions = do
         then Left ("Managed export checked arity differs from its source ABI: " ++ show entry.internal_name)
         else managed_export_bridge entry.effect entry.method_name checked entry.parameter_types entry.result_type
 
+-- View-only unpack and scalar enum/numeric constructors already have their
+-- checked lowering. A source list/option/record allocation requires the
+-- managed object representation; discover it in the actual checked graph.
+mutual
+  private
+  allocates_managed_constructor : Administrative_Normal_Form -> Bool
+  allocates_managed_constructor (Administrative_Normal_Form_Constructor_Value _ _ info _ _) =
+    case info of
+      DATACON => True
+      NIL => True
+      CONS => True
+      NOTHING => True
+      JUST => True
+      RECORD => True
+      _ => False
+  allocates_managed_constructor (Administrative_Normal_Form_Binding _ _ value body) =
+    allocates_managed_constructor value || allocates_managed_constructor body
+  allocates_managed_constructor (Administrative_Normal_Form_Constructor_Case _ _ alternatives fallback) =
+    any constructor_allocates alternatives || maybe False allocates_managed_constructor fallback
+  allocates_managed_constructor (Administrative_Normal_Form_Constant_Case _ _ alternatives fallback) =
+    any constant_allocates alternatives || maybe False allocates_managed_constructor fallback
+  allocates_managed_constructor _ = False
+
+  private
+  constructor_allocates : Administrative_Normal_Form_Constructor_Alternative -> Bool
+  constructor_allocates (Make_Administrative_Normal_Form_Constructor_Alternative _ _ _ _ body) =
+    allocates_managed_constructor body
+
+  private
+  constant_allocates : Administrative_Normal_Form_Constant_Alternative -> Bool
+  constant_allocates (Make_Administrative_Normal_Form_Constant_Alternative _ body) =
+    allocates_managed_constructor body
+
+private
+managed_constructor_definition : (Name, Administrative_Normal_Form_Definition) -> Bool
+managed_constructor_definition (_, Make_Administrative_Normal_Form_Function _ body) =
+  allocates_managed_constructor body
+managed_constructor_definition _ = False
+
+private
+pure_text_abi : ExportABI -> Bool
+pure_text_abi entry = entry.effect == PureForeign &&
+  entry.parameter_types == [ExistingValue TextValue] &&
+  entry.result_type == ExistingValue TextValue
+
+private
+world_service : (Name, Administrative_Normal_Form_Definition) -> Bool
+world_service (_, Make_Administrative_Normal_Form_Foreign_Function _ arguments result) =
+  any is_world arguments || is_io_result result
+  where
+    is_world : CFType -> Bool
+    is_world CFWorld = True
+    is_world _ = False
+
+    is_io_result : CFType -> Bool
+    is_io_result (CFIORes _) = True
+    is_io_result _ = False
+world_service _ = False
+
+private
+managed_text_plan : List ExportABI -> List Name ->
+  List (Name, Administrative_Normal_Form_Definition) -> Either String FilePlan
+managed_text_plan [entry] reachable definitions = do
+  if not (pure_text_abi entry)
+    then Left "Managed pure Text execution requires one checked Text to Text export"
+    else Right ()
+  let live = filter (\definition => elem (fst definition) reachable) definitions
+  if any world_service live
+    then Left "Managed pure Text execution cannot acquire an IO foreign service"
+    else Right ()
+  let abis = managed_abis 0 live
+  (checked, arity) <- maybe (Left "Managed pure Text export has no checked body") Right
+                       (lookup entry.internal_name abis)
+  if arity /= 1
+    then Left "Managed pure Text export source and ANF arity disagree"
+    else Right ()
+  methods <- managed_methods [] [] abis live
+  let all_methods = methods ++ [heap_apply abis, heap_match_failure,
+        heap_exact_number False, heap_exact_number True, heap_character,
+        heap_text_entry entry.method_name checked]
+  case find_duplicate_name (map method_name all_methods) of
+    Just name => Left ("Managed pure Text/generated method name collision: " ++ name)
+    Nothing => Right ()
+  Right (MkFilePlan "LIdric/Generated;" all_methods)
+managed_text_plan _ _ _ = Left "Managed pure Text execution requires exactly one export"
+
 private
 parse_jni_services : List String -> Either String (List JNIService)
 parse_jni_services [] = Right []
@@ -520,11 +606,25 @@ compile_dex definitions syntax temporary_directory output_directory
     Right () => pure ()
   directives <- getDirectives (Other backend_name)
   native_services <- load_jni_services directives
+  let live_definitions = filter (\definition => elem (fst definition) reachable)
+                          (anf resolved_compile_data)
   plan <-
     if any (\name => show name == "System.prim__getArgCount") reachable
       then case managed_plan requested_output_name native_services export_abis reachable (anf resolved_compile_data) of
         Left explanation => throw (UserError ("dex rejected checked runtime: " ++ explanation))
         Right accepted => pure accepted
+      else if not (elem "managed-exports" directives) &&
+              all pure_text_abi export_abis && any managed_constructor_definition live_definitions
+        then do
+          case native_services of
+            Just _ => throw (UserError "Managed pure Text exports do not accept a JNI map")
+            Nothing => pure ()
+          if any (\directive => not (null (words directive))) directives
+            then throw (UserError "Managed pure Text exports cannot declare a framework adapter")
+            else pure ()
+          case managed_text_plan export_abis reachable (anf resolved_compile_data) of
+            Left explanation => throw (UserError ("dex rejected checked pure Text runtime: " ++ explanation))
+            Right accepted => pure accepted
       else do
         methods <- if elem "managed-exports" directives
           then case managed_exports_plan native_services foreigns export_abis reachable (anf resolved_compile_data) of
