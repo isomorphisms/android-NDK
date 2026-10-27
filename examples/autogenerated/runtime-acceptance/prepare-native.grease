@@ -44,6 +44,7 @@ if rg 'GLIBC_[0-9]|GLIBC_PRIVATE' "$evidence/native-dynamic.txt" { echo 'FAIL ho
 printf 'profile\tfixed_width_x86_64_JNI_fixture\nC_codegen\tqualified_native_ICK_GCC\nheaders_linker_libc\tNDK_27.2_API29\ngeneral_Android_ICK_qualification\tNOT_ESTABLISHED\n' > "$evidence/native-profile.tsv"
 grease "$source/prepare.grease" "$repository" "$frontend" "$driver" "$baksmali" "$evidence/checked"
 cp "$evidence/checked/native-contract.dex" "$evidence/native-contract.dex"
+cp "$evidence/checked/legacy/native-contract.dex" "$evidence/legacy-contract.dex"
 sha256sum "$source/native_contract_fixture.c" "$source/NativeIdentity.idric" "$source/explicit-jni.tsv" "$source/legacy-jni.tsv" "$evidence/native_contract_fixture.o" "$evidence/native-contract.dex" "$evidence/libcontract.so" > "$evidence/artifacts.sha256"
 git -C "$repository" rev-parse HEAD > "$evidence/source-revision.txt"
 printf 'qualified_native_C_fixture_object\tPASS\nAndroid_bionic_fixture_link\tPASS\nELF_dependency_inspection\tPASS\nchecked_explicit_contract_emission\tPASS\nlegacy_contract_behavior_preserved\tPASS\nindependent_decode\tPASS\nART\tNOT_RUN\ngeneral_Android_ICK_qualification\tNOT_ESTABLISHED\nphysical_A1\tNOT_RUN\nphysical_C67\tNOT_RUN\n' > "$evidence/host-receipt.tsv"

@@ -1,5 +1,22 @@
 # Checked native boundary contracts
 
+## Runtime qualification extension: type/effect sketch
+
+Keep `native_identity : Text → PrimIO Text` as the checked nonnull boundary.
+Add one deliberately legacy `PrimIO Text` producer of a null String and pass
+its result to that explicit identity boundary. The producer is a fixture-only
+escape from the nonnull promise; the explicit adapter must refuse the input
+before the C identity function runs. The same source and legacy map must still
+execute Unicode identity and render the legacy null result as `null`.
+
+The observer must retain stdout, stderr, process status and AndroidRuntime
+logcat for each refused call. Android's app_process handler logs uncaught
+exceptions before killing its process; `Killed` alone is insufficient evidence.
+Only a completed nonzero exit with the exact expected exception diagnostic
+counts as rejection. Candidate DEX and native-library bytes must be pulled back
+and compared with the built input. This extension adds no parsing primitive,
+retained ownership, asynchronous callback or alternate code-generation stage.
+
 ## Type/effect sketch, before implementation
 
 This bounded attempt covers checked `PrimIO` actions with a trailing World token,

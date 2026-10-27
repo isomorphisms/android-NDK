@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: isomorphisms/Idric
-          ref: ff4d852862a3942592f8ade9afde8d409d9803be
+          ref: 740bbf2b1d9e811fd00c719c3473eede17ceea3b
           path: .tools/Idric
           persist-credentials: false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -100,7 +100,10 @@ jobs:
       - name: Build pinned Grease runtime through Cat Food
         shell: sh
         run: sh .tools/catfood/build-tools.sh
-      - name: Restore pinned Idriç compiler and API
+      - name: Qualify pinned ICK for frontend native bootstrap
+        id: ick
+        uses: isomorphisms/ai-ci/ick-host@32cb45b3a3a257aeb07881c75f3b846495cfb2c9
+      - name: Restore pinned Idriç compiler bootstrap
         id: idric-cache
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
         with:
@@ -108,17 +111,16 @@ jobs:
             .tools/Idric/_/.tools
             .tools/Idric/_/build
             .tools/Idric/_/bootstrap-build
-            .tools/Idric/_/libs/*/build
-            .tools/Idric/_/src/IdrisPaths.idr
-          key: idric-bootstrap-api-v1-ubuntu-24.04-${{ runner.arch }}-ff4d852862a3942592f8ade9afde8d409d9803be
+          key: idric-740bbf2b1d9e811fd00c719c3473eede17ceea3b-ick-32cb45b3a3a257aeb07881c75f3b846495cfb2c9-ubuntu24-x86_64-v1
       - name: Build pinned Idriç host compiler
         if: steps.idric-cache.outputs.cache-hit != 'true'
         shell: sh
-        run: sh .tools/Idric/edric all
-      - name: Install the pinned compiler API into its bootstrap prefix
-        if: steps.idric-cache.outputs.cache-hit != 'true'
+        env:
+          CC: ${{ steps.ick.outputs.compiler }} -fno-link-libatomic
+        run: sh .tools/Idric/edric bootstrap
+      - name: Restore generated metadata and install the pinned compiler API
         shell: sh
-        run: env IDRIS2_PREFIX="$GITHUB_WORKSPACE/.tools/Idric/_/bootstrap-build" CHEZ="$GITHUB_WORKSPACE/.tools/Idric/_/.tools/bin/scheme" "$GITHUB_WORKSPACE/.tools/Idric/_/build/exec/idris2" --install "$GITHUB_WORKSPACE/.tools/Idric/_/idris2api.ipkg"
+        run: .tools/runtime/.build/grease/bin/grease dex/idric/install-frontend.grease "$GITHUB_WORKSPACE/.tools/Idric"
       - name: Require installed API before caching
         if: steps.idric-cache.outputs.cache-hit != 'true'
         shell: sh
@@ -131,9 +133,7 @@ jobs:
             .tools/Idric/_/.tools
             .tools/Idric/_/build
             .tools/Idric/_/bootstrap-build
-            .tools/Idric/_/libs/*/build
-            .tools/Idric/_/src/IdrisPaths.idr
-          key: idric-bootstrap-api-v1-ubuntu-24.04-${{ runner.arch }}-ff4d852862a3942592f8ade9afde8d409d9803be
+          key: idric-740bbf2b1d9e811fd00c719c3473eede17ceea3b-ick-32cb45b3a3a257aeb07881c75f3b846495cfb2c9-ubuntu24-x86_64-v1
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
         with:
           packages: 'build-tools;35.0.0 platforms;android-34'

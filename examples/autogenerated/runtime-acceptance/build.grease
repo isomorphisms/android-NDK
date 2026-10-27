@@ -14,8 +14,7 @@ setglobal ENV.CHEZ = "$frontend/_/.tools/bin/scheme"
 setglobal ENV.PATH = "$frontend/_/.tools/bin:" ++ ENV.PATH
 git -C "$frontend" rev-parse HEAD > "$evidence/frontend-revision.txt"
 "$compiler" --version > "$evidence/frontend-version.txt"
-cd "$frontend/_"
-"$compiler" --install idris2api.ipkg > "$evidence/compiler-api.txt" 2>&1
+grease "$repository/dex/idric/install-frontend.grease" "$frontend" > "$evidence/compiler-api.txt" 2>&1
 cd "$repository/dex/idric"
 "$compiler" --build backend.ipkg > "$evidence/backend-build.txt" 2>&1
 if rg -n '^[[:space:]]*(Error:|INTERNAL ERROR)' "$evidence/backend-build.txt" { echo 'FAIL backend compiler diagnostic' >&2; exit 1 }

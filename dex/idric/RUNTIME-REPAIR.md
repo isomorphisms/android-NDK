@@ -86,3 +86,44 @@ General Text-to-Integer parsing, broader primitives, typed instance-field
 specialization and asynchronous/retained native callback contracts remain
 separate capabilities. Numeric mathematical policy stays in Idriç; no new
 division/coercion semantics or integer-width changes are introduced here.
+
+## Hosted failure diagnosis and qualification repair
+
+The October 25 runs at `fe615c487c60300e2e47964fa4a74c13e36ddd19`
+failed at three distinct boundaries:
+
+- Canonical DEX and API29 restored compiled frontend state without the generated
+  `IdrisPaths` source (`_/src` is a symlink to the source root). API installation
+  therefore failed with `Module IdrisPaths not found`. The shared installation
+  step now regenerates metadata with the pinned frontend Makefile on both fresh
+  and cached builds, then installs and checks the compiler API.
+- Framework effects used frontend `ff4d8528`, whose driver printed a rejected
+  constructor diagnostic but exited zero. It now uses the same checked
+  `740bbf2b` frontend as canonical/runtime qualification; that revision already
+  fixes code-generator error exit status. The negative tests still require
+  unsuccessful compilation, the exact diagnostic and no candidate DEX.
+- API34 completed plain IO, values, Unicode arguments, million-transition tail
+  groups and real JNI identity/repetition/narrowing before stopping at the
+  null-result diagnostic check. `app_process` routes uncaught exceptions to
+  AndroidRuntime logcat before killing the process. The observer now retains
+  that log alongside stdout/stderr/status and requires the expected diagnostic;
+  a timeout or unexplained failure is not acceptance. The earlier transient ADB
+  offline event recovered during emulator startup and was not this failure.
+
+The old compiled Grease artifact also became unavailable (404). Canonical and
+runtime lanes now use the existing pinned Grease/Cat Food source bootstrap from
+framework-effects qualification rather than an expiring artifact. Canonical
+qualification no longer checks out or builds ICU, Idriç-Net or OpenSSL. The
+preserved checked argument fixture is standalone and requires none of them.
+
+The JNI fixture additionally exercises a real null argument rejected before
+native entry, legacy Unicode/null execution, and CheckJNI. It compares both
+candidate DEX files and the native library after pulling the executed bytes
+back from the emulator. Its bounded GCC/NDK/bionic profile is unchanged.
+
+These changes require new exact-head hosted evidence. Workflow artifacts retain
+source revisions, expected/actual outputs, independent decoding, compiled
+mutation outcomes, DEX identities and native toolchain receipts. A green source
+or decode stage alone is not ART acceptance. Physical A1/C67 acceptance remains
+NOT_RUN. This section records the diagnosed failures and implemented harness
+repairs, not a claim that the pending new run has passed.

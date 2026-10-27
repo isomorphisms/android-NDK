@@ -10,6 +10,10 @@ Java_Idric_Generated_identity(JNIEnv *environment, jclass owner, jstring text) {
     jobject retained;
     jstring result;
     (void) owner;
+    if (text == NULL) {
+        fputs("native identity received null\n", stderr);
+        return NULL;
+    }
     /* Retention is scoped to this call. Both allocation failure paths preserve
      * the pending exception and release any successfully acquired global ref. */
     if ((*environment)->ExceptionCheck(environment)) return NULL;
@@ -22,6 +26,13 @@ Java_Idric_Generated_identity(JNIEnv *environment, jclass owner, jstring text) {
 
 JNIEXPORT jstring JNICALL
 Java_Idric_Generated_nullResult(JNIEnv *environment, jclass owner) {
+    (void) environment;
+    (void) owner;
+    return NULL;
+}
+
+JNIEXPORT jstring JNICALL
+Java_Idric_Generated_nullArgument(JNIEnv *environment, jclass owner) {
     (void) environment;
     (void) owner;
     return NULL;

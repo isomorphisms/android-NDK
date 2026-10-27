@@ -9,10 +9,12 @@ if test -e "$evidence" { echo 'FAIL refusing reused JNI ART evidence' >&2; exit 
 mkdir -p "$evidence"
 "$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r' | rg -x 1
 "$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r' | rg -x x86_64
+"$adb" -s "$serial" shell getprop > "$evidence/device-properties.txt"
 "$adb" -s "$serial" shell mkdir -p /data/local/tmp/idric-native-contracts
 "$adb" -s "$serial" push "$input/native-contract.dex" /data/local/tmp/idric-native-contracts/candidate.dex
 "$adb" -s "$serial" push "$input/libcontract.so" /data/local/tmp/idric-native-contracts/libcontract.so
-var base = 'CLASSPATH=/data/local/tmp/idric-native-contracts/candidate.dex app_process -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin Idric.Generated'
+"$adb" -s "$serial" push "$input/legacy-contract.dex" /data/local/tmp/idric-native-contracts/legacy.dex
+var base = 'CLASSPATH=/data/local/tmp/idric-native-contracts/candidate.dex app_process -Xcheck:jni -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin Idric.Generated'
 timeout 45 "$adb" -s "$serial" shell -T "$base identity 'café🦉'" > "$evidence/identity.stdout" 2> "$evidence/identity.stderr"
 printf '%s\n' 'café🦉' > "$evidence/identity.expected"
 cmp "$evidence/identity.expected" "$evidence/identity.stdout"
@@ -23,21 +25,39 @@ printf '%s\n' 2147483647 > "$evidence/narrow.expected"
 cmp "$evidence/narrow.expected" "$evidence/narrow.stdout"
 rg -F 'native narrow invoked' "$evidence/narrow.stderr"
 proc rejects(label, command, diagnostic) {
+  # app_process installs Android's uncaught-exception handler. Its diagnostic
+  # goes to logcat before the process is killed, rather than to stderr.
+  "$adb" -s "$serial" logcat -c
   var status = 0
   try {
     timeout 45 "$adb" -s "$serial" shell -T "$base $command" > "$evidence/$label.stdout" 2> "$evidence/$label.stderr"
   }
   setvar status = _error.code
+  printf '%s\n' "$status" > "$evidence/$label.status"
+  "$adb" -s "$serial" logcat -d -v threadtime -s AndroidRuntime:E > "$evidence/$label.logcat"
   if (status === 0 or status === 124) { echo "FAIL $label did not reject with a completed failure" >&2; exit 1 }
-  rg -F "$diagnostic" "$evidence/$label.stdout" "$evidence/$label.stderr"
+  rg -F "$diagnostic" "$evidence/$label.stdout" "$evidence/$label.stderr" "$evidence/$label.logcat"
   printf '%s\tREJECTED\n' "$label" >> "$evidence/receipt.tsv"
 }
 rejects null-result null 'JNI contract rejects null String result'
+rejects null-argument null-argument 'JNI contract rejects null String argument'
+if rg -F 'native identity received null' "$evidence/null-argument.stderr" { echo 'FAIL null input invoked native code before refusal' >&2; exit 1 }
 rejects native-exception throw 'native contract fixture failure'
 rejects narrow-overflow 'narrow 2147483648' 'ArithmeticException'
 if rg -F 'native narrow invoked' "$evidence/narrow-overflow.stderr" { echo 'FAIL overflow invoked native code before refusal' >&2; exit 1 }
+var legacy_base = 'CLASSPATH=/data/local/tmp/idric-native-contracts/legacy.dex app_process -Xcheck:jni -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin Idric.Generated'
+timeout 45 "$adb" -s "$serial" shell -T "$legacy_base identity 'café🦉'" > "$evidence/legacy-identity.stdout" 2> "$evidence/legacy-identity.stderr"
+cmp "$evidence/identity.expected" "$evidence/legacy-identity.stdout"
+timeout 45 "$adb" -s "$serial" shell -T "$legacy_base null" > "$evidence/legacy-null.stdout" 2> "$evidence/legacy-null.stderr"
+printf '%s\n' null > "$evidence/legacy-null.expected"
+cmp "$evidence/legacy-null.expected" "$evidence/legacy-null.stdout"
 "$adb" -s "$serial" pull /data/local/tmp/idric-native-contracts/candidate.dex "$evidence/received.dex"
 cmp "$input/native-contract.dex" "$evidence/received.dex"
-sha256sum "$input/native-contract.dex" "$input/libcontract.so" > "$evidence/artifacts.sha256"
-printf 'identity_non_BMP\tPASS\nrepeated_scoped_acquire_release\tPASS\nexact_narrowing\tPASS\nphysical_A1\tNOT_RUN\nphysical_C67\tNOT_RUN\n' >> "$evidence/receipt.tsv"
+"$adb" -s "$serial" pull /data/local/tmp/idric-native-contracts/legacy.dex "$evidence/legacy.received.dex"
+cmp "$input/legacy-contract.dex" "$evidence/legacy.received.dex"
+"$adb" -s "$serial" pull /data/local/tmp/idric-native-contracts/libcontract.so "$evidence/received.so"
+cmp "$input/libcontract.so" "$evidence/received.so"
+sha256sum "$input/native-contract.dex" "$input/legacy-contract.dex" "$input/libcontract.so" > "$evidence/artifacts.sha256"
+cp "$input/source-revision.txt" "$evidence/source-revision.txt"
+printf 'identity_non_BMP\tPASS\nrepeated_scoped_acquire_release\tPASS\nexact_narrowing\tPASS\nlegacy_identity_and_null\tPASS\nphysical_A1\tNOT_RUN\nphysical_C67\tNOT_RUN\n' >> "$evidence/receipt.tsv"
 printf '\033[32mPASS\033[0m declared JNI string/null/exception/narrowing behavior on x86_64 ART\n'

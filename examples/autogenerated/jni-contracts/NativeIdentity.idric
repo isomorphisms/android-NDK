@@ -12,6 +12,11 @@ native_identity : Text → PrimIO Text
 %foreign "C:contract_null_result,libcontract"
 native_null_result : PrimIO Text
 
+-- This legacy-only producer lets the explicit input adapter meet an actual
+-- null reference. It is test data, not a nonnull declaration.
+%foreign "C:contract_null_argument,libcontract"
+native_null_argument : PrimIO Text
+
 %foreign "C:contract_throw_failure,libcontract"
 native_throw_failure : PrimIO Text
 
@@ -34,6 +39,10 @@ run_arguments (_ :: "repeat" :: text :: _) = do
 run_arguments (_ :: "null" :: _) = do
   result ← primIO native_null_result
   putStrLn result
+run_arguments (_ :: "null-argument" :: _) = do
+  text ← primIO native_null_argument
+  result ← primIO (native_identity text)
+  putStrLn result
 run_arguments (_ :: "throw" :: _) = do
   result ← primIO native_throw_failure
   putStrLn result
@@ -45,7 +54,7 @@ run_arguments (_ :: "narrow" :: "2147483647" :: _) = do
 run_arguments (_ :: "narrow" :: "2147483648" :: _) = do
   result ← primIO (native_narrow 2147483648)
   putStrLn (cast result)
-run_arguments _ = putStrLn "use identity TEXT, repeat TEXT, null, throw or narrow 2147483647|2147483648"
+run_arguments _ = putStrLn "use identity TEXT, repeat TEXT, null, null-argument, throw or narrow 2147483647|2147483648"
 
 %export "dex:native_identity"
 main : IO ()
