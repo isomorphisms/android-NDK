@@ -1,0 +1,10 @@
+module NameCollision
+
+import Data.Text
+
+%export "dex:__idricManaged0"
+prepend_marker : Text → Text
+prepend_marker supplied = pack ('!' :: unpack supplied)
+
+main : IO ()
+main = pure ()

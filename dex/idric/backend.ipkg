@@ -21,6 +21,7 @@ modules =
   Backend.DEX.ValueLayout,
   Backend.DEX.Capabilities,
   Backend.DEX.Heap,
+  Backend.DEX.ManagedBoundary,
   Backend.DEX.EncodeCallbackShell,
   Backend.DEX.Smali,
   Backend.DEX.Codegen,

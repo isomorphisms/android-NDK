@@ -1,0 +1,13 @@
+module EffectEscape
+
+import Data.Text
+import PrimIO
+
+%export "dex:effect_escape"
+effect_escape : Text → Text
+effect_escape supplied = unsafePerformIO $ do
+  putStrLn "not an admitted pure export service"
+  pure (pack ('!' :: unpack supplied))
+
+main : IO ()
+main = pure ()

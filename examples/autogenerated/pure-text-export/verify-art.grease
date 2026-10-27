@@ -1,0 +1,42 @@
+#!/usr/bin/env grease
+if (len(ARGV) !== 3) { echo 'usage: grease verify-art.grease ADB SERIAL EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var evidence = ARGV[2]
+if (adb[0] !== '/' or evidence[0] !== '/') { echo 'FAIL absolute path required' >&2; exit 2 }
+var runtime = "$evidence/art"
+if test -e "$runtime" { echo 'FAIL refusing reused ART evidence' >&2; exit 1 }
+mkdir -p "$runtime"
+"$adb" -s "$serial" get-state
+"$adb" -s "$serial" shell getprop ro.build.fingerprint > "$runtime/fingerprint.txt"
+"$adb" -s "$serial" shell getprop ro.build.version.sdk > "$runtime/sdk.txt"
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi > "$runtime/abi.txt"
+"$adb" -s "$serial" shell mkdir -p /data/local/tmp/idric-pure-text
+sha256sum -c "$evidence/runner.sha256"
+"$adb" -s "$serial" push "$evidence/runner.dex" /data/local/tmp/idric-pure-text/runner.dex
+"$adb" -s "$serial" shell chmod 0444 /data/local/tmp/idric-pure-text/runner.dex
+"$adb" -s "$serial" pull /data/local/tmp/idric-pure-text/runner.dex "$runtime/runner-received.dex"
+cmp "$evidence/runner.dex" "$runtime/runner-received.dex"
+
+proc execute(name, expected_status, expected_line) {
+  sha256sum -c "$evidence/$name/sha256.txt"
+  var remote = "/data/local/tmp/idric-pure-text/$name.dex"
+  "$adb" -s "$serial" push "$evidence/$name/candidate.dex" "$remote"
+  "$adb" -s "$serial" shell chmod 0444 "$remote"
+  "$adb" -s "$serial" pull "$remote" "$runtime/$name-received.dex"
+  cmp "$evidence/$name/candidate.dex" "$runtime/$name-received.dex"
+  try {
+    "$adb" -s "$serial" shell \
+      "CLASSPATH=/data/local/tmp/idric-pure-text/runner.dex:$remote app_process /system/bin Idric.PureTextSourceRunner" \
+      > "$runtime/$name.txt" 2>&1
+  }
+  var status = _error.code
+  printf '%s\n' "$status" > "$runtime/$name.exit"
+  cat "$runtime/$name.txt"
+  if (status !== int(expected_status)) { echo "FAIL ART status for $name" >&2; exit 1 }
+  rg -x -F "$expected_line" "$runtime/$name.txt"
+}
+execute positive 0 'PASS unchanged IB pure Text source projection on ART'
+execute mutant 73 'FAIL actual IB empty title'
+printf 'ART\tPASS\nactual_IB_parser\tPASS\nwrong_title_mutant\tREJECTED\nActivity\tNOT_RUN\nphysical_A1\tNOT_RUN\nphysical_C67\tNOT_RUN\n' > "$runtime/result.tsv"
+printf '\033[32mPASS\033[0m actual pure Text parser and wrong-title mutant on identified ART\n'
