@@ -13,6 +13,16 @@
     return-void
 .end method
 
+.method private static integer(IILjava/lang/String;)V
+    .registers 4
+    const/4 v0, 0
+    if-ne p0, p1, :compared
+    const/4 v0, 1
+  :compared
+    invoke-static {v0, p2}, Lacceptance/ManagedExportObserver;->require(ZLjava/lang/String;)V
+    return-void
+.end method
+
 .method private static text(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
     .registers 4
     invoke-virtual {p0, p1}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
@@ -47,14 +57,15 @@
     const-string v0, ""
     invoke-static {v0}, LIdric/Generated;->has_text(Ljava/lang/String;)Z
     move-result v1
-    xor-int/lit8 v1, v1, 1
+    const/4 v2, 0
     const-string v3, "FAIL false Boolean export"
-    invoke-static {v1, v3}, Lacceptance/ManagedExportObserver;->require(ZLjava/lang/String;)V
+    invoke-static {v1, v2, v3}, Lacceptance/ManagedExportObserver;->integer(IILjava/lang/String;)V
     const-string v0, "λ"
     invoke-static {v0}, LIdric/Generated;->has_text(Ljava/lang/String;)Z
     move-result v1
+    const/4 v2, 1
     const-string v3, "FAIL true Boolean export"
-    invoke-static {v1, v3}, Lacceptance/ManagedExportObserver;->require(ZLjava/lang/String;)V
+    invoke-static {v1, v2, v3}, Lacceptance/ManagedExportObserver;->integer(IILjava/lang/String;)V
     const-string v0, "λ𝄞z"
     invoke-static {v0}, LIdric/Generated;->read_then_reverse(Ljava/lang/String;)Ljava/lang/String;
     move-result-object v1
