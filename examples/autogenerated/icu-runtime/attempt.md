@@ -76,6 +76,78 @@ The caller now retains that exact NDK path
 for the entire recursive build and captures the inner build log on failure.
 No native transport source is replaced.
 
+## Integration capture-path regression
+
+Run 40576160334 at backend c47d524c097770daab330bd135f84da3851e151b
+retained `icu-art/framing-tests.txt`: the first failing assertion is
+`tests/FramingTests.c:96`, acceptance of two absent output paths in a newly
+created owner-private directory. The earlier framing cases and JNI checks
+completed. This is a native path-validation boundary, before ICU ART HTTP/TLS.
+
+`CapturePathProbe.c` observes `Path -> IO (read_errno, search_errno)` for every
+ancestor and `CapturePaths -> IO Bool` using the provider's actual private
+functions. C is required here to include the existing native implementation and
+exercise its static POSIX descriptor operations without creating another FFI or
+transport. This is a native ABI regression test, not an Idric fallback. No new
+Idric compiler capability is required for the repair.
+
+`native-transport.patch` is an integration-owned overlay on exactly ICU
+b1c19dc281e5e7d3d326c9275093fb379bafd4bd. It changes only ancestor directory
+descriptors to Linux `O_PATH`, retaining `O_DIRECTORY`, `O_NOFOLLOW`, owner/mode
+validation, distinct absent leaves and mode-0600 exclusive file creation. The
+non-Linux path keeps its previous access mode. Idric/JNI source and the entire
+original framing suite remain byte-for-byte unchanged.
+
+The producer builds original and repaired native candidates with the same NDK,
+OpenSSL and fixture inputs and retains both identities. The observer requires
+the original candidate to reproduce line 96, logs the actual ancestor errors,
+requires the repaired path probe and original full suite to pass, then executes
+all checked ICU ART HTTP/TLS cases. A hypothetical permission explanation is
+not execution evidence; the recorded probe and candidate outputs decide it.
+Physical A1/C67 testing remains NOT_RUN.
+
+The first repaired-head run, 40984278908 at
+eacbd9be960c95488794ba5de763b7e612b2ac03, established the cause on API 29:
+UID 2000 receives Permission denied (13) for read opens of `/data` and
+`/data/local`, but search opens succeed. The original validator returns 0 and
+fails line 96; the repaired validator returns 1 and passes all 55 original
+checks. All 10 original JNI checks pass. HTTP and HTTPS GET/UTF-8 POST,
+wrong-certificate identity rejection and redirect observations then pass.
+
+The next real failure was `http-error`: HTTP 500 emitted `hello` and exited 0,
+while the unchanged canonical assertion requires 10. Native `send_request`
+applied status failure only to file-capture callers. The overlay now preserves
+that result for stdout callers too. The adjacent early-read error conversion
+also collapsed typed malformed-framing status 13 to generic write status 7;
+it is removed while retaining the established TLS identity conversion to 5.
+The next qualification compares original native outcomes 0/7 with repaired
+outcomes 10/13 through the exact same checked ICU DEX and server, and retains
+all four outputs. Extra Content-Length, NUL/status-line and hostile chunk
+cases use the independently pinned existing server fixtures.
+
+The native probe compile/link stage selects NDK 27.2.12479018, Android API 24
+x86_64, as does the provider's existing Android Makefile. ICK revision
+fbe86e23d55cfec2000c08e61deea2a407fd7175 is qualified here for the host, not
+for this Android Bionic plus pinned OpenSSL cross-link surface. This specific
+gap is recorded in `ci/build-toolchain.tsv`; no generic host compiler fallback
+is used. Host server compilation continues through qualified ICK.
+
+`record-integration.grease` assembles an artifact copy of the integration ledger
+after each lane's required checks. Its input domains are an exact Git revision,
+one current workflow run and existing test receipts; its only effect is writing
+the current lane's Markdown/sha256 receipt. This is shell file composition in
+Grease, not another compiler, evaluator or runtime. It does not predict the
+workflow conclusion or grant a PASS to a different lane or commit.
+
+At integration commit 305b3833fb5563bcdca5331fa81976cf89062d53, run
+40986375643 passed both APIs' runtime and JNI execution but failed the new
+receipt stage: Grease rejected a quoted path prefix joined to a glob with
+`Invalid quoted word part in YSH (OILS-ERR-17)`. The failed source remains in
+that commit. The receipt now names its four known candidate-manifest paths
+explicitly in ordinary Grease arguments. This is a reporting-stage repair;
+the failed overall workflow is not recorded as PASS and both lanes must be
+rerun at the next exact head.
+
 Source review also found that managed node getters return Object, while tag
 comparisons invoke String.equals. Explicit checked String casts now preserve
 that representation invariant for ART's verifier. The actual checked argument

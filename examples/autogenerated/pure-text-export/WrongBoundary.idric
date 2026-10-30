@@ -1,0 +1,14 @@
+module WrongBoundary
+
+import Data.Text
+
+copy_characters : List Char → List Char
+copy_characters [] = []
+copy_characters (character :: remaining) = character :: copy_characters remaining
+
+%export "dex:wrong_boundary"
+wrong_boundary : Text → Maybe Text
+wrong_boundary supplied = Just (pack (copy_characters (unpack supplied)))
+
+main : IO ()
+main = pure ()

@@ -1,0 +1,44 @@
+module ManagedExports
+
+import Data.Text
+
+record RetainedText where
+  constructor RetainText
+  original : Text
+  characters : List Char
+
+reverse_characters : List Char → List Char → List Char
+reverse_characters [] retained = retained
+reverse_characters (character :: rest) retained =
+  reverse_characters rest (character :: retained)
+
+%export "dex:reverse_text"
+reverse_text : Text → Text
+reverse_text text =
+  let retained = RetainText text (unpack text) in
+      pack (reverse_characters retained.characters [])
+
+%export "dex:retained_integer"
+retained_integer : Int32 → Int32
+retained_integer number =
+  case Just (number + 7) of
+    Just result ⇒ result
+    Nothing ⇒ 0
+
+%export "dex:has_text"
+has_text : Text → Bool
+has_text text = case unpack text of
+  [] ⇒ False
+  _ ⇒ True
+
+%foreign "dex:virtual:Ljava/lang/String;:length:()I"
+platform_text_length : Text → PrimIO Int32
+
+%export "dex:read_then_reverse"
+read_then_reverse : Text → IO Text
+read_then_reverse text = do
+  size ← primIO (platform_text_length text)
+  if size ≟ 0 then pure "empty" else pure (reverse_text text)
+
+main : IO ()
+main = pure ()
