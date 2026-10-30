@@ -36,6 +36,7 @@ test -s "$evidence/tls.ready"
 "$adb" -s "$serial" shell mkdir -p /data/local/tmp/idric-icu-runtime
 "$adb" -s "$serial" push "$input/icu.dex" /data/local/tmp/idric-icu-runtime/icu.dex
 "$adb" -s "$serial" push "$input/libicu_transport.so" /data/local/tmp/idric-icu-runtime/libicu_transport.so
+"$adb" -s "$serial" push "$input/libicu_transport-original.so" /data/local/tmp/idric-icu-runtime/libicu_transport-original.so
 "$adb" -s "$serial" push "$evidence/cert.pem" /data/local/tmp/idric-icu-runtime/cert.pem
 "$adb" -s "$serial" push "$input/jni-tests" /data/local/tmp/idric-icu-runtime/jni-tests
 "$adb" -s "$serial" push "$input/framing-tests" /data/local/tmp/idric-icu-runtime/framing-tests
@@ -60,15 +61,23 @@ native_test capture-path-repaired 0
 rg -x 'capture_paths_valid\t1' "$evidence/capture-path-repaired.txt"
 native_test jni-tests 0
 native_test framing-tests 0
-proc run (label, command, expected_status) {
+proc run_with_library (label, command, expected_status, library) {
   try {
-    timeout 60 "$adb" -s "$serial" shell -T "SSL_CERT_FILE=/data/local/tmp/idric-icu-runtime/cert.pem CLASSPATH=/data/local/tmp/idric-icu-runtime/icu.dex app_process -Dicu.library=/data/local/tmp/idric-icu-runtime/libicu_transport.so /system/bin Idric.Generated $command" > "$evidence/$label.stdout" 2> "$evidence/$label.stderr"
+    timeout 60 "$adb" -s "$serial" shell -T "SSL_CERT_FILE=/data/local/tmp/idric-icu-runtime/cert.pem CLASSPATH=/data/local/tmp/idric-icu-runtime/icu.dex app_process -Dicu.library=/data/local/tmp/idric-icu-runtime/$library /system/bin Idric.Generated $command" > "$evidence/$label.stdout" 2> "$evidence/$label.stderr"
   }
   var status = _error.code
   printf '%s\n' "$status" > "$evidence/$label.status"
   if (status !== int(expected_status)) { echo "FAIL $label status $status (expected $expected_status)" >&2; cat "$evidence/$label.stdout" "$evidence/$label.stderr" >&2; exit 1 }
 }
+proc run (label, command, expected_status) {
+  run_with_library "$label" "$command" "$expected_status" libicu_transport.so
+}
+# Same checked DEX and independent server; only the native candidate changes.
+# Preserve the original wrong outcomes as evidence, never as repaired behavior.
+run_with_library original-http-error 'get http://127.0.0.1:28080/status/500' 0 libicu_transport-original.so
+run_with_library original-malformed 'get http://127.0.0.1:28080/malformed' 7 libicu_transport-original.so
 printf '%s' hello > "$evidence/hello.expected"
+cmp "$evidence/hello.expected" "$evidence/original-http-error.stdout"
 run usage '' 1
 rg -x 'usage:' "$evidence/usage.stdout"
 run invalid-url 'get ftp://localhost/plain' 1
@@ -92,11 +101,20 @@ cmp "$evidence/hello.expected" "$evidence/http-error.stdout"
 run malformed 'get http://127.0.0.1:28080/malformed' 13
 run duplicate-length 'get http://127.0.0.1:28080/duplicate-length' 13
 run truncated 'get http://127.0.0.1:28080/truncated' 9
+run length-extra 'get http://127.0.0.1:28080/length-extra' 9
+run bad-length 'get http://127.0.0.1:28080/bad-length' 13
+run bad-nul 'get http://127.0.0.1:28080/bad-nul' 13
+run status-digits 'get http://127.0.0.1:28080/status-digits' 13
+run bad-redirect-frame 'get http://127.0.0.1:28080/bad-redirect-frame' 13
 run binary 'get http://127.0.0.1:28080/binary' 0
 printf '\000\001\002\377\012\015\000\200' > "$evidence/binary.expected"
 cmp "$evidence/binary.expected" "$evidence/binary.stdout"
 run chunked 'get http://127.0.0.1:28080/chunk-valid' 0
 cmp "$evidence/hello.expected" "$evidence/chunked.stdout"
+for name in chunk-truncated chunk-trailer chunk-extra chunk-extension chunk-duplicate chunk-conflict {
+  run "$name" "get http://127.0.0.1:28080/$name" 13
+}
+run chunk-overflow 'get http://127.0.0.1:28080/chunk-overflow' 12
 if cmp -s "$evidence/posted.expected" "$evidence/get.stdout" { echo 'FAIL observer accepted deliberately wrong expected bytes' >&2; exit 1 }
 "$adb" -s "$serial" pull /data/local/tmp/idric-icu-runtime/icu.dex "$evidence/received.dex"
 "$adb" -s "$serial" pull /data/local/tmp/idric-icu-runtime/libicu_transport.so "$evidence/received.so"
@@ -104,4 +122,5 @@ cmp "$input/icu.dex" "$evidence/received.dex"
 cmp "$input/libicu_transport.so" "$evidence/received.so"
 sha256sum "$input/icu.dex" "$input/libicu_transport.so" "$input/fixture" > "$evidence/artifacts.sha256"
 printf 'checked_ICU_ART_JNI\tPASS\nhttp_get\tPASS\nhttp_post_utf8\tPASS\nhttps_get\tPASS\nhttps_post_utf8\tPASS\ninvalid_TLS_identity\tREJECTED\nredirect\tPASS\nhttp_failure_status\tPASS\nmalformed_framing\tREJECTED\ntruncated\tREJECTED\nbinary_stdout\tPASS\nchunked\tPASS\nwrong_expected_bytes\tREJECTED\nphysical_A1\tNOT_RUN\nphysical_C67\tNOT_RUN\n' > "$evidence/receipt.tsv"
+printf 'original_private_path_failure\tREPRODUCED\nrepaired_native_framing_55\tPASS\nJNI_UTF8_checks_10\tPASS\noriginal_HTTP_status_loss\tREPRODUCED\noriginal_malformed_status_loss\tREPRODUCED\nHTTP_failure_exit_10\tPASS\nmalformed_exit_13\tPASS\nhostile_length_and_chunk_cases\tREJECTED\n' >> "$evidence/receipt.tsv"
 printf '\033[32mPASS\033[0m unchanged checked ICU through DEX, ART and maintained JNI transport on x86_64 emulator\n'

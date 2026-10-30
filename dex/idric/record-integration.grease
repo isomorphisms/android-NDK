@@ -1,0 +1,41 @@
+#!/usr/bin/env grease
+# Receipt assembly after the required qualification steps; no build or runtime
+# result is inferred from this document or from an older integration head.
+if (len(ARGV) !== 3) { echo 'usage: grease record-integration.grease REPOSITORY EVIDENCE canonical|runtime' >&2; exit 2 }
+var repository = ARGV[0]
+var evidence = ARGV[1]
+var lane = ARGV[2]
+if (repository[0] !== '/' or evidence[0] !== '/') { echo 'FAIL absolute paths required' >&2; exit 2 }
+var revision = $(git -C "$repository" rev-parse HEAD)
+test "$(cat "$evidence/integration-commit.txt")" = "$revision"
+var run_id = $(cat "$evidence/workflow-run-id.txt")
+test -n "$run_id"
+var destination = "$evidence/dex/idric"
+mkdir -p "$destination"
+var record = "$destination/INTEGRATION-33-30.md"
+test ! -e "$record"
+cp "$repository/dex/idric/INTEGRATION-33-30.md" "$record"
+printf '\n## Observed qualification stages at this exact commit\n\nFinal integration commit: `%s`\n\nWorkflow: https://github.com/isomorphisms/android-NDK/actions/runs/%s\n\nLane: `%s`; workflow conclusion is reported by GitHub after artifact upload.\n\n```text\n' "$revision" "$run_id" "$lane" >> "$record"
+if (lane === 'canonical') {
+  test "$(cat "$evidence/icu/backend-ref.txt")" = "$revision"
+  rg -x 'checked_ICU_ART_JNI\tPASS' "$evidence/icu-art/receipt.tsv"
+  cat "$evidence/new-intent/receipt.tsv" "$evidence/new-intent-independent/result.tsv" \
+    "$evidence/managed-exports-art/receipt.tsv" "$evidence/pure-text/art/result.tsv" \
+    "$evidence/icu-art/receipt.tsv" "$evidence/icu/artifacts.sha256" \
+    "$evidence/icu/native-receipt.tsv" "$evidence/icu/native-compiler-version.txt" >> "$record"
+} elif (lane === 'runtime') {
+  test "$(cat "$evidence/candidates/source-revision.txt")" = "$revision"
+  test "$(cat "$evidence/native-art/source-revision.txt")" = "$revision"
+  rg -x 'source_mutant_ART\tREJECTED' "$evidence/art/art-receipt.tsv"
+  rg -x 'integer_and_long_boundaries\tPASS' "$evidence/native-art/receipt.tsv"
+  cat "$evidence/art/android-api.txt" "$evidence/art/art-receipt.tsv" \
+    "$evidence/native-art/receipt.tsv" "$evidence/backend.sha256" \
+    "$evidence/candidates"/*/artifact.sha256 "$evidence/native-art/artifacts.sha256" >> "$record"
+} else {
+  echo 'FAIL unknown qualification lane' >&2
+  exit 2
+}
+cat "$evidence/frontend-version.txt" "$evidence/grease-version.txt" >> "$record"
+printf '```\n\nPhysical A1: NOT_RUN. Physical C67: NOT_RUN. No merge or release.\n' >> "$record"
+sha256sum "$record" > "$destination/INTEGRATION-33-30.sha256"
+printf '\033[32mPASS\033[0m exact-commit integration receipt assembled from current qualification outputs\n'
