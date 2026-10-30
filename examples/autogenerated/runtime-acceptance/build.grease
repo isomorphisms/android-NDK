@@ -6,6 +6,10 @@ var evidence = ARGV[2]
 var compiler = "$frontend/_/build/exec/idris2"
 if test -e "$evidence" { echo 'FAIL build evidence already exists' >&2; exit 1 }
 mkdir -p "$evidence/oracles"
+git -C "$repository" rev-parse HEAD > "$evidence/integration-commit.txt"
+try { printenv GITHUB_RUN_ID > "$evidence/workflow-run-id.txt" }
+try { printenv GITHUB_RUN_ATTEMPT > "$evidence/workflow-run-attempt.txt" }
+grease --version > "$evidence/grease-version.txt"
 setglobal ENV.IDRIS2_PREFIX = "$frontend/_/bootstrap-build"
 setglobal ENV.IDRIS2_PACKAGE_PATH = "$frontend/_/bootstrap-build/idris2-0.8.0"
 setglobal ENV.IDRIS2_DATA = "$frontend/_/support"

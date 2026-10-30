@@ -76,6 +76,36 @@ The caller now retains that exact NDK path
 for the entire recursive build and captures the inner build log on failure.
 No native transport source is replaced.
 
+## Integration capture-path regression
+
+Run 40576160334 at backend c47d524c097770daab330bd135f84da3851e151b
+retained `icu-art/framing-tests.txt`: the first failing assertion is
+`tests/FramingTests.c:96`, acceptance of two absent output paths in a newly
+created owner-private directory. The earlier framing cases and JNI checks
+completed. This is a native path-validation boundary, before ICU ART HTTP/TLS.
+
+`CapturePathProbe.c` observes `Path -> IO (read_errno, search_errno)` for every
+ancestor and `CapturePaths -> IO Bool` using the provider's actual private
+functions. C is required here to include the existing native implementation and
+exercise its static POSIX descriptor operations without creating another FFI or
+transport. This is a native ABI regression test, not an Idric fallback. No new
+Idric compiler capability is required for the repair.
+
+`capture-parent.patch` is an integration-owned overlay on exactly ICU
+b1c19dc281e5e7d3d326c9275093fb379bafd4bd. It changes only ancestor directory
+descriptors to Linux `O_PATH`, retaining `O_DIRECTORY`, `O_NOFOLLOW`, owner/mode
+validation, distinct absent leaves and mode-0600 exclusive file creation. The
+non-Linux path keeps its previous access mode. Idric/JNI source and the entire
+original framing suite remain byte-for-byte unchanged.
+
+The producer builds original and repaired native candidates with the same NDK,
+OpenSSL and fixture inputs and retains both identities. The observer requires
+the original candidate to reproduce line 96, logs the actual ancestor errors,
+requires the repaired path probe and original full suite to pass, then executes
+all checked ICU ART HTTP/TLS cases. A hypothetical permission explanation is
+not execution evidence; the recorded probe and candidate outputs decide it.
+Physical A1/C67 testing remains NOT_RUN.
+
 Source review also found that managed node getters return Object, while tag
 comparisons invoke String.equals. Explicit checked String casts now preserve
 that representation invariant for ART's verifier. The actual checked argument

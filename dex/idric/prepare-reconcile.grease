@@ -20,6 +20,11 @@ grease "$repository/dex/idric/tests/dex/source-boundary-self-test.grease" "$repo
 "$compiler" --build backend.ipkg
 cp "$frontend/_/build/exec/idris2_app/libidris2_support.so" build/exec/idric-dex_app/
 mkdir -p "$evidence/oracles"
+git -C "$repository" rev-parse HEAD > "$evidence/integration-commit.txt"
+try { printenv GITHUB_RUN_ID > "$evidence/workflow-run-id.txt" }
+try { printenv GITHUB_RUN_ATTEMPT > "$evidence/workflow-run-attempt.txt" }
+"$compiler" --version > "$evidence/frontend-version.txt"
+grease --version > "$evidence/grease-version.txt"
 curl -fL https://github.com/baksmali/smali/releases/download/3.0.10/baksmali-3.0.10-fat-release.jar -o "$evidence/oracles/baksmali.jar"
 curl -fL https://github.com/baksmali/smali/releases/download/3.0.10/smali-3.0.10-fat-release.jar -o "$evidence/oracles/smali.jar"
 printf '%s  %s\n' 37ae4a41a8886e15c20b8362fa4250f96bbdb55e1a608199ad8b5dff068b588f "$evidence/oracles/baksmali.jar" | sha256sum -c -
