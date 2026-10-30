@@ -30,7 +30,9 @@ if (lane === 'canonical') {
   rg -x 'integer_and_long_boundaries\tPASS' "$evidence/native-art/receipt.tsv"
   cat "$evidence/art/android-api.txt" "$evidence/art/art-receipt.tsv" \
     "$evidence/native-art/receipt.tsv" "$evidence/backend.sha256" \
-    "$evidence/candidates"/*/artifact.sha256 "$evidence/native-art/artifacts.sha256" >> "$record"
+    "$evidence/candidates/plain/artifact.sha256" "$evidence/candidates/values/artifact.sha256" \
+    "$evidence/candidates/arguments/artifact.sha256" "$evidence/candidates/tails/artifact.sha256" \
+    "$evidence/native-art/artifacts.sha256" >> "$record"
 } else {
   echo 'FAIL unknown qualification lane' >&2
   exit 2

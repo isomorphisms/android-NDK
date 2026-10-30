@@ -139,6 +139,15 @@ the current lane's Markdown/sha256 receipt. This is shell file composition in
 Grease, not another compiler, evaluator or runtime. It does not predict the
 workflow conclusion or grant a PASS to a different lane or commit.
 
+At integration commit 305b3833fb5563bcdca5331fa81976cf89062d53, run
+40986375643 passed both APIs' runtime and JNI execution but failed the new
+receipt stage: Grease rejected a quoted path prefix joined to a glob with
+`Invalid quoted word part in YSH (OILS-ERR-17)`. The failed source remains in
+that commit. The receipt now names its four known candidate-manifest paths
+explicitly in ordinary Grease arguments. This is a reporting-stage repair;
+the failed overall workflow is not recorded as PASS and both lanes must be
+rerun at the next exact head.
+
 Source review also found that managed node getters return Object, while tag
 comparisons invoke String.equals. Explicit checked String casts now preserve
 that representation invariant for ART's verifier. The actual checked argument
