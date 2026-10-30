@@ -1,0 +1,17 @@
+#!/usr/bin/env grease
+if (len(ARGV) !== 5) { echo 'usage: grease reject-source.grease DRIVER DIRECTORY SOURCE LOG ARTIFACT'; exit 2 }
+var driver = ARGV[0]
+var directory = ARGV[1]
+var source = ARGV[2]
+var log = ARGV[3]
+var artifact = ARGV[4]
+if test -e "$artifact" { echo 'FAIL stale refusal artifact'; exit 1 }
+if "$driver" --cg dex --source-dir "$directory" "$source" -o invalid-dex-int > "$log" 2>&1 {
+  echo 'FAIL unsupported source returned success'
+  exit 1
+} else {
+  var status = $?
+  test "$status" -eq 1
+}
+rg -F 'dex rejected source ABI' "$log"
+test ! -e "$artifact"

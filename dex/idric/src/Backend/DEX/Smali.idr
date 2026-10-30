@@ -59,14 +59,28 @@ render_instruction (MoveObject destination source) =
   render_move_with "move-object" destination source
 render_instruction (IntegerConstant destination value) =
   render_constant destination value
+render_instruction (ArrayLength destination array) =
+  "array-length " ++ show destination ++ ", " ++ show array
+render_instruction (ArrayGetObject destination array index) =
+  "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
+render_instruction (IntToLong destination source) =
+  "int-to-long " ++ show destination ++ ", " ++ show source
+render_instruction (LongConstant destination value) =
+  "const-wide/16 " ++ show destination ++ ", " ++ show value
+render_instruction (AddLong destination left right) =
+  "add-long " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
+render_instruction (StaticGetObject destination field) =
+  "sget-object " ++ show destination ++ ", " ++ show field
+render_instruction (StaticPutObject source field) =
+  "sput-object " ++ show source ++ ", " ++ show field
 render_instruction (NullReference destination) =
   render_constant destination 0
 render_instruction (TextConstant destination value) =
   "const-string " ++ show destination ++ ", " ++ render_literal value
-render_instruction (CheckCast register target) =
-  "check-cast " ++ show register ++ ", " ++ target.descriptor
 render_instruction (NewObject destination object_type) =
   "new-instance " ++ show destination ++ ", " ++ show object_type
+render_instruction (CheckCast register target) =
+  "check-cast " ++ show register ++ ", " ++ target.descriptor
 render_instruction (IntegerBinary operation destination left right) =
   show operation ++ " " ++ show destination ++ ", " ++
   show left ++ ", " ++ show right
@@ -107,6 +121,8 @@ render_instruction (InvokeMethod invocation) =
     render_result result Nothing = ""
     render_result LongValue (Just register) =
       "\n    move-result-wide " ++ show register
+    render_result (ExistingValue DoubleValue) (Just register) =
+      "\n    move-result-wide " ++ show register
     render_result (ReferenceValue reference) (Just register) =
       "\n    move-result-object " ++ show register
     render_result (ExistingValue TextValue) (Just register) =
@@ -125,6 +141,7 @@ render_instruction (Mark label) = show label
 render_instruction (ReturnInteger register) = "return " ++ show register
 render_instruction (ReturnObject register) = "return-object " ++ show register
 render_instruction (ReturnWide register) = "return-wide " ++ show register
+render_instruction (ThrowObject register) = "throw " ++ show register
 render_instruction ReturnVoid = "return-void"
 
 private
@@ -138,14 +155,17 @@ render_method method =
         StaticMethod => "public static "
         InstanceMethod => "public "
         ConstructorMethod => "public constructor "
+        ClassInitializerMethod => "static constructor "
+        NativeStaticMethod => "public static native "
+        NativeInstanceMethod => "public native "
+        ProtectedInstanceMethod => "protected "
   in
   unlines
     ([ ".method " ++ access ++ method.method_name ++
        "(" ++ parameter_descriptor method.parameter_types ++ ")" ++
        framework_descriptor method.result_type
-     , "    .registers " ++ show method.register_count
-     , ""
-     ] ++
+     ] ++ (if native_method method.mode then [] else
+       ["    .registers " ++ show method.register_count, ""]) ++
      map render_line method.instructions ++
      [ ".end method", "" ])
   where
@@ -160,10 +180,13 @@ render_finalized_smali : FinalizedFilePlan -> String
 render_finalized_smali finalized =
   let plan = finalized_plan finalized in
   unlines
-    [ ".class public final " ++ plan.class_descriptor
+    [ (if plan.access_flags == 1 then ".class public " else ".class public final ") ++ plan.class_descriptor
     , ".super " ++ plan.superclass.descriptor
     , ""
     ] ++ unlines (map (\implemented => ".implements " ++ show implemented) plan.interfaces) ++
+    concat (map (\field =>
+      ".field " ++ (if field.access_flags == 10 then "private" else "public") ++
+      " static " ++ field.name ++ ":" ++ framework_descriptor field.value_type ++ "\n") plan.fields) ++
     concat (map render_method plan.methods)
 
 -- Compatibility API invokes the encoder's bounded layout pass; rendering

@@ -1,0 +1,8 @@
+module Unsupported
+
+%foreign "C:idric_runtime_acceptance_unavailable,libunavailable"
+unavailable : PrimIO ()
+
+%export "dex:unsupported"
+main : IO ()
+main = primIO unavailable

@@ -2,22 +2,29 @@ module Backend.DEX.Codegen
 
 import Backend.DEX.Encode
 import Backend.DEX.Callback
+import Backend.DEX.Capabilities
 import Backend.DEX.Foreign
+import Backend.DEX.NativeContract
 import Backend.DEX.IR
 import Backend.DEX.Lower
+import Backend.DEX.Heap
+import Backend.DEX.RuntimeArgs
 import Backend.DEX.Unpack
 import Backend.DEX.Smali
 import Compiler.ANF
 import Compiler.Common
 import Core.Context
+import Core.CompileExpr
 import Core.Env
 import Core.Name.Namespace
 import Core.Options
 import Core.Normalise
 import Core.TT
 import Data.String
+import Data.List
 import Idris.Syntax
 import Libraries.Utils.Path
+import System.File
 
 %default covering
 
@@ -141,6 +148,107 @@ lookup_anf_definition requested ((name, definition) :: rest) =
   if requested == name then Just definition else lookup_anf_definition requested rest
 
 private
+ordinary_function : List (Name, Administrative_Normal_Form_Definition) -> Name -> Bool
+ordinary_function definitions name = case lookup_anf_definition name definitions of
+  Just (Make_Administrative_Normal_Form_Function _ _) => True
+  _ => False
+
+-- Discover all named edges, including branches not taken on the build host.
+-- A visited set terminates recursive and mutually recursive checked graphs.
+mutual
+  private
+  named_calls : Administrative_Normal_Form -> List Name
+  named_calls (Administrative_Normal_Form_Named_Function_Application _ _ name _) = [name]
+  named_calls (Administrative_Normal_Form_Binding _ _ value body) =
+    named_calls value ++ named_calls body
+  named_calls (Administrative_Normal_Form_Constructor_Case _ _ branches fallback) =
+    concatMap constructor_calls branches ++ maybe [] named_calls fallback
+  named_calls (Administrative_Normal_Form_Constant_Case _ _ branches fallback) =
+    concatMap constant_calls branches ++ maybe [] named_calls fallback
+  named_calls (Administrative_Normal_Form_Partial_Application _ name _ _) = [name]
+  named_calls _ = []
+
+  private
+  constructor_calls : Administrative_Normal_Form_Constructor_Alternative -> List Name
+  constructor_calls (Make_Administrative_Normal_Form_Constructor_Alternative _ _ _ _ body) =
+    named_calls body
+
+  private
+  constant_calls : Administrative_Normal_Form_Constant_Alternative -> List Name
+  constant_calls (Make_Administrative_Normal_Form_Constant_Alternative _ body) = named_calls body
+
+private
+reachable_functions : List (Name, Administrative_Normal_Form_Definition) ->
+  List Name -> List Name -> List Name
+reachable_functions definitions [] visited = reverse visited
+reachable_functions definitions (name :: pending) visited =
+  if elem name visited then reachable_functions definitions pending visited
+  else case lookup_anf_definition name definitions of
+    Just (Make_Administrative_Normal_Form_Function _ body) =>
+      reachable_functions definitions (pending ++ named_calls body) (name :: visited)
+    _ => reachable_functions definitions pending (name :: visited)
+
+-- Only concrete scalar helpers acquire a runtime-call ABI. Polymorphic
+-- helpers retain checked specialization; heap values retain explicit refusal.
+private
+runtime_scalar : FrameworkValueType -> Bool
+runtime_scalar (ExistingValue IntegerValue) = True
+runtime_scalar (ExistingValue TextValue) = True
+runtime_scalar (ExistingValue BooleanValue) = True
+runtime_scalar _ = False
+
+private
+helper_abi : {auto c : Ref Ctxt Defs} -> Name -> String -> Core (Maybe ExportABI)
+helper_abi name method = do
+  definitions <- get Ctxt
+  case !(lookupTyExact name (gamma definitions)) of
+    Nothing => pure Nothing
+    Just source_type => do
+      normalized <- normalise definitions Env.empty source_type
+      full <- toFullNames normalized
+      case parse_source_signature [] full of
+        Right (arguments, result, PureForeign) =>
+          if all runtime_scalar arguments && runtime_scalar result
+            then pure (Just (MkExportABI name method arguments result PureForeign))
+            else pure Nothing
+        _ => pure Nothing
+
+private
+discover_helpers : {auto c : Ref Ctxt Defs} -> List Name -> List ExportABI ->
+  Int -> Core (List ExportABI)
+discover_helpers [] exports next = pure []
+discover_helpers (name :: rest) exports next =
+  if elem name (map internal_name exports)
+    then discover_helpers rest exports next
+    else do
+      let candidate = "_checked_" ++ show next
+      if elem candidate (map method_name exports)
+        then discover_helpers (name :: rest) exports (next + 1)
+        else do
+          found <- helper_abi name candidate
+          more <- discover_helpers rest exports (next + 1)
+          pure (maybe more (:: more) found)
+
+-- Internal and external calls share typed invocation/placement operations.
+-- Internal descriptions come from checked types rather than caller metadata.
+private
+scalar_cf_type : FrameworkValueType -> CFType
+scalar_cf_type (ExistingValue TextValue) = CFString
+scalar_cf_type _ = CFInt32
+
+private
+checked_invocation : ExportABI -> Maybe (Name, DEXForeign)
+checked_invocation abi =
+  if abi.effect == PureForeign && all runtime_scalar abi.parameter_types &&
+     runtime_scalar abi.result_type
+    then Just (abi.internal_name,
+      MkDEXForeign PureForeign InvokeStatic
+        (MkMethodReference (MkTypeReference "LIdric/Generated;") abi.method_name
+          abi.parameter_types abi.result_type)
+        (map scalar_cf_type abi.parameter_types) (scalar_cf_type abi.result_type))
+    else Nothing
+
+private
 collect_dex_foreigns :
   List (Name, Administrative_Normal_Form_Definition) ->
   Either String (List (Name, DEXForeign))
@@ -224,7 +332,8 @@ lower_exports integer_less_name foreigns (selected :: rest) definitions = do
   -- Unsupported unpack forms remain errors in this same DEX backend; they
   -- do not retry another compiler or replace the source with a predicate.
   method <-
-    if requires_unpack_lowering selected.internal_name definitions
+    if selected.effect == PureForeign &&
+       requires_unpack_lowering selected.internal_name definitions
       then lower_unpack_method definitions selected.effect selected.internal_name
              selected.method_name selected.parameter_types selected.result_type definition
       else lower_method integer_less_name foreigns definitions selected.effect
@@ -260,12 +369,136 @@ fully_qualified_export (internal_name, method_name) = do
   pure (qualified_name, method_name)
 
 private
+managed_abis : Int -> List (Name, Administrative_Normal_Form_Definition) ->
+  List (Name, (String, Int))
+managed_abis next [] = []
+managed_abis next ((name, definition) :: rest) =
+  case definition of
+    Make_Administrative_Normal_Form_Function arguments _ =>
+      (name, ("__idricManaged" ++ show next, cast (length arguments))) :: managed_abis (next + 1) rest
+    Make_Administrative_Normal_Form_Foreign_Function _ arguments _ =>
+      (name, ("__idricManaged" ++ show next, cast (length arguments))) :: managed_abis (next + 1) rest
+    _ => managed_abis next rest
+
+private
+managed_methods : List JNIService -> List (Name, (String, Int)) ->
+  List (Name, Administrative_Normal_Form_Definition) -> Either String (List MethodPlan)
+managed_methods services abis definitions = do
+  (tail_names, tail_methods) <- heap_tail_methods abis definitions
+  ordinary_methods <- lower_remaining tail_names definitions
+  Right (tail_methods ++ ordinary_methods)
+  where
+    lower_remaining : List Name -> List (Name, Administrative_Normal_Form_Definition) -> Either String (List MethodPlan)
+    lower_remaining tail_names [] = Right []
+    lower_remaining tail_names ((name, definition) :: rest) = do
+      more <- lower_remaining tail_names rest
+      if elem name tail_names then Right more else
+        case lookup name abis of
+          Nothing => Right more
+          Just (method, arity) => do
+            if arity > 255 then Left ("Managed DEX checked arity exceeds the invocation word limit: " ++ show name) else Right ()
+            lowered <- case (case definition of
+              Make_Administrative_Normal_Form_Foreign_Function {} => heap_foreign_linked services method definition
+              _ => heap_method abis name method definition) of
+                Left explanation => Left ("In " ++ show name ++ ": " ++ explanation)
+                Right accepted => Right accepted
+            Right (lowered :: more)
+
+private
+managed_plan : String -> Maybe (String, List JNIService) -> List ExportABI -> List Name ->
+  List (Name, Administrative_Normal_Form_Definition) -> Either String FilePlan
+managed_plan program_name native [entry] reachable definitions = do
+  if entry.effect /= PrimitiveIOForeign || entry.result_type /= VoidValue ||
+     not (null entry.parameter_types)
+    then Left "Managed command execution requires one checked IO Unit entrypoint"
+    else Right ()
+  let live = filter (\definition => elem (fst definition) reachable) definitions
+  let abis = managed_abis 0 live
+  -- A supplied map describes available native services, not an instruction to
+  -- load an otherwise unused library or retain every declaration in the map.
+  let services = filter (\service => any (uses_service service.convention . snd) live) (maybe [] snd native)
+  methods <- managed_methods services abis live
+  (checked, arity) <- maybe (Left "Managed DEX entry has no checked body") Right (lookup entry.internal_name abis)
+  if arity /= 1 then Left "Managed IO entry must retain exactly its checked World argument" else Right ()
+  let native_methods = if null services then [] else
+        maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native services) native
+  let closure_targets = checked_closure_targets live
+  let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
+  let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
+        heap_exact_number False, heap_exact_number True, heap_character,
+        heap_entry entry.method_name checked] ++ native_methods
+  case find_duplicate_name (map method_name all_methods) of
+    Just name => Left ("Managed JNI/generated method name collision: " ++ name)
+    Nothing => Right ()
+  let plan = MkFilePlan "LIdric/Generated;" all_methods
+  let requirements = checked_runtime_requirements live
+  attached <- if needs_runtime_arguments requirements
+    then with_runtime_arguments program_name entry.method_name plan
+    else with_runtime_entry entry.method_name plan
+  let roots = ["main"] ++ if null native_methods then [] else ["<clinit>"]
+  validate_runtime_dependencies attached.class_descriptor attached.methods
+  Right ({ methods := retain_reachable_methods attached.class_descriptor roots attached.methods } attached)
+  where
+    uses_service : String -> Administrative_Normal_Form_Definition -> Bool
+    uses_service convention (Make_Administrative_Normal_Form_Foreign_Function conventions _ _) = elem convention conventions
+    uses_service _ _ = False
+managed_plan _ _ _ _ _ = Left "Managed command execution requires exactly one IO export"
+
+private
+parse_jni_services : List String -> Either String (List JNIService)
+parse_jni_services [] = Right []
+parse_jni_services (line :: rest) =
+  if null (words line) then parse_jni_services rest else do
+    parsed <- parse_native_boundary_row (words line)
+    if isPrefixOf (unpack "__idric") (unpack parsed.native_method_name) || parsed.native_method_name == "main"
+      then Left "JNI method name is reserved for the checked runtime" else Right ()
+    let service = MkJNIService parsed.native_convention parsed.native_method_name
+          parsed.native_argument_types parsed.native_result_type parsed.declared_contract
+    more <- parse_jni_services rest
+    if any (\earlier => earlier.convention == service.convention || earlier.method_name == service.method_name) more
+      then Left "JNI map repeats a convention or native method" else Right (service :: more)
+
+private
+load_jni_services : List String -> Core (Maybe (String, List JNIService))
+load_jni_services directives =
+  case filter (\directive => isPrefixOf (unpack "jni-map=") (unpack directive)) directives of
+    [] => pure Nothing
+    [directive] => do
+      let path = pack (drop 8 (unpack directive))
+      contents <- Core.readFile path
+      case lines contents of
+        header :: rows => case words header of
+          ["library_property", property] => case parse_jni_services rows of
+            Left explanation => throw (UserError ("dex rejected JNI map: " ++ explanation))
+            Right [] => throw (UserError "dex rejected empty JNI map")
+            Right services => pure (Just (property, services))
+          _ => throw (UserError "dex JNI map requires library_property header")
+        [] => throw (UserError "dex rejected empty JNI map")
+    _ => throw (UserError "dex accepts exactly one explicit JNI map")
+
+private
+clear_candidate_outputs : String -> String -> Core ()
+clear_candidate_outputs directory name = traverse_ clear [".dex", ".dex.plan", ".smali", ".runtime.tsv"]
+  where
+    clear : String -> Core ()
+    clear extension = do
+      let path = directory </> (name ++ extension)
+      present <- coreLift (exists path)
+      if present then do
+        removed <- coreLift (removeFile path)
+        case removed of
+          Left error => throw (UserError ("Cannot invalidate stale DEX candidate " ++ path ++ ": " ++ show error))
+          Right () => pure ()
+        else pure ()
+
+private
 compile_dex :
   Ref Ctxt Defs -> Ref Syn SyntaxInfo ->
   (temporary_directory : String) -> (output_directory : String) ->
   ClosedTerm -> (requested_output_name : String) -> Core (Maybe String)
 compile_dex definitions syntax temporary_directory output_directory
             term requested_output_name = do
+  clear_candidate_outputs output_directory requested_output_name
   resolved_compile_data <-
     getCompileDataWith [backend_name] False Administrative_Normal_Form term
   qualified_exports <- traverse fully_qualified_export (exported resolved_compile_data)
@@ -276,21 +509,46 @@ compile_dex definitions syntax temporary_directory output_directory
       Right accepted => pure accepted
   external_domains <- resolve_external_domains foreigns
   export_abis <- traverse (resolve_export_abi external_domains) qualified_exports
+  let reachable = reachable_functions (anf resolved_compile_data)
+                    (map internal_name export_abis) []
+  helpers <- discover_helpers
+    (filter (ordinary_function (anf resolved_compile_data)) reachable) export_abis 0
+  let compiled_abis = export_abis ++ helpers
+  let calls = foreigns ++ mapMaybe checked_invocation compiled_abis
+  let checked_file = output_directory </> (requested_output_name ++ ".checked.anf")
+  Core.writeFile checked_file
+    ("directives pending; checked source definitions:\n" ++
+     render_checked_exports compiled_abis (anf resolved_compile_data))
   integer_less_name <-
     toResolvedNames
       (NS (mkNamespace "Prelude.EqOrd") (UN (Basic "<")))
   case validate_exports export_abis of
     Left explanation => throw (UserError ("dex rejected exports: " ++ explanation))
     Right () => pure ()
-  methods <-
-    case lower_exports integer_less_name foreigns export_abis (anf resolved_compile_data) of
-      Left explanation =>
-        throw (UserError ("dex rejected checked program: " ++ explanation))
-      Right accepted => pure accepted
   directives <- getDirectives (Other backend_name)
-  plan <- case with_interface_callbacks "LIdric/Generated;" methods directives of
-    Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
-    Right accepted => pure accepted
+  native_services <- load_jni_services directives
+  let live_definitions = filter (\definition => elem (fst definition) reachable) (anf resolved_compile_data)
+  let requirements = checked_runtime_requirements live_definitions
+  -- The checked command contract selects the managed runtime, except when
+  -- the checked graph actually uses the separate framework/reference ABI.
+  -- A declaration's spelling or the accidental presence of argv is not a mode.
+  let command_entry = case export_abis of
+        [entry] => entry.effect == PrimitiveIOForeign && entry.result_type == VoidValue && null entry.parameter_types
+        _ => False
+  let framework_calls = any (\foreign => elem (fst foreign) reachable) foreigns
+  let managed_command = command_entry && not framework_calls
+  plan <-
+    if managed_command
+      then case managed_plan requested_output_name native_services export_abis reachable (anf resolved_compile_data) of
+        Left explanation => throw (UserError ("dex rejected checked runtime: " ++ explanation))
+        Right accepted => pure accepted
+      else do
+        methods <- case lower_exports integer_less_name calls compiled_abis (anf resolved_compile_data) of
+          Left explanation => throw (UserError ("dex rejected checked program: " ++ explanation))
+          Right accepted => pure accepted
+        case with_interface_callbacks "LIdric/Generated;" methods directives of
+          Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
+          Right accepted => pure accepted
   finalized <-
     case finalize_file_plan plan of
       Left explanation => throw (UserError ("dex layout rejected plan: " ++ explanation))
@@ -300,7 +558,6 @@ compile_dex definitions syntax temporary_directory output_directory
       Left explanation => throw (UserError ("dex encoder rejected plan: " ++ explanation))
       Right encoded => pure encoded
   let dex_file = output_directory </> (requested_output_name ++ ".dex")
-  let checked_file = output_directory </> (requested_output_name ++ ".checked.anf")
   let plan_file = output_directory </> (requested_output_name ++ ".dex.plan")
   let smali_file = output_directory </> (requested_output_name ++ ".smali")
   write_result <- coreLift (write_dex dex_file bytes)
@@ -309,9 +566,12 @@ compile_dex definitions syntax temporary_directory output_directory
     Right () => pure ()
   Core.writeFile checked_file
     ("directives:\n" ++ unlines directives ++ "\n" ++
-     render_checked_exports export_abis (anf resolved_compile_data))
+     render_checked_exports compiled_abis (anf resolved_compile_data))
   Core.writeFile plan_file (render_file_plan (finalized_plan finalized))
   Core.writeFile smali_file (render_finalized_smali finalized)
+  Core.writeFile (output_directory </> (requested_output_name ++ ".runtime.tsv"))
+    (render_runtime_requirements (if managed_command then "managed-command" else "checked-platform")
+      requirements (finalized_plan finalized).methods)
   pure (Just dex_file)
 
 private

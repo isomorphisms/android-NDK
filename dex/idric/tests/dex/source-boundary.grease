@@ -1,0 +1,20 @@
+#!/usr/bin/env grease
+if (len(ARGV) !== 1) { echo 'usage: grease source-boundary.grease PACKAGE'; exit 2 }
+var package = ARGV[0]
+test -d "$package/src/Backend/DEX"
+test -s "$package/backend.ipkg"
+if rg -n '^import Backend\.(ARM|Thumb)|Backend\.(ARM|Thumb)' "$package/src/Backend/DEX" --glob '*.idr' {
+  echo 'FAIL: DEX compiler depends on ARM/Thumb implementation'
+  exit 1
+} else {
+  var search_status = $?
+  test "$search_status" -eq 1
+}
+if rg -n 'Backend\.DEX\.Encode(NativeActivity|Reddit)' "$package/backend.ipkg" {
+  echo 'FAIL: application-specific adapter entered the reusable compiler package'
+  exit 1
+} else {
+  var search_status = $?
+  test "$search_status" -eq 1
+}
+printf '\033[32mPASS\033[0m reusable DEX package remains separate from machine-code and application adapters\n'

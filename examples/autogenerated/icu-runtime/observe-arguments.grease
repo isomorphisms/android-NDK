@@ -1,0 +1,41 @@
+#!/usr/bin/env grease
+# Independent byte expectations; never derive expected values from the producer.
+if (len(ARGV) !== 4) { echo 'usage: grease observe-arguments.grease ADB SERIAL INPUT EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var input = ARGV[2]
+var evidence = ARGV[3]
+mkdir -p "$evidence"
+"$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r' | rg -x 1
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r' | rg -x x86_64
+"$adb" -s "$serial" shell mkdir -p /data/local/tmp/idric-checked-arguments
+"$adb" -s "$serial" push "$input/arguments.dex" /data/local/tmp/idric-checked-arguments/candidate.dex
+"$adb" -s "$serial" push "$input/mutant/arguments.dex" /data/local/tmp/idric-checked-arguments/mutant.dex
+"$adb" -s "$serial" push "$input/index-observer.dex" /data/local/tmp/idric-checked-arguments/index-observer.dex
+"$adb" -s "$serial" push "$input/characters.dex" /data/local/tmp/idric-checked-arguments/characters.dex
+timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/candidate.dex app_process /system/bin Idric.Generated' > "$evidence/zero.actual" 2> "$evidence/zero.stderr"
+printf '%s\n' arg:arguments > "$evidence/zero.expected"
+cmp "$evidence/zero.expected" "$evidence/zero.actual"
+timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/candidate.dex app_process /system/bin Idric.Generated first' > "$evidence/one.actual" 2> "$evidence/one.stderr"
+printf '%s\n' arg:arguments arg:first > "$evidence/one.expected"
+cmp "$evidence/one.expected" "$evidence/one.actual"
+timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/candidate.dex app_process /system/bin Idric.Generated "two words" "café🦉" "" "*+"' > "$evidence/multiple.actual" 2> "$evidence/multiple.stderr"
+printf '%s\n' arg:arguments 'arg:two words' 'arg:café🦉' arg: 'arg:*+' > "$evidence/multiple.expected"
+cmp "$evidence/multiple.expected" "$evidence/multiple.actual"
+timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/mutant.dex app_process /system/bin Idric.Generated first' > "$evidence/mutant.actual" 2> "$evidence/mutant.stderr"
+if cmp -s "$evidence/one.expected" "$evidence/mutant.actual" { echo 'FAIL checked-source mutant passed independent observation' >&2; exit 1 }
+rg -x 'wrong:first' "$evidence/mutant.actual"
+"$adb" -s "$serial" logcat -c
+try { timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/candidate.dex:/data/local/tmp/idric-checked-arguments/index-observer.dex app_process /system/bin acceptance.ArgumentIndexObserver' > "$evidence/index-refusals.txt" 2>&1 }
+var index_status = _error.code
+"$adb" -s "$serial" logcat -d -v threadtime -s AndroidRuntime:E > "$evidence/index-refusals.logcat"
+test "$index_status" = 0
+rg -x 'PASS checked argument index refusals' "$evidence/index-refusals.txt"
+timeout 45 "$adb" -s "$serial" shell -T 'CLASSPATH=/data/local/tmp/idric-checked-arguments/characters.dex app_process /system/bin Idric.Generated' > "$evidence/characters.actual" 2> "$evidence/characters.stderr"
+printf '%s\n' 0 0 55295 0 0 57344 1114111 0 0 > "$evidence/characters.expected"
+cmp "$evidence/characters.expected" "$evidence/characters.actual"
+"$adb" -s "$serial" pull /data/local/tmp/idric-checked-arguments/candidate.dex "$evidence/received.dex"
+cmp "$input/arguments.dex" "$evidence/received.dex"
+sha256sum "$input/arguments.dex" "$input/mutant/arguments.dex" > "$evidence/artifacts.sha256"
+printf 'checked_System_getArgs_ART\tPASS\nzero\tPASS\none\tPASS\nmultiple_unicode_empty\tPASS\nchecked_source_mutant\tREJECTED\nICU_HTTPS\tNOT_RUN\nphysical_A1\tNOT_RUN\nphysical_C67\tNOT_RUN\n' > "$evidence/receipt.tsv"
+printf '\033[32mPASS\033[0m checked System.getArgs, runtime lists/closures, ordered output, source-mutant rejection on x86_64 ART\n'

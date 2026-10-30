@@ -1,0 +1,20 @@
+#!/usr/bin/env grease
+# A bootstrap cache contains executables/TTCs, not generated source metadata.
+if (len(ARGV) !== 1) { echo 'usage: grease install-frontend.grease FRONTEND' >&2; exit 2 }
+var frontend = ARGV[0]
+if (frontend[0] !== '/') { echo 'FAIL absolute frontend path required' >&2; exit 2 }
+var compiler = "$frontend/_/build/exec/idris2"
+var prefix = "$frontend/_/bootstrap-build"
+test -x "$compiler"
+setglobal ENV.IDRIS2_PREFIX = prefix
+setglobal ENV.IDRIS2_PACKAGE_PATH = "$prefix/idris2-0.8.0"
+setglobal ENV.CHEZ = "$frontend/_/.tools/bin/scheme"
+setglobal ENV.PATH = "$frontend/_/.tools/bin:" ++ ENV.PATH
+# Use the pinned Makefile's generator, including its version and prefix.
+# _/src is a symlink to the source root in this frontend revision.
+make -C "$frontend/_" src/IdrisPaths.idr PREFIX="$prefix"
+test -s "$frontend/_/src/IdrisPaths.idr"
+cd "$frontend/_"
+"$compiler" --install idris2api.ipkg
+test -s "$prefix/idris2-0.8.0/idris2-0.8.0/idris2.ipkg"
+printf '\033[32mPASS\033[0m pinned frontend API and generated path metadata\n'

@@ -100,9 +100,15 @@ proc check_candidate(name) {
   echo "PASS finalized plan/smali/decoded instructions agree: $name" >> "$result/result.txt"
 }
 
-for name in arithmetic text pure-foreign effects invoke-range quick-settings boolean layout-text layout-fixture {
+for name in arithmetic text pure-foreign effects invoke-range quick-settings boolean layout-text layout-long-jump layout-fixture {
   check_candidate "$name"
 }
+
+# The real checked source must still cover promotion after helper factoring.
+# Check decoded bytes as well as reports before allowing oracle assembly to
+# repair anything. LayoutText itself remains an unchanged semantic fixture.
+rg -q 'goto/(16|32) ' "$evidence/layout-long-jump.dex.plan"
+rg -q 'goto/(16|32) ' "$result/layout-long-jump/candidate-disassembly.txt"
 
 # Negative controls alter retained evidence, not the candidate or compiler.
 # Both stale reports must still be rejected against the actual DEX, rather
@@ -124,4 +130,17 @@ jump_widths "$result/stale-smali-jumps.txt" "$result/stale-widths.txt"
 try { cmp -s "$result/stale-widths.txt" "$reference/actual-widths.txt" }
 if (_error.code !== 1) { echo 'FAIL two agreeing stale reports escaped actual DEX check' >&2; exit 1 }
 echo 'PASS rejected jointly stale plan and smali against actual DEX' >> "$result/result.txt"
+
+# Repeat the jointly stale-report control against the real checked source,
+# so the large-source regression cannot be covered solely by a hand-built
+# encoder plan. Neither stale report is assembled into a candidate.
+sed -e 's/goto\/16 /goto /g' -e 's/goto\/32 /goto /g' "$evidence/layout-long-jump.dex.plan" > "$result/long-jump-stale.plan"
+sed -e 's/goto\/16 /goto /g' -e 's/goto\/32 /goto /g' "$evidence/layout-long-jump.smali" > "$result/long-jump-stale.smali"
+plan_jumps "$result/long-jump-stale.plan" "$result/long-jump-stale-plan.txt"
+smali_jumps "$result/long-jump-stale.smali" "$result/long-jump-stale-smali.txt"
+cmp "$result/long-jump-stale-plan.txt" "$result/long-jump-stale-smali.txt"
+jump_widths "$result/long-jump-stale-smali.txt" "$result/long-jump-stale-widths.txt"
+try { cmp -s "$result/long-jump-stale-widths.txt" "$result/layout-long-jump/actual-widths.txt" }
+if (_error.code !== 1) { echo 'FAIL jointly stale real-source jump reports escaped actual DEX check' >&2; exit 1 }
+echo 'PASS rejected jointly stale real-source jump reports against actual DEX' >> "$result/result.txt"
 cat "$result/result.txt"

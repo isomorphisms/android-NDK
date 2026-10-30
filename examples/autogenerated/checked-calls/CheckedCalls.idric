@@ -1,0 +1,35 @@
+module CheckedCalls
+
+import CheckedHelpers
+
+%default covering
+
+%export "dex:cross_module"
+cross_module : Int32 -> Int32
+cross_module value = bump value * 3
+
+%export "dex:sum_recursive"
+sum_recursive : Int32 -> Int32
+sum_recursive count = if count < 1 then 0 else count + sum_recursive (count - 1)
+
+mutual
+  even_count : Int32 -> Int32
+  even_count count = if count < 1 then 1 else odd_count (count - 1)
+
+  odd_count : Int32 -> Int32
+  odd_count count = if count < 1 then 0 else even_count (count - 1)
+
+%export "dex:mutual_parity"
+mutual_parity : Int32 -> Int32
+mutual_parity count = even_count count
+
+%export "dex:text_call"
+text_call : Int32 -> Text -> Text
+text_call count text = choose_text count text
+
+%export "dex:reordered_six"
+reordered_six : Int32 -> Int32 -> Int32 -> Int32 -> Int32 -> Int32 -> Int32
+reordered_six a b c d e f = weighted f e d c b a
+
+main : IO ()
+main = pure ()

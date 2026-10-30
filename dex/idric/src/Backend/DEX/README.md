@@ -47,7 +47,10 @@ The lowerer consumes `Compiler.ANF`, not source text. It currently recognizes
 checked Int32 constants, locals/lets, `Add Int32Type`, `Sub Int32Type`, and
 `Mul Int32Type`. The currently tested compiler retains overloaded Int32 `<` as the
 resolved checked name `Prelude.EqOrd.<`; the bridge lowers that exact checked
-call and its Boolean 0/1 case form. Other named calls are rejected.
+call and its Boolean 0/1 case form. The reconciled compiler also discovers
+concrete checked scalar helpers and emits actual method calls, including
+cross-module, recursive and mutually recursive calls. Polymorphic helpers
+retain bounded checked specialization; unknown representations still fail.
 
 Compilation retains four adjacent evidence files for `-o classes`:
 
@@ -118,7 +121,8 @@ The initial checked-ANF compiler slice did not claim general calls, recursion,
 constructors, objects, arrays, fields, strings, exceptions, monitors,
 annotations, debug data, wide 64-bit values, floats, Float16, Android framework
 calls, lifecycle classes, resources, APK packaging, signing, or source-level
-IO. These are limitations of the present slice, not a rule forbidding DEX from
+IO. The implemented checked-effects extension and runtime calls now cover
+part of that original boundary. Remaining limits do not forbid DEX from
 representing them. Unsupported ANF and DEX plans fail; there is no RefC,
 Java-source, `javac`, Kotlin, Gradle, ARM Thumb, smali-candidate, or `d8`
 fallback.
@@ -132,6 +136,15 @@ checked-ANF lowering above.
 APK/UI machinery remains outside the generic semantic lowering. A framework
 call or other Android-facing extension to that lowering should be added with a
 concrete checked Idriç fixture that requires it.
+
+## Canonical ownership and shared encoding
+
+The standalone package is maintained in android-NDK/dex/idric. FrameworkClasses
+translates its compatible public API into the same FilePlan/MethodPlan and
+multi-class encoder used by the checked compiler. JNI declarations, static
+initialization, method references, MUTF-8 and metadata no longer have a second
+generic writer. Application-specific historical encoders remain fixtures.
+See ../../../RECONCILIATION.md for exact source pins, tests and ICU limits.
 # Current inventory and historical scope
 
 The [pre-ICU consolidation inventory](../../../../../provenance/pre-icu-dex-baseline.md)
