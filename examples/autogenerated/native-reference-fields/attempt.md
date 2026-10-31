@@ -33,3 +33,19 @@ decoded field-kind mutant. Local generation, declaration-order determinism
 and the five refusal controls pass with frontend 740bbf2b1, whose local native
 support uses qualified ICK c61e4482. Fresh API 29/34 reflection is required and
 is owned by ai-ci 821a95c5; it is not replaced by the host decoder.
+
+That checkpoint `6c1ebcd14c8d1d1736fdf088db7c6de2ec6a09c5` passed API 29/34
+reflection and the static-field control in run 41245527257. The subsequent real
+IB provider declarations exposed a different shared-writer defect: an empty
+interface list reused the previous class's nonzero interface offset. The
+provider consequently decoded as implementing DeathRecipient. Resetting only
+the per-class offset to zero preserves the shared type-list data and map.
+
+The extended consumer places a Runnable class before a plain class and checks
+declaration-order determinism. With the frozen prior TTC writer, independent
+decode exits 1 with `FAIL empty class inherited another class interface list`.
+The repaired writer must emit no interface for the plain class; ai-ci separately
+reflects the two classes on ART and rejects an otherwise valid, compiled
+interface-list mutant. Existing field controls remain mandatory. These mixed
+class declarations also cover the real provider; they do not implement or
+simulate Shizuku authorization.

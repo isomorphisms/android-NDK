@@ -31,8 +31,8 @@ setglobal ENV.LD_LIBRARY_PATH = "$frontend/_/build/exec/idris2_app"
 cd "$evidence"
 "$evidence/field-generator" > "$evidence/positive.txt" 2>&1
 cat "$evidence/positive.txt"
-rg -x -F 'PASS native reference fields, deterministic ordering and five declaration/access refusals' "$evidence/positive.txt"
-for lane in native-reference-fields native-reference-fields-static-mutant {
+rg -x -F 'PASS native reference fields, isolated interface lists, deterministic ordering and five declaration/access refusals' "$evidence/positive.txt"
+for lane in native-reference-fields native-reference-fields-static-mutant native-reference-fields-interface-mutant {
   test -s "$evidence/$lane.dex"
   java -jar "$baksmali" disassemble "$evidence/$lane.dex" -o "$evidence/$lane.decoded"
 }
@@ -40,13 +40,22 @@ rg -x -F '.field public binder:Landroid/os/IBinder;' "$evidence/native-reference
 rg -x -F '.field private privateBinder:Landroid/os/IBinder;' "$evidence/native-reference-fields.decoded/qualification/ReferenceContainer.smali"
 rg -x -F '.field public static shared:Ljava/lang/Object;' "$evidence/native-reference-fields.decoded/qualification/ReferenceContainer.smali"
 rg -x -F '.field public static binder:Landroid/os/IBinder;' "$evidence/native-reference-fields-static-mutant.decoded/qualification/ReferenceContainer.smali"
+rg -x -F '.implements Ljava/lang/Runnable;' "$evidence/native-reference-fields.decoded/qualification/Runner.smali"
+if rg -q '^\.implements ' "$evidence/native-reference-fields.decoded/qualification/ZPlain.smali" {
+  echo 'FAIL empty class inherited another class interface list' >&2; exit 1
+}
+rg -x -F '.implements Ljava/lang/Runnable;' "$evidence/native-reference-fields-interface-mutant.decoded/qualification/ZPlain.smali"
 if cmp -s "$evidence/native-reference-fields.dex" "$evidence/native-reference-fields-static-mutant.dex" {
   echo 'FAIL unchanged field-kind mutant' >&2; exit 1
+}
+if cmp -s "$evidence/native-reference-fields.dex" "$evidence/native-reference-fields-interface-mutant.dex" {
+  echo 'FAIL unchanged interface-list mutant' >&2; exit 1
 }
 git -C "$repository" rev-parse HEAD > "$evidence/backend-commit.txt"
 git -C "$frontend" rev-parse HEAD > "$evidence/frontend-commit.txt"
 sha256sum "$source/NativeReferenceFields.idric" "$repository/dex/idric/src/Backend/DEX/IR.idr" \
   "$repository/dex/idric/src/Backend/DEX/Encode.idr" "$repository/dex/idric/src/Backend/DEX/Smali.idr" \
   "$evidence/field-generator" "$evidence/field-generator_app/field-generator.so" \
-  "$evidence/native-reference-fields.dex" "$evidence/native-reference-fields-static-mutant.dex" > "$evidence/sha256.txt"
-printf 'typed_field_plans\tPASS\ndeclaration_order_determinism\tPASS\ninvalid_declarations_and_access\tREJECTED\nindependent_decode\tPASS\nART\tNOT_RUN\nShizuku\tNOT_RUN\nphysical_TAB_P10\tNOT_RUN\n' > "$evidence/receipt.tsv"
+  "$evidence/native-reference-fields.dex" "$evidence/native-reference-fields-static-mutant.dex" \
+  "$evidence/native-reference-fields-interface-mutant.dex" > "$evidence/sha256.txt"
+printf 'typed_field_plans\tPASS\nclass_interface_lists\tPASS\ndeclaration_order_determinism\tPASS\ninvalid_declarations_and_access\tREJECTED\nindependent_decode\tPASS\nART\tNOT_RUN\nShizuku\tNOT_RUN\nphysical_TAB_P10\tNOT_RUN\n' > "$evidence/receipt.tsv"

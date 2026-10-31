@@ -849,7 +849,7 @@ layout_type_lists descriptors start prototypes =
 private
 layout_interfaces : List String -> TypeListLayout -> List TypeReference ->
   Either String TypeListLayout
-layout_interfaces descriptors layout [] = Right layout
+layout_interfaces descriptors layout [] = Right ({ interfaces_offset := 0 } layout)
 layout_interfaces descriptors layout interfaces = do
   encoded <- encode_parameter_types descriptors (map descriptor interfaces)
   let start = align_up layout.next_offset 4
