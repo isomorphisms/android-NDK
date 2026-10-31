@@ -1,0 +1,21 @@
+module TextNumberCast
+
+import Data.Text
+import System
+
+%export "dex:integer_text"
+integer_text : Text → Text
+integer_text supplied = show (cast {to = Integer} supplied)
+
+%export "dex:signed_byte"
+signed_byte : Text → Int32
+signed_byte supplied = cast (cast {to = Int8} supplied)
+
+%export "dex:unsigned_byte"
+unsigned_byte : Text → Int32
+unsigned_byte supplied = cast (cast {to = Bits8} supplied)
+
+main : IO ()
+main = do
+  arguments ← getArgs
+  traverse_ (putStrLn . integer_text) (drop 1 arguments)

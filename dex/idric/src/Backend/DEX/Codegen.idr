@@ -428,7 +428,7 @@ managed_plan program_name native [entry] reachable definitions = do
   let closure_targets = checked_closure_targets live
   let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
   let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
-        heap_exact_number False, heap_exact_number True, heap_character,
+        heap_exact_number False, heap_exact_number True, heap_character, heap_text_number,
         heap_entry entry.method_name checked] ++ native_methods
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed JNI/generated method name collision: " ++ name)
@@ -460,7 +460,7 @@ managed_exports_plan native foreigns exports reachable definitions = do
   bridges <- traverse (bridge abis) exports
   let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
   let all_methods = methods ++ [heap_apply abis, heap_match_failure,
-        heap_exact_number False, heap_exact_number True, heap_character] ++ bridges ++ native_methods
+        heap_exact_number False, heap_exact_number True, heap_character, heap_text_number] ++ bridges ++ native_methods
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed framework/generated method name collision: " ++ name)
     Nothing => Right (MkFilePlan "LIdric/Generated;" all_methods)
@@ -553,7 +553,7 @@ managed_text_plan [entry] reachable definitions = do
     else Right ()
   methods <- managed_methods [] [] abis live
   let all_methods = methods ++ [heap_apply abis, heap_match_failure,
-        heap_exact_number False, heap_exact_number True, heap_character,
+        heap_exact_number False, heap_exact_number True, heap_character, heap_text_number,
         heap_text_entry entry.method_name checked]
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed pure Text/generated method name collision: " ++ name)
