@@ -297,6 +297,15 @@ primitive destination (Cast from CharType) [value] state =
   if from == IntegerType || from == CharType || isJust (integer_width from)
     then Right (emit [call InvokeStatic generated_type "__idricChar" [object_value] object_value [value] (Just destination)] state)
     else Left ("Managed DEX unsupported Char cast from " ++ show from)
+primitive destination (Cast StringType to) [value] state = do
+  if to == IntegerType || isJust (integer_width to)
+    then Right () else Left ("Managed DEX unsupported Text numeric target " ++ show to)
+  restored <- restore_width destination to
+  Right (emit ([call InvokeStatic generated_type "__idricTextInteger"
+    [object_value] object_value [value] (Just destination)
+    -- Managed helper calls have the erased Object ABI. ART must see the
+    -- numeric representation checked before any fixed-width BigInteger call.
+    , CheckCast destination number_type] ++ restored) state)
 primitive destination (Cast from to) [value] state = do
   if from == IntegerType || from == CharType || isJust (integer_width from)
     then Right () else Left ("Managed DEX unsupported numeric cast from " ++ show from)
@@ -970,3 +979,79 @@ heap_character = MkMethodPlan "checked numeric Unicode scalar conversion" "__idr
    , IntegerBranch LessEqualInteger (register 0) (register 1) (MkLabel 1)
    , Mark (MkLabel 0), ReturnObject (register 5), Mark (MkLabel 1)
    ] ++ number_literal (register 2) "0" ++ [ReturnObject (register 2)])
+
+-- The pinned frontend accepts whole decimal strings, truncates finite decimal
+-- floating notation and exact decimal ratios, and returns zero for malformed
+-- text. Validate ASCII syntax before platform parsing: BigInteger otherwise
+-- admits Unicode digits, and Java parsers accept unrelated whitespace/suffixes.
+-- Inexact values use the exact binary Double value, not BigDecimal's rounded
+-- printable spelling. Unqualified Scheme precision/complex forms refuse
+-- explicitly rather than acquiring an invented numeric meaning.
+public export
+heap_text_number : MethodPlan
+heap_text_number = MkMethodPlan "checked decimal Text integer conversion"
+  "__idricTextInteger" 1 [object_value] object_value 12
+  ([ CheckCast (register 11) (MkTypeReference "Ljava/lang/String;")
+   , TextConstant (register 1) "[+-]?[0-9]+"
+   , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "matches" [text_value]
+       (ExistingValue BooleanValue) [register 11, register 1] (Just (register 0))
+   , IntegerConstant (register 1) 0
+   , IntegerBranch EqualInteger (register 0) (register 1) (MkLabel 0)
+   , NewObject (register 5) number_type
+   , call InvokeDirect number_type "<init>" [text_value] VoidValue [register 5, register 11] Nothing
+   , ReturnObject (register 5)
+   , Mark (MkLabel 0)
+   , TextConstant (register 1) "[+-]?[0-9]+/[0-9]+"
+   , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "matches" [text_value]
+       (ExistingValue BooleanValue) [register 11, register 1] (Just (register 0))
+   , IntegerConstant (register 1) 0
+   , IntegerBranch EqualInteger (register 0) (register 1) (MkLabel 1)
+   , IntegerConstant (register 0) 47 -- ASCII slash, exact-ratio separator.
+   , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "indexOf" [integer_value]
+       integer_value [register 11, register 0] (Just (register 0))
+   , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "substring" [integer_value, integer_value]
+       text_value [register 11, register 1, register 0] (Just (register 7))
+   , NewObject (register 5) number_type
+   , call InvokeDirect number_type "<init>" [text_value] VoidValue [register 5, register 7] Nothing
+   , IntegerConstant (register 1) 1
+   , IntegerBinary AddInteger (register 0) (register 0) (register 1)
+   , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "substring" [integer_value]
+       text_value [register 11, register 0] (Just (register 7))
+   , NewObject (register 6) number_type
+   , call InvokeDirect number_type "<init>" [text_value] VoidValue [register 6, register 7] Nothing
+   , call InvokeVirtual number_type "signum" [] integer_value [register 6] (Just (register 0))
+   , IntegerConstant (register 1) 0
+   , IntegerBranch EqualInteger (register 0) (register 1) (MkLabel 3)
+   , call InvokeVirtual number_type "divide" [ReferenceValue number_type]
+       (ReferenceValue number_type) [register 5, register 6] (Just (register 5))
+   , ReturnObject (register 5)
+   , Mark (MkLabel 1)
+   , TextConstant (register 1) "[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eEsSfFdDlL][+-]?[0-9]+)?"
+   , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "matches" [text_value]
+       (ExistingValue BooleanValue) [register 11, register 1] (Just (register 0))
+   , IntegerConstant (register 1) 0
+   , IntegerBranch EqualInteger (register 0) (register 1) (MkLabel 2)
+   , TextConstant (register 1) "[sSfFdDlL]", TextConstant (register 9) "e"
+   , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "replaceAll" [text_value, text_value]
+       text_value [register 11, register 1, register 9] (Just (register 8))
+   , call InvokeStatic (MkTypeReference "Ljava/lang/Double;") "parseDouble" [text_value]
+       (ExistingValue DoubleValue) [register 8] (Just (register 2))
+   , NewObject (register 4) (MkTypeReference "Ljava/math/BigDecimal;")
+   , call InvokeDirect (MkTypeReference "Ljava/math/BigDecimal;") "<init>"
+       [ExistingValue DoubleValue] VoidValue [register 4, register 2] Nothing
+   , call InvokeVirtual (MkTypeReference "Ljava/math/BigDecimal;") "toBigInteger" []
+       (ReferenceValue number_type) [register 4] (Just (register 5))
+   , ReturnObject (register 5)
+   , Mark (MkLabel 2)
+   , TextConstant (register 1) "(?i)(?:[+-]?[0-9.].*[i|@].*|[+-](?:inf|nan)\\.0|[+-]i)"
+   , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "matches" [text_value]
+       (ExistingValue BooleanValue) [register 11, register 1] (Just (register 0))
+   , IntegerConstant (register 1) 0
+   , IntegerBranch EqualInteger (register 0) (register 1) (MkLabel 3)
+   , NewObject (register 4) (MkTypeReference "Ljava/lang/UnsupportedOperationException;")
+   , TextConstant (register 1) "Idriç DEX Text integer cast: unqualified complex, precision or nonfinite notation"
+   , call InvokeDirect (MkTypeReference "Ljava/lang/UnsupportedOperationException;") "<init>"
+       [text_value] VoidValue [register 4, register 1] Nothing
+   , ThrowObject (register 4)
+   , Mark (MkLabel 3)
+   ] ++ number_literal (register 5) "0" ++ [ReturnObject (register 5)])
