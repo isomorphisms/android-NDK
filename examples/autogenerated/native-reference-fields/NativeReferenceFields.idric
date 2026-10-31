@@ -1,0 +1,82 @@
+module NativeReferenceFields
+
+import Backend.DEX.Encode
+import Backend.DEX.FrameworkClasses
+import Backend.DEX.IR
+import Data.List
+import Data.Text
+import System
+
+%default covering
+
+reference : String → FrameworkValueType
+reference = ReferenceValue . MkTypeReference
+
+fields : List StaticFieldPlan
+fields =
+  [ MkStaticFieldPlan "binder" (reference "Landroid/os/IBinder;") 1
+  , MkStaticFieldPlan "privateBinder" (reference "Landroid/os/IBinder;") 2
+  , MkStaticFieldPlan "shared" (reference "Ljava/lang/Object;") 9
+  ]
+
+require : Bool → String → IO ()
+require True message = pure ()
+require False message = do putStrLn ("FAIL " ++ message); exitFailure
+
+reject : Either String value → IO ()
+reject (Left _) = pure ()
+reject (Right _) = do putStrLn "FAIL accepted malformed field declaration"; exitFailure
+
+emit : String → Either String (List Int) → IO ()
+emit path (Left problem) = do putStrLn problem; exitFailure
+emit path (Right bytes) = do
+  result ← write_dex path bytes
+  case result of
+    Left problem ⇒ do putStrLn problem; exitFailure
+    Right () ⇒ pure ()
+
+change_field_kind : StaticFieldPlan → StaticFieldPlan
+change_field_kind field =
+  if field.name ≟ "binder" then { access_flags := 9 } field else field
+
+framework_plan : Text → List Text → IO FilePlan
+framework_plan name interfaces =
+  case framework_class_plan (Subclass name "Ljava/lang/Object;" Nothing
+      [Callback "run" "V" []]) interfaces of
+    Left problem ⇒ do putStrLn problem; exitFailure
+    Right value ⇒ pure value
+
+main : IO ()
+main = do
+  plan ← case framework_class_plan
+    (Subclass "Lqualification/ReferenceContainer;" "Ljava/lang/Object;" Nothing []) [] of
+      Left problem ⇒ do putStrLn problem; exitFailure
+      Right value ⇒ pure value
+  let candidate = { fields := fields } plan
+  runner ← framework_plan "Lqualification/Runner;" ["Ljava/lang/Runnable;"]
+  plain ← framework_plan "Lqualification/ZPlain;" []
+  let positive = encode_dex_classes [candidate, runner, plain]
+  case positive of
+    Left problem ⇒ do putStrLn problem; exitFailure
+    Right _ ⇒ pure ()
+  require (positive ≟ encode_dex_classes [plain, runner, { fields := reverse fields } plan])
+    "field/class declaration order changed DEX"
+  reject (encode_dex ({ fields := fields ++ fields } plan))
+  reject (encode_dex ({ fields := [MkStaticFieldPlan "bad" (reference "Ljava/lang/Object;") 3] } plan))
+  reject (encode_dex ({ fields := [MkStaticFieldPlan "bad" (ExistingValue IntegerValue) 1] } plan))
+  reject (encode_dex ({ fields := [MkStaticFieldPlan "bad" (reference "[V") 1] } plan))
+  let invalid_static_read = MkMethodPlan "invalid static access to instance field" "wrong" 0 []
+        (reference "Ljava/lang/Object;") 1
+        [ StaticGetObject (MkRegister 0)
+            (MkFieldReference (MkTypeReference candidate.class_descriptor) "binder"
+              (reference "Landroid/os/IBinder;"))
+        , ReturnObject (MkRegister 0) ]
+  reject (encode_dex ({ methods := invalid_static_read :: candidate.methods } candidate))
+  emit "native-reference-fields.dex" positive
+  let changed = map change_field_kind fields
+  emit "native-reference-fields-static-mutant.dex"
+    (encode_dex_classes [{ fields := changed } plan, runner, plain])
+  emit "native-reference-fields-interface-mutant.dex"
+    (encode_dex_classes [candidate, runner,
+      { interfaces := [MkTypeReference "Ljava/lang/Runnable;"] } plain])
+  putStrLn "PASS native reference fields, isolated interface lists, deterministic ordering and five declaration/access refusals"
