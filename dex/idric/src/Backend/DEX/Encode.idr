@@ -737,7 +737,7 @@ instruction_field_references (StaticPutObject _ field) = [field]
 instruction_field_references _ = []
 
 private
-declared_field_reference : String -> StaticFieldPlan -> FieldReference
+declared_field_reference : String -> FieldPlan -> FieldReference
 declared_field_reference owner field =
   MkFieldReference (MkTypeReference owner) field.name field.value_type
 
@@ -1010,16 +1010,19 @@ class_data : FilePlan -> List PreparedMethod -> List FieldReference -> Either St
 class_data plan methods field_ids = do
   indexed <- traverse
     (\field => do
-      index <- lookup_index "declared static field"
+      index <- lookup_index "declared field"
         (declared_field_reference plan.class_descriptor field) field_ids
       Right (index, field.access_flags)) plan.fields
-  let static_fields = sortBy (\left, right => compare (fst left) (fst right)) indexed
+  let ordered_fields = sortBy (\left, right => compare (fst left) (fst right)) indexed
+  let static_fields = filter (\field => elem (snd field) [9, 10]) ordered_fields
+  let instance_fields = filter (\field => elem (snd field) [1, 2]) ordered_fields
   let direct = filter (\method => not (virtual_method method.plan.mode)) methods
   let virtual = filter (\method => virtual_method method.plan.mode) methods
-  Right (uleb128 (cast (length static_fields)) ++ uleb128 0 ++
+  Right (uleb128 (cast (length static_fields)) ++ uleb128 (cast (length instance_fields)) ++
     uleb128 (cast (length direct)) ++
     uleb128 (cast (length virtual)) ++
     encode_class_fields 0 static_fields ++
+    encode_class_fields 0 instance_fields ++
     encode_class_methods 0 direct ++ encode_class_methods 0 virtual)
 
 private
@@ -1170,13 +1173,13 @@ validate_declared_fields : FilePlan -> Either String ()
 validate_declared_fields plan = do
   if length (nub (map name plan.fields)) == length plan.fields
     then Right ()
-    else Left "Duplicate DEX static field name"
+    else Left "Duplicate DEX field name"
   _ <- traverse
     (\field =>
       if valid_field_name field.name && object_field_value field.value_type &&
-         elem field.access_flags [9, 10]
+         elem field.access_flags [1, 2, 9, 10]
         then validate_value_type field.value_type
-        else Left "DEX static field declaration must be public/private static reference")
+        else Left "DEX field declaration must be public/private static or instance reference")
     plan.fields
   Right ()
 
@@ -1261,7 +1264,8 @@ encode_finalized_classes frozen = do
     then Left "DEX field_id count exceeds the 16-bit instruction index range"
     else Right ()
   let owned_fields = concatMap
-        (\plan => map (declared_field_reference plan.class_descriptor) plan.fields) plans
+        (\plan => map (declared_field_reference plan.class_descriptor)
+          (filter (\field => elem field.access_flags [9, 10]) plan.fields)) plans
   let referenced_fields = concatMap (concatMap instruction_field_references . instructions) methods
   if any (\field => elem field.owner.descriptor classes && not (elem field owned_fields)) referenced_fields
     then Left "DEX generated class reads or writes an undeclared static field"
