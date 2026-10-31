@@ -36,3 +36,18 @@ are generation/decode observations; ART and compiled-mutant qualification are
 still pending. The frontend is 740bbf2b1d9e811fd00c719c3473eede17ceea3b and its
 local native support was built with qualified ICK c61e448251744a2f40ad743ebef1a027bdcd2f9d;
 the hosted lane uses its declared independent compiler pin.
+
+API 29 execution at backend b2720c422f957bd53f3e5e0895e38b4289735ad8
+exposed an erased-ABI defect: fixed-width Text casts called `BigInteger.mod`
+and `longValue` on a register whose verified type was only `Object`. ART
+rejected the entire generated class before the first `"83"` expectation.
+The process exited 137 after Android's uncaught `VerifyError` handler sent
+SIGKILL; this was not evidence of memory exhaustion. The source-bound log is
+in [IB workflow 41241482726](https://github.com/isomorphisms/ib/actions/runs/41241482726),
+artifact 13058346182 (SHA-256
+`758451a411163d006ebab28428c150187893030b58d3f977a50c203922eeccf6`).
+
+The Text numeric lowering now checks the helper's erased result as
+`BigInteger` before applying the shared width rules, matching other managed
+numeric boundaries. Generation and decode are rechecked locally; fresh ART
+execution is required before claiming runtime qualification of this repair.

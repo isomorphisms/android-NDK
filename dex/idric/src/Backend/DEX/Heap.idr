@@ -302,7 +302,10 @@ primitive destination (Cast StringType to) [value] state = do
     then Right () else Left ("Managed DEX unsupported Text numeric target " ++ show to)
   restored <- restore_width destination to
   Right (emit ([call InvokeStatic generated_type "__idricTextInteger"
-    [object_value] object_value [value] (Just destination)] ++ restored) state)
+    [object_value] object_value [value] (Just destination)
+    -- Managed helper calls have the erased Object ABI. ART must see the
+    -- numeric representation checked before any fixed-width BigInteger call.
+    , CheckCast destination number_type] ++ restored) state)
 primitive destination (Cast from to) [value] state = do
   if from == IntegerType || from == CharType || isJust (integer_width from)
     then Right () else Left ("Managed DEX unsupported numeric cast from " ++ show from)
