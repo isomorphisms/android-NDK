@@ -70,3 +70,20 @@ The generic backend-build coordinator now prints its preserved diagnostics
 before propagating a nonzero compile status. The one-off archive-reading
 job is removed once the original diagnostic is available in the canonical
 job logs. Existing actual compile/refusal requirements remain unchanged.
+
+At e58d03e2ac42a6ceef35ea22fbeef2e113a21fc4 the repaired backend builds,
+and existing checked host/runtime-fixture/refusal/decode, native-field,
+Text-order and export-alias preparation completes on both API lanes.
+The unchanged real IB ReaderProjection then exposes a second reusable
+writer deficiency: DEX format 22t branch displacement 38060 at code unit 437.
+No ART pass is claimed for this head; the consumer cannot emit its DEX.
+
+The writer's existing monotone goto relaxation now also expands a far
+conditional into its exact inverse over a goto/32. Fresh skip labels are
+drawn from the placed method's actual label set, and the layout is recomputed
+to a fixed point. Original zero-offset/undefined-label/register-range
+refusals remain. Binary and readable artifacts still consume the same
+opaque finalized plan. Literal host byte expectations cover +32767,
++32768, a far negative displacement and a conditional pushed out of range
+by another goto promotion. The real IB source and admission mutant still
+must compile/decode and execute on ART; no old pass is inherited.

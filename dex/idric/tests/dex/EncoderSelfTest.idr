@@ -181,6 +181,41 @@ main = do
   expect_equal "goto/32 opcode and offset"
     [0x2a, 0x00, 0x04, 0x00, 0x00, 0x00, 0x12, 0x00] wide
 
+  -- Literal format expectations, including exact signed boundary offsets.
+  -- These do not learn either the inverse opcode or displacement from the writer.
+  let r1 = MkRegister 1
+  near_condition <- encoded_stream "conditional positive 16-bit edge"
+    (IntegerBranch EqualInteger r0 r1 destination ::
+     replicate 32765 (IntegerConstant r0 0) ++ [Mark destination, ReturnInteger r0])
+  expect_equal "conditional +32767 stays 22t" [0x32, 0x10, 0xff, 0x7f]
+    (take 4 near_condition)
+  far_condition <- encoded_stream "conditional first positive overflow"
+    (IntegerBranch EqualInteger r0 r1 destination ::
+     replicate 32766 (IntegerConstant r0 0) ++ [Mark destination, ReturnInteger r0])
+  expect_equal "conditional +32768 inverse skip and wide jump"
+    [0x33, 0x10, 0x05, 0x00, 0x2a, 0x00, 0x01, 0x80, 0x00, 0x00]
+    (take 10 far_condition)
+  far_backward <- encoded_stream "far negative conditional"
+    ([Mark destination] ++ replicate 40000 (IntegerConstant r0 0) ++
+     [IntegerBranch LessThanInteger r0 r1 destination, ReturnInteger r0])
+  expect_equal "conditional negative wide displacement and inverse predicate"
+    [0x35, 0x10, 0x05, 0x00, 0x2a, 0x00, 0xbe, 0x63, 0xff, 0xff]
+    (take 10 (drop 80000 far_backward))
+  conditional_cascade <- encoded_stream "conditional widening after goto growth"
+    ([IntegerBranch EqualInteger r0 r1 (MkLabel 1), Goto (MkLabel 2)] ++
+     replicate 32764 (IntegerConstant r0 0) ++
+     [Mark (MkLabel 1), ReturnInteger r0] ++ replicate 10 (IntegerConstant r0 0) ++
+     [Mark (MkLabel 2), ReturnInteger r0])
+  expect_equal "fixed point includes conditional displaced by another promotion"
+    [0x33, 0x10, 0x05, 0x00, 0x2a, 0x00, 0x02, 0x80, 0x00, 0x00]
+    (take 10 conditional_cascade)
+  -- Keep the established malformed-plan refusals; far-branch support is not
+  -- permission to truncate an offset or accept a nonexistent target.
+  expect_left "undefined conditional label remains forbidden"
+    (encode_instructions [] [] [IntegerBranch EqualInteger r0 r1 (MkLabel 99)])
+  expect_left "zero-offset conditional retains explicit refusal"
+    (encode_instructions [] [] [Mark destination, IntegerBranch EqualInteger r0 r1 destination])
+
   expect_left "zero-offset goto is forbidden"
     (encode_instructions [] [] [Mark destination, Goto destination])
   expect_left "undefined goto label is forbidden"
