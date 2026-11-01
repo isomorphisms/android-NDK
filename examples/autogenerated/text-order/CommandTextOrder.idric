@@ -1,0 +1,6 @@
+module CommandTextOrder
+import TextOrderCore
+
+%export "dex:text_order_command"
+main : IO ()
+main = putStrLn (compare_text "𝄞" "\xE000")
