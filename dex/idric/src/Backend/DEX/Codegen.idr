@@ -471,9 +471,9 @@ managed_exports_plan native foreigns exports reachable definitions = do
         Right (lookup entry.internal_name abis)
       let expected : Int = cast (length entry.parameter_types) +
             if entry.effect == PrimitiveIOForeign then 1 else 0
-      if arity /= expected
+      if arity < 0 || arity > expected
         then Left ("Managed export checked arity differs from its source ABI: " ++ show entry.internal_name)
-        else managed_export_bridge entry.effect entry.method_name checked entry.parameter_types entry.result_type
+        else managed_export_bridge_arity entry.effect entry.method_name checked arity entry.parameter_types entry.result_type
 
 -- View-only unpack and scalar enum/numeric constructors already have their
 -- checked lowering. A source list/option/record allocation requires the

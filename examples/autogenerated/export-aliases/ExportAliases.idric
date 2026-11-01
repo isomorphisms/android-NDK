@@ -1,0 +1,31 @@
+module ExportAliases
+
+import Data.Text
+
+data CounterReference : Type where [external]
+
+%foreign "dex:virtual:Ljava/util/concurrent/atomic/AtomicInteger;:addAndGet:(I)I"
+add_counter : CounterReference → Int32 → PrimIO Int32
+
+change_counter : CounterReference → Int32 → IO ()
+change_counter counter amount = do
+  _ ← primIO (add_counter counter amount)
+  pure ()
+
+%export "dex:aliased_io"
+aliased_io : CounterReference → Int32 → IO ()
+aliased_io = change_counter
+
+render : Text → Int32 → Text
+render text number = text ++ ":" ++ cast number
+
+%export "dex:aliased_pure"
+aliased_pure : Text → Int32 → Text
+aliased_pure = render
+
+%export "dex:partially_applied_pure"
+partially_applied_pure : Int32 → Text
+partially_applied_pure = render "fixed"
+
+main : IO ()
+main = pure ()
