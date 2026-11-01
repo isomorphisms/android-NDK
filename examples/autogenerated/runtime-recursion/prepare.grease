@@ -12,7 +12,7 @@ for path in "$repository" "$ib" "$frontend" "$baksmali" "$evidence" {
 if test -e "$evidence" { echo 'FAIL reused recursive-consumer evidence' >&2; exit 2 }
 mkdir -p "$evidence/source"
 var observed_ib = $(git -C "$ib" rev-parse HEAD)
-if (observed_ib !== 'a7349efc8041b4c41ff158afca7f13079c8df1c2') { echo 'FAIL changed maintained IB source input' >&2; exit 1 }
+if (observed_ib !== 'a0130375d15a46d72f8e4262385315a12a005b03') { echo 'FAIL changed maintained IB source input' >&2; exit 1 }
 var prefix = "$frontend/_/bootstrap-build"
 setglobal ENV.IDRIS2_PREFIX = prefix
 setglobal ENV.IDRIS2_PACKAGE_PATH = "$prefix/idris2-0.8.0"
