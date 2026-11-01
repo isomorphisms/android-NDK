@@ -428,7 +428,7 @@ managed_plan program_name native [entry] reachable definitions = do
   let closure_targets = checked_closure_targets live
   let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
   let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
-        heap_exact_number False, heap_exact_number True, heap_character, heap_text_number,
+        heap_exact_number False, heap_exact_number True, heap_character, heap_text_number, heap_text_compare,
         heap_entry entry.method_name checked] ++ native_methods
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed JNI/generated method name collision: " ++ name)
@@ -460,7 +460,7 @@ managed_exports_plan native foreigns exports reachable definitions = do
   bridges <- traverse (bridge abis) exports
   let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
   let all_methods = methods ++ [heap_apply abis, heap_match_failure,
-        heap_exact_number False, heap_exact_number True, heap_character, heap_text_number] ++ bridges ++ native_methods
+        heap_exact_number False, heap_exact_number True, heap_character, heap_text_number, heap_text_compare] ++ bridges ++ native_methods
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed framework/generated method name collision: " ++ name)
     Nothing => Right (MkFilePlan "LIdric/Generated;" all_methods)
@@ -553,7 +553,7 @@ managed_text_plan [entry] reachable definitions = do
     else Right ()
   methods <- managed_methods [] [] abis live
   let all_methods = methods ++ [heap_apply abis, heap_match_failure,
-        heap_exact_number False, heap_exact_number True, heap_character, heap_text_number,
+        heap_exact_number False, heap_exact_number True, heap_character, heap_text_number, heap_text_compare,
         heap_text_entry entry.method_name checked]
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed pure Text/generated method name collision: " ++ name)
@@ -657,13 +657,19 @@ compile_dex definitions syntax temporary_directory output_directory
   -- In particular, a lone IO Unit export is not necessarily an ART main entry.
   let managed_command = command_entry && not framework_calls &&
                         not (elem "managed-exports" directives)
+  -- A scalar-only Text export can require operations owned by the managed
+  -- Text runtime even when optimization removes all ordinary constructors.
+  -- Select from the checked graph, retaining the same pure ABI and refusals.
+  let managed_pure_text = any managed_constructor_definition live_definitions ||
+        any (\requirement => requirement.facility == "unicode-text-order" ||
+          requirement.facility == "text-concatenation") requirements
   plan <-
     if managed_command
       then case managed_plan requested_output_name native_services export_abis reachable (anf resolved_compile_data) of
         Left explanation => throw (UserError ("dex rejected checked runtime: " ++ explanation))
         Right accepted => pure accepted
       else if not (elem "managed-exports" directives) &&
-              all pure_text_abi export_abis && any managed_constructor_definition live_definitions
+              all pure_text_abi export_abis && managed_pure_text
         then do
           case native_services of
             Just _ => throw (UserError "Managed pure Text exports do not accept a JNI map")

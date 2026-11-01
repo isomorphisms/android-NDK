@@ -323,20 +323,23 @@ primitive destination operation [left, right] state =
          ] ++ restored) state)
     Nothing => case comparison operation of
       Just (condition, type) => do
-        let supported = if type == StringType
-              then case condition of EqualInteger => True; _ => False
-              else type == IntegerType || type == CharType || isJust (integer_width type)
+        let supported = type == StringType || type == IntegerType ||
+              type == CharType || isJust (integer_width type)
         if supported then Right ()
           else Left ("Managed DEX unsupported comparison " ++ show operation)
         let owner = if type == StringType then MkTypeReference "Ljava/lang/String;" else number_type
         let input_type = if type == StringType then text_value else ReferenceValue number_type
         let (yes, after_yes) = fresh_label state
         let (done, after_done) = fresh_label after_yes
+        let compare = if type == StringType
+              then call InvokeStatic generated_type "__idricTextCompare" [text_value, text_value]
+                integer_value [register 8, register 9] (Just (register 0))
+              else call InvokeVirtual owner "compareTo" [input_type] integer_value
+                [register 8, register 9] (Just (register 0))
         Right (emit
           ([ MoveObject (register 8) left, CheckCast (register 8) owner
            , MoveObject (register 9) right, CheckCast (register 9) owner
-           , call InvokeVirtual owner "compareTo" [input_type] integer_value
-               [register 8, register 9] (Just (register 0))
+           , compare
            , IntegerConstant (register 1) 0
            , IntegerBranch condition (register 0) (register 1) yes
            ] ++ number_literal destination "0" ++ [Goto done, Mark yes] ++
@@ -715,6 +718,42 @@ heap_match_failure = MkMethodPlan "checked nonexhaustive managed match" "__idric
   , call InvokeStatic (MkTypeReference "Ljava/util/Objects;") "requireNonNull"
       [object_value, text_value] object_value [register 0, register 1] (Just (register 0))
   , ReturnObject (register 0)
+  ]
+
+-- The maintained Scheme primitives order Unicode scalar sequences. Java's
+-- String.compareTo instead orders UTF-16 units: U+1D11E would sort before
+-- U+E000. Advance both strings by actual code-point width, with an independent
+-- prefix check. No normalization, locale collation or alternate Text runtime.
+public export
+heap_text_compare : MethodPlan
+heap_text_compare = MkMethodPlan "Unicode scalar Text ordering" "__idricTextCompare"
+  2 [text_value, text_value] integer_value 12
+  [ call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "length" [] integer_value
+      [register 10] (Just (register 0))
+  , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "length" [] integer_value
+      [register 11] (Just (register 1))
+  , IntegerConstant (register 2) 0, IntegerConstant (register 3) 0
+  , Mark (MkLabel 0)
+  , IntegerBranch EqualInteger (register 2) (register 0) (MkLabel 3)
+  , IntegerBranch EqualInteger (register 3) (register 1) (MkLabel 2)
+  , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "codePointAt" [integer_value]
+      integer_value [register 10, register 2] (Just (register 4))
+  , call InvokeVirtual (MkTypeReference "Ljava/lang/String;") "codePointAt" [integer_value]
+      integer_value [register 11, register 3] (Just (register 5))
+  , IntegerBranch LessThanInteger (register 4) (register 5) (MkLabel 1)
+  , IntegerBranch GreaterThanInteger (register 4) (register 5) (MkLabel 2)
+  , call InvokeStatic (MkTypeReference "Ljava/lang/Character;") "charCount" [integer_value]
+      integer_value [register 4] (Just (register 6))
+  , IntegerBinary AddInteger (register 2) (register 2) (register 6)
+  , call InvokeStatic (MkTypeReference "Ljava/lang/Character;") "charCount" [integer_value]
+      integer_value [register 5] (Just (register 6))
+  , IntegerBinary AddInteger (register 3) (register 3) (register 6)
+  , Goto (MkLabel 0)
+  , Mark (MkLabel 3)
+  , IntegerBranch EqualInteger (register 3) (register 1) (MkLabel 4)
+  , Mark (MkLabel 1), IntegerConstant (register 8) (-1), ReturnInteger (register 8)
+  , Mark (MkLabel 2), IntegerConstant (register 8) 1, ReturnInteger (register 8)
+  , Mark (MkLabel 4), IntegerConstant (register 8) 0, ReturnInteger (register 8)
   ]
 
 private
