@@ -16,8 +16,8 @@ make_list remaining =
   if remaining == 0 then [] else remaining :: make_list (remaining - 1)
 
 sum_list : List Integer → Integer → Integer
-sum_list [] total = total
-sum_list (first :: rest) total = sum_list rest (total + first)
+sum_list [] accumulated = accumulated
+sum_list (first :: rest) accumulated = sum_list rest (accumulated + first)
 
 %noinline
 fibonacci : Integer → Integer

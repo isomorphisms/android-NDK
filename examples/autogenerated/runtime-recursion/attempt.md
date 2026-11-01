@@ -87,3 +87,14 @@ opaque finalized plan. Literal host byte expectations cover +32767,
 +32768, a far negative displacement and a conditional pushed out of range
 by another goto promotion. The real IB source and admission mutant still
 must compile/decode and execute on ART; no old pass is inherited.
+
+At 3908e7d778186779fab21436783b44eab974e605 the unchanged real IB
+ReaderProjection and its admission mutant emit and independently decode;
+the repeated positive DEX is byte-identical. Canonical host encoder tests
+pass the new conditional-range cases and progress to ART. The runtime
+job then catches a parse error in this newly authored small test fixture:
+total is a language keyword, so it cannot name the sum accumulator. The
+fixture now uses accumulated. This is a test-source correction, not a
+compiler/IB semantic change or a passing ART result. Both the real large
+consumer and all four recursive mutation controls remain mandatory; the
+real consumer is observed before the small recursion fixture on ART.
