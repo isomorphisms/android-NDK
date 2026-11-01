@@ -36,5 +36,28 @@ for lane in recursion recursion-depth-mutant recursion-list-mutant recursion-sib
     rg -x -F "$wrong" "$evidence/$lane.actual"
   }
 }
+
+for lane in source-reflow source-reflow-command-mutant {
+  "$adb" -s "$serial" push "$input/$lane/reader.dex" "$remote/$lane.dex"
+  "$adb" -s "$serial" shell chmod 444 "$remote/$lane.dex"
+  "$adb" -s "$serial" pull "$remote/$lane.dex" "$evidence/$lane.received.dex"
+  cmp "$input/$lane/reader.dex" "$evidence/$lane.received.dex"
+  try { timeout 180 "$adb" -s "$serial" shell -T "dalvikvm -cp $remote/$lane.dex Idric.Generated" > "$evidence/$lane.actual" 2> "$evidence/$lane.stderr" }
+  var command_status = _error.code
+  printf '%s\n' "$command_status" > "$evidence/$lane.exit"
+  cat "$evidence/$lane.actual"
+  cat "$evidence/$lane.stderr"
+  var wanted = 0
+  if (lane === 'source-reflow') {
+    printf '%s\n' source-reflow-unicode-offset-cases=True > "$evidence/command-expected.txt"
+  } else {
+    setvar wanted = 1
+    printf '%s\n' source-reflow-unicode-offset-cases=False > "$evidence/command-expected.txt"
+  }
+  if (command_status !== wanted) { echo 'FAIL checked command World/effect execution' >&2; exit 1 }
+  cmp "$evidence/command-expected.txt" "$evidence/$lane.actual"
+}
 printf 'schema\tidric-non-tail-recursion-v1\napi\t%s\nnon_tail_12000_depth\tPASS\n12000_constructor_results\tPASS\nsibling_call_live_values\tPASS\nmutual_varying_arity_12000_depth\tPASS\nfour_compiled_source_mutants\tREJECTED\nphysical_TAB_P10\tNOT_RUN\n' "$api" > "$evidence/receipt.tsv"
 cat "$evidence/receipt.tsv"
+
+printf 'checked_command_closure_effect\tPASS\ncompiled_false_command\tREJECTED\n' >> "$evidence/receipt.tsv"
