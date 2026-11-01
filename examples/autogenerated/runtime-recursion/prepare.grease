@@ -26,7 +26,7 @@ proc emit(directory, module, lane, managed) {
   var output = "$evidence/$lane"
   mkdir -p "$output"
   var directives = []
-  if (managed) { setvar directives = ['--directive', 'managed-exports'] }
+  if (managed === 'true') { setvar directives = ['--directive', 'managed-exports'] }
   try {
     "$driver" --cg dex @directives --source-dir "$directory" \
       --build-dir "$output/build" --output-dir "$output" \
