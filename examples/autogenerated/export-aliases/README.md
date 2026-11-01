@@ -25,3 +25,18 @@ independently decoded through this repair without changing its exported aliases.
 The checked native TextView declarations separately emitted and independently
 decoded through the maintained writer, including both typed SDK constructors.
 New API 29/34 execution is required; host emission provides no runtime acceptance.
+
+The first runtime attempt, run 41273908319 at 09289bf, failed its positive
+independent observer on both APIs with exit 137 and no assertion/success marker.
+It remains failed. Static decode found an observer branch that replaced the SDK
+counter register with a String before joining its second typed counter call.
+ai-ci f3764fe8afbdc02956382cc618caab297a3b9f47 preserves that register type and
+captures AndroidRuntime errors on unexpected exits or missing markers. Compiler
+semantics and literal expectations are unchanged by that observer correction.
+
+Five additional source attempts are retained under `initial/`, including their
+digest-verified original bytes. They still lower with a direct World parameter,
+so they are not proof of the real Activity's undersaturated World path. The
+active counter fixture covers ordinary alias/partial/export effect regressions;
+the actual maintained reader remains the concrete consumer requiring the new
+suffix application. Its runtime link-event qualification is still required.

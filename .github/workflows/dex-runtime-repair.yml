@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: isomorphisms/ai-ci
-          ref: 3d53775f60ba3672d67ae903a510bfdaa0fd54dc
+          ref: f3764fe8afbdc02956382cc618caab297a3b9f47
           path: .tools/field-observer
           persist-credentials: false
       - name: Qualify pinned ICK for frontend native bootstrap
