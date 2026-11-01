@@ -40,3 +40,10 @@ so they are not proof of the real Activity's undersaturated World path. The
 active counter fixture covers ordinary alias/partial/export effect regressions;
 the actual maintained reader remains the concrete consumer requiring the new
 suffix application. Its runtime link-event qualification is still required.
+
+Run 41278269592 at d5c4cbe99735c13793621a5cdb45ecb154a37a1e passed
+the complete runtime-repair lanes on API 29 and 34. The corrected independent
+driver observed the positive aliases and rejected the changed-effect source
+at its exact assertion; existing runtime/JNI/native-field/Text-order controls
+also passed. The later closed-dispatch change requires new qualification;
+the live reader link-event remains outside this component receipt.

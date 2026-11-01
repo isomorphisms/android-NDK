@@ -459,7 +459,12 @@ managed_exports_plan native foreigns exports reachable definitions = do
   methods <- managed_methods (maybe [] snd native) foreigns abis live
   bridges <- traverse (bridge abis) exports
   let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
-  let all_methods = methods ++ [heap_apply abis, heap_match_failure,
+  -- Public exports admit only checked scalars and opaque SDK references.
+  -- Their managed closures originate in the same checked partial applications
+  -- as command entries. Direct-call definitions need no dispatcher branch.
+  let closure_targets = checked_closure_targets live
+  let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
+  let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
         heap_exact_number False, heap_exact_number True, heap_character, heap_text_number, heap_text_compare] ++ bridges ++ native_methods
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed framework/generated method name collision: " ++ name)
@@ -552,7 +557,9 @@ managed_text_plan [entry] reachable definitions = do
     then Left "Managed pure Text export source and ANF arity disagree"
     else Right ()
   methods <- managed_methods [] [] abis live
-  let all_methods = methods ++ [heap_apply abis, heap_match_failure,
+  let closure_targets = checked_closure_targets live
+  let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
+  let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
         heap_exact_number False, heap_exact_number True, heap_character, heap_text_number, heap_text_compare,
         heap_text_entry entry.method_name checked]
   case find_duplicate_name (map method_name all_methods) of
