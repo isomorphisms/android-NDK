@@ -51,8 +51,14 @@ parse_callback directive = case words directive of
   ["override", "onNewIntent", "(Landroid/content/Intent;)V", checked_export] => do
     _ <- validate_method_name checked_export
     Right Nothing
+  ["override", "onResume", "()V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
+  ["override", "onDestroy", "()V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
   "extends" :: _ => Left "DEX checked subclass currently admits android.app.Activity only"
-  "override" :: _ => Left "DEX checked lifecycle admits onCreate(Bundle) and onNewIntent(Intent) only"
+  "override" :: _ => Left "DEX checked lifecycle admits onCreate(Bundle), onNewIntent(Intent), onResume() and onDestroy() only"
   [] => Right Nothing
   _ => Left "Unsupported DEX directive; expected unquoted callback, activity, extends or override declaration"
 
@@ -67,6 +73,10 @@ explicit_override directive = case words directive of
     Just (DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export)
   ["override", "onNewIntent", "(Landroid/content/Intent;)V", checked_export] =>
     Just (DeclaredOverride "onNewIntent" "(Landroid/content/Intent;)V" checked_export)
+  ["override", "onResume", "()V", checked_export] =>
+    Just (DeclaredOverride "onResume" "()V" checked_export)
+  ["override", "onDestroy", "()V", checked_export] =>
+    Just (DeclaredOverride "onDestroy" "()V" checked_export)
   _ => Nothing
 
 private
