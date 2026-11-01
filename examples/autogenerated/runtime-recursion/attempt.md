@@ -59,3 +59,14 @@ or physical observation is manufactured. All emitted DEX, plans, logs,
 statuses and source pins are retained under the existing runtime evidence.
 Physical SVITOO TAB_P10 acceptance remains BLOCKED / NOT_RUN; A1/C67 are
 historical damaged targets. No merge, signing change or permanent release.
+
+First compiled attempt 296da94ae7af35b7e62ad670864de148f06989df failed
+backend elaboration before fixtures or ART: the conditional offset in
+first_fresh_label defaulted to Integer while labels require Int. The
+canonical and framework-effect jobs independently print that exact type
+diagnostic at Heap:762. The correction gives this label allocation binding
+an explicit Int type. This is not a successful runtime qualification.
+The generic backend-build coordinator now prints its preserved diagnostics
+before propagating a nonzero compile status. The one-off archive-reading
+job is removed once the original diagnostic is available in the canonical
+job logs. Existing actual compile/refusal requirements remain unchanged.

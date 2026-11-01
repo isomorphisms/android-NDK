@@ -193,18 +193,3 @@ jobs:
           name: runtime-repair-api${{ matrix.api }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/runtime-repair
           if-no-files-found: warn
-  recorded_backend_diagnosis:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          repository: isomorphisms/android-NDK
-          github-token: ${{ github.token }}
-          run-id: 41305360245
-          artifact-ids: '13082687993'
-          merge-multiple: true
-          path: ${{ runner.temp }}/recorded-backend-diagnosis
-      - name: Read the exact failed checked compiler diagnostic
-        shell: sh
-        run: cat "$RUNNER_TEMP/recorded-backend-diagnosis/backend-build.txt"

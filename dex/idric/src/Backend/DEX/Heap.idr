@@ -759,7 +759,7 @@ tail_group_methods methods definitions names@(first :: rest) = do
   let dispatch = concatMap (\(_, (selected, _)) =>
         [IntegerConstant (register 0) selected,
          IntegerBranch EqualInteger (register 14) (register 0) (MkLabel (selected + 1))]) targets
-  let first_fresh_label = cast (length names) + (if suspending then 2 else 1)
+  let first_fresh_label : Int = cast (length names) + (if suspending then 2 else 1)
   let initial = MkHeapState methods [] first_fresh_label
         ([NullReference (register 15), Move (register 14) (register parameter_start)] ++ initialise_stack ++
          [Mark (MkLabel 0)] ++ dispatch ++
