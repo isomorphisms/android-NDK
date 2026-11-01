@@ -44,7 +44,8 @@ if (len(payload) !== 0) {
   for entry in @(cat "$output/evidence/payload-files.txt") {
     test -f "$payload/$entry"
     if (entry ~ /'.dex' $/) {
-      try { "$tools/dexdump" -c "$payload/$entry" > "$output/evidence/$entry-checksum.txt" 2>&1 }
+      var checksum_record = "$output/evidence/$(echo "$entry" | tr '/' '_')-checksum.txt"
+      try { "$tools/dexdump" -c "$payload/$entry" > "$checksum_record" 2>&1 }
       if (_error.code !== 0) { echo 'FAIL payload DEX integrity' >&2; exit 1 }
     }
     if rg -q '^lib/' <<< "$entry" {
