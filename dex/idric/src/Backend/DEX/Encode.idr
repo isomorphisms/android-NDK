@@ -220,8 +220,9 @@ label_addresses = label_addresses_from 0 []
 -- Widen jumps after instruction placement. Offsets are in 16-bit code
 -- units relative to the jump itself. A widening can move another target, so
 -- layout must be recomputed until no jump changes. Widening is monotone:
--- short -> 16 -> 32, never the reverse. There are at most two promotions
--- per goto; the explicit fuel guards against an implementation regression.
+-- short -> 16 -> 32, never the reverse. Each original conditional expands
+-- at most once, into an inverse/local skip and an already-wide goto.
+-- At most two promotions per original instruction bound the fixed point.
 private
 checked_goto_offset : Int -> Either String ()
 checked_goto_offset offset =
@@ -254,23 +255,57 @@ widen_goto labels address (Goto32 target) = do
 widen_goto labels address instruction = Right (instruction, False)
 
 private
-widen_goto_stream :
-  List (Label, Int) -> Int -> List Instruction ->
-  Either String (List Instruction, Bool)
-widen_goto_stream labels address [] = Right ([], False)
-widen_goto_stream labels address (instruction :: rest) = do
+inverse_condition : IntegerCondition -> IntegerCondition
+inverse_condition EqualInteger = NotEqualInteger
+inverse_condition NotEqualInteger = EqualInteger
+inverse_condition LessThanInteger = GreaterEqualInteger
+inverse_condition LessEqualInteger = GreaterThanInteger
+inverse_condition GreaterThanInteger = LessEqualInteger
+inverse_condition GreaterEqualInteger = LessThanInteger
+
+-- DEX has no wider conditional opcode. A far condition becomes its inverse
+-- over a goto/32. The skip label is fresh within the actual placed method.
+-- Zero offsets retain their existing explicit refusal.
+private
+widen_branch :
+  List (Label, Int) -> Int -> Int -> Instruction ->
+  Either String (List Instruction, Bool, Int)
+widen_branch labels address next_label instruction@(IntegerBranch condition left right target) = do
+  target_address <- find_label target labels
+  let offset = target_address - address
+  if offset >= -32768 && offset <= 32767
+    then Right ([instruction], False, next_label)
+    else if next_label >= signed32_max
+      then Left "DEX conditional layout exhausted its fresh label range"
+      else Right
+        ([IntegerBranch (inverse_condition condition) left right (MkLabel next_label),
+          Goto32 target, Mark (MkLabel next_label)], True, next_label + 1)
+widen_branch labels address next_label instruction = do
   (widened, changed) <- widen_goto labels address instruction
+  Right ([widened], changed, next_label)
+
+private
+widen_goto_stream :
+  List (Label, Int) -> Int -> Int -> List Instruction ->
+  Either String (List Instruction, Bool, Int)
+widen_goto_stream labels address next_label [] = Right ([], False, next_label)
+widen_goto_stream labels address next_label (instruction :: rest) = do
+  (widened, changed, following_label) <- widen_branch labels address next_label instruction
   width <- instruction_width instruction
-  (remaining, rest_changed) <- widen_goto_stream labels (address + width) rest
-  Right (widened :: remaining, changed || rest_changed)
+  (remaining, rest_changed, final_label) <- widen_goto_stream labels
+    (address + width) following_label rest
+  Right (widened ++ remaining, changed || rest_changed, final_label)
 
 private
 relax_gotos : Nat -> List Instruction -> Either String (List Instruction)
 relax_gotos Z instructions =
-  Left "DEX goto layout failed to stabilize within monotone widening bound"
+  Left "DEX branch layout failed to stabilize within monotone widening bound"
 relax_gotos (S remaining) instructions = do
   labels <- label_addresses instructions
-  (widened, changed) <- widen_goto_stream labels 0 instructions
+  let maximum_label : Int = foldl max 0 (map (\(label, _) => label.number) labels)
+  let next_label : Int = if maximum_label >= signed32_max
+        then maximum_label else maximum_label + 1
+  (widened, changed, _) <- widen_goto_stream labels 0 next_label instructions
   if changed then relax_gotos remaining widened else Right widened
 
 private

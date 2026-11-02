@@ -80,7 +80,7 @@ for mutant in omitted-intent wrong-signature {
   if (mutant === 'omitted-intent') {
     rg -F 'DEX lifecycle signature must include its checked Activity receiver' "$evidence/$mutant/compile.txt"
   } else {
-    rg -F 'DEX checked lifecycle admits onCreate(Bundle) and onNewIntent(Intent) only' "$evidence/$mutant/compile.txt"
+    rg -F 'DEX checked lifecycle admits onCreate(Bundle), onNewIntent(Intent), onResume() and onDestroy() only' "$evidence/$mutant/compile.txt"
   }
 }
 sha256sum "$driver" "${driver}_app/idric-dex.so" "$evidence/positive/candidate.dex" > "$evidence/output.sha256"

@@ -1,0 +1,75 @@
+module LifecyclePlanChecks
+
+import Backend.DEX.Callback
+import Backend.DEX.IR
+import Backend.DEX.Encode
+import Data.Text
+import Data.List
+import System
+
+%default covering
+
+activity_reference : FrameworkValueType
+activity_reference = ReferenceValue (MkTypeReference "Landroid/app/Activity;")
+
+checked_handler : MethodPlan
+checked_handler = MkMethodPlan "checked lifecycle receiver" "receive_lifecycle" 1
+  [activity_reference] VoidValue 1 [ReturnVoid]
+
+lifecycle_plan : Text → MethodPlan → Either Text FilePlan
+lifecycle_plan event handler = with_interface_callbacks "LIdric/Generated;" [handler]
+  ["extends Landroid/app/Activity;", "override " ++ event ++ " ()V receive_lifecycle"]
+
+parent_then_exact_receiver : Text → Bool
+parent_then_exact_receiver event = case lifecycle_plan event checked_handler of
+  Left _ ⇒ False
+  Right plan ⇒ case filter (\method ⇒ method.method_name ≟ event) plan.methods of
+    [bridge] ⇒ bridge.mode ≟ InstanceMethod && null bridge.parameter_types &&
+      bridge.result_type ≟ VoidValue && case bridge.instructions of
+        [InvokeMethod parent, InvokeMethod checked, ReturnVoid] ⇒
+          parent.kind ≟ InvokeSuper &&
+          parent.method.owner ≟ MkTypeReference "Landroid/app/Activity;" &&
+          parent.method.name ≟ event && null parent.method.argument_types &&
+          parent.arguments ≟ [MkRegister 1] &&
+          checked.kind ≟ InvokeStatic && checked.method.name ≟ "receive_lifecycle" &&
+          checked.arguments ≟ [MkRegister 1]
+        _ ⇒ False
+    _ ⇒ False
+
+plan_encodes : Text → Bool
+plan_encodes event = case lifecycle_plan event checked_handler of
+  Left _ ⇒ False
+  Right plan ⇒ case finalize_file_plan plan of
+    Left _ ⇒ False
+    Right frozen ⇒ case encode_finalized_dex frozen of
+      Left _ ⇒ False
+      Right bytes ⇒ not (null bytes)
+
+refuses : Either Text value → Bool
+refuses (Left _) = True
+refuses (Right _) = False
+
+cases : List (Text, Bool)
+cases =
+  [ ("resume-parent-and-checked-receiver", parent_then_exact_receiver "onResume")
+  , ("destroy-parent-and-checked-receiver", parent_then_exact_receiver "onDestroy")
+  , ("resume-final-plan-encodes", plan_encodes "onResume")
+  , ("destroy-final-plan-encodes", plan_encodes "onDestroy")
+  , ("receiverless-resume-refused", refuses (lifecycle_plan "onResume"
+      (MkMethodPlan "missing receiver" "receive_lifecycle" 0 [] VoidValue 1 [ReturnVoid])))
+  , ("wrong-receiver-destroy-refused", refuses (lifecycle_plan "onDestroy"
+      (MkMethodPlan "integer receiver" "receive_lifecycle" 1
+        [ExistingValue IntegerValue] VoidValue 1 [ReturnVoid])))
+  , ("missing-export-refused", refuses (with_interface_callbacks "LIdric/Generated;" []
+      ["extends Landroid/app/Activity;", "override onResume ()V absent"]))
+  , ("unknown-lifecycle-refused", refuses (lifecycle_plan "onStop" checked_handler))
+  , ("wrong-framework-signature-refused", refuses (with_interface_callbacks "LIdric/Generated;"
+      [checked_handler] ["extends Landroid/app/Activity;", "override onResume (Landroid/os/Bundle;)V receive_lifecycle"]))
+  , ("missing-superclass-refused", refuses (with_interface_callbacks "LIdric/Generated;"
+      [checked_handler] ["override onDestroy ()V receive_lifecycle"]))
+  ]
+
+main : IO ()
+main = do
+  traverse_ (\(name, passed) ⇒ putStrLn ((if passed then "PASS " else "FAIL ") ++ name)) cases
+  if all snd cases then putStrLn "PASS checked zero-argument lifecycle plans" else exitFailure

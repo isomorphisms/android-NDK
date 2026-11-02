@@ -1,3 +1,9 @@
+## Bounded resume and destroy lifecycle
+
+Explicit Activity declarations also admit `override onResume ()V checked_export` and `override onDestroy ()V checked_export`. Each checked export takes its external Activity receiver and returns IO () or PrimIO (). The shared lifecycle writer calls the exact SDK superclass method before forwarding the same receiver. Arbitrary lifecycle names, mismatched SDK signatures, receiverless exports and wrong result types continue to refuse. These callbacks use the framework Activity entry contract, separate from managed-command and pure-export entry contracts.
+
+The activity-lifecycle generated attempt retains source, typed host plans, independently decoded deterministic DEX, compile refusals with seeded stale-output controls, and separately compiled wrong-resume/wrong-destroy semantic mutants. ai-ci owns the literal Android lifecycle oracle. New API29/API34 acceptance requires exact-commit observations; the historical qualification below does not qualify this change.
+
 # Checked Activity and text-view adapter
 
 `%cg dex activity create_export action_export` selects a bounded Android

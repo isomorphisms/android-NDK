@@ -422,14 +422,18 @@ managed_plan program_name native [entry] reachable definitions = do
   let services = filter (\service => any (uses_service service.convention . snd) live) (maybe [] snd native)
   methods <- managed_methods services [] abis live
   (checked, arity) <- maybe (Left "Managed DEX entry has no checked body") Right (lookup entry.internal_name abis)
-  if arity /= 1 then Left "Managed IO entry must retain exactly its checked World argument" else Right ()
+  -- Optimization may leave a zero-argument checked body returning its World
+  -- closure. Reuse the qualified export bridge to saturate that closure;
+  -- the source contract still permits exactly one IO Unit command.
+  entry_bridge <- managed_export_bridge_arity entry.effect entry.method_name checked arity
+    entry.parameter_types entry.result_type
   let native_methods = if null services then [] else
         maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native services) native
   let closure_targets = checked_closure_targets live
   let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
   let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
         heap_exact_number False, heap_exact_number True, heap_character, heap_text_number, heap_text_compare,
-        heap_entry entry.method_name checked] ++ native_methods
+        entry_bridge] ++ native_methods
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed JNI/generated method name collision: " ++ name)
     Nothing => Right ()
@@ -459,7 +463,12 @@ managed_exports_plan native foreigns exports reachable definitions = do
   methods <- managed_methods (maybe [] snd native) foreigns abis live
   bridges <- traverse (bridge abis) exports
   let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
-  let all_methods = methods ++ [heap_apply abis, heap_match_failure,
+  -- Public exports admit only checked scalars and opaque SDK references.
+  -- Their managed closures originate in the same checked partial applications
+  -- as command entries. Direct-call definitions need no dispatcher branch.
+  let closure_targets = checked_closure_targets live
+  let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
+  let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
         heap_exact_number False, heap_exact_number True, heap_character, heap_text_number, heap_text_compare] ++ bridges ++ native_methods
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed framework/generated method name collision: " ++ name)
@@ -471,9 +480,9 @@ managed_exports_plan native foreigns exports reachable definitions = do
         Right (lookup entry.internal_name abis)
       let expected : Int = cast (length entry.parameter_types) +
             if entry.effect == PrimitiveIOForeign then 1 else 0
-      if arity /= expected
+      if arity < 0 || arity > expected
         then Left ("Managed export checked arity differs from its source ABI: " ++ show entry.internal_name)
-        else managed_export_bridge entry.effect entry.method_name checked entry.parameter_types entry.result_type
+        else managed_export_bridge_arity entry.effect entry.method_name checked arity entry.parameter_types entry.result_type
 
 -- View-only unpack and scalar enum/numeric constructors already have their
 -- checked lowering. A source list/option/record allocation requires the
@@ -552,7 +561,9 @@ managed_text_plan [entry] reachable definitions = do
     then Left "Managed pure Text export source and ANF arity disagree"
     else Right ()
   methods <- managed_methods [] [] abis live
-  let all_methods = methods ++ [heap_apply abis, heap_match_failure,
+  let closure_targets = checked_closure_targets live
+  let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
+  let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
         heap_exact_number False, heap_exact_number True, heap_character, heap_text_number, heap_text_compare,
         heap_text_entry entry.method_name checked]
   case find_duplicate_name (map method_name all_methods) of
