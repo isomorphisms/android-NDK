@@ -1,0 +1,11 @@
+schema	native-presentation-callback-v1
+backend_source	153e7fc8053ba4072954a5e77d4efa3609d829e4
+frontend_source	740bbf2b1d9e811fd00c719c3473eede17ceea3b
+replay_repository	isomorphisms/ib
+replay_run	41631727130
+replay_artifact	13230474933
+callback_sha256	24e37795b5c8001a280b9f5f46c64ed510660358fb42f2a7109b52e2a5c067ad
+callback_bytes	572
+emission	PASS
+ART	NOT_RUN
+physical	NOT_RUN

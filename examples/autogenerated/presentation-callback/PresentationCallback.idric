@@ -1,0 +1,25 @@
+module PresentationCallback
+
+import Backend.DEX.FrameworkClasses
+import Data.Text
+import System
+
+%default covering
+
+emit_callback : Text → Text → IO ()
+emit_callback argument destination = do
+      result ← write_framework_classes_implementing
+        [(Subclass "Lorg/isomorphisms/nativeui/Action;" "Ljava/lang/Object;" Nothing
+          [Callback "onClick" "V" [argument]],
+          ["Landroid/view/View$OnClickListener;"])] destination
+      case result of
+        Left reason ⇒ do putStrLn reason; exitFailure
+        Right () ⇒ putStrLn "PASS typed native View action declaration emitted"
+
+main : IO ()
+main = do
+  arguments ← getArgs
+  case arguments of
+    [_, destination] ⇒ emit_callback "Landroid/view/View;" destination
+    [_, destination, "--wrong-signature"] ⇒ emit_callback "I" destination
+    _ ⇒ do putStrLn "expected output DEX path"; exitFailure
