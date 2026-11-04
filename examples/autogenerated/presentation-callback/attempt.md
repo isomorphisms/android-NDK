@@ -14,3 +14,10 @@ No Java/Kotlin/Compose/Gradle/d8 or hand-written smali produces this DEX.
 Execution and negative controls are recorded in the accompanying build receipt.
 The generic declaration needs no new Idriç language capability. App adapters
 must separately qualify their semantic action dispatch and lifecycle ownership.
+
+The native framework-window handoff is additive to the callback declaration;
+Action.dex and its checked emission are unchanged. It must be ICK-compiled by
+the consumer, called before Decor attachment, and separately exercised through
+actual framework drawing/key input. A populated accessibility tree does not
+prove either ownership. No new language feature, application store or callback
+serialization is introduced by the handoff.

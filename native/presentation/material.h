@@ -19,6 +19,40 @@ static inline jmethodID m3_method(JNIEnv *e, jobject value, const char *name, co
     (*e)->DeleteLocalRef(e, type);
     return result;
 }
+/* NativeActivity claims a native Surface and InputQueue before loading its C
+ * entrypoint. A framework-View lane must release those claims BEFORE the Decor
+ * attaches; otherwise a populated View tree can remain black or lack an input
+ * target. Keep NativeActivity's lifecycle, but let ViewRoot own drawing/input.
+ * An attached Window is refused: changing its callbacks then cannot rewire an
+ * already-created ViewRoot. The caller must stop rather than silently fall back.
+ * A native surface/Canvas lane must not call this helper. */
+static inline int m3_framework_window(JNIEnv *e, jobject activity) {
+    jobject window ← NULL, decor ← NULL;
+    int ready ← 0;
+    jmethodID get_window ← m3_method(e, activity, "getWindow", "()Landroid/view/Window;");
+    if (!get_window || (*e)->ExceptionCheck(e)) goto done;
+    window ← (*e)->CallObjectMethod(e, activity, get_window);
+    if (!window || (*e)->ExceptionCheck(e)) goto done;
+    jmethodID get_decor ← m3_method(e, window, "getDecorView", "()Landroid/view/View;");
+    if (!get_decor || (*e)->ExceptionCheck(e)) goto done;
+    decor ← (*e)->CallObjectMethod(e, window, get_decor);
+    if (!decor || (*e)->ExceptionCheck(e)) goto done;
+    jmethodID attached ← m3_method(e, decor, "isAttachedToWindow", "()Z");
+    if (!attached || (*e)->ExceptionCheck(e)) goto done;
+    if ((*e)->CallBooleanMethod(e, decor, attached) || (*e)->ExceptionCheck(e)) goto done;
+    jmethodID surface ← m3_method(e, window, "takeSurface", "(Landroid/view/SurfaceHolder$Callback2;)V");
+    if (!surface || (*e)->ExceptionCheck(e)) goto done;
+    (*e)->CallVoidMethod(e, window, surface, (jobject)NULL);
+    if ((*e)->ExceptionCheck(e)) goto done;
+    jmethodID input ← m3_method(e, window, "takeInputQueue", "(Landroid/view/InputQueue$Callback;)V");
+    if (!input || (*e)->ExceptionCheck(e)) goto done;
+    (*e)->CallVoidMethod(e, window, input, (jobject)NULL);
+    ready ← !(*e)->ExceptionCheck(e);
+  done:
+    if (decor) (*e)->DeleteLocalRef(e, decor);
+    if (window) (*e)->DeleteLocalRef(e, window);
+    return ready;
+}
 static inline jobject m3_new(JNIEnv *e, jobject context, const char *name) {
     jclass type ← (*e)->FindClass(e, name);
     jobject result ← (*e)->NewObject(e, type,

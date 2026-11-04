@@ -20,3 +20,22 @@ Use a bounded projection and validate its source revision before acting.
 The helpers expect a bounded JNI local frame and UI-thread invocation. They do
 not parse documents or perform I/O. Consumers are responsible for worker
 ownership, stale-event rejection and accessible descriptions of icon controls.
+
+`m3_framework_window` is a separate bounded platform handoff for a framework
+View frontend hosted by NativeActivity. Call it from the native onCreate entry
+before the Decor attaches. It releases Window.takeSurface/takeInputQueue so the
+framework ViewRoot owns actual drawing, focus and key dispatch. It refuses an
+already-attached Window; lifecycle ownership and application state stay in the
+existing native controller. Native surface/Canvas consumers retain their native
+claims and must not call it. An ordinary checked Activity already uses framework
+ownership and does not require this handoff.
+
+This repairs a runtime boundary exposed by independent FastChat API29 IME input:
+the keyboard and View layout existed, but the application surface was black and
+InputDispatcher had no focused window for injected keys. Accessibility actions
+alone had not established actual drawing/input ownership. Android10's platform
+[NativeActivity entrypoint](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/core/java/android/app/NativeActivity.java)
+claims both callbacks before loadNativeCode; the platform
+[PhoneWindow setters](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-10.0.0_r47/core/java/com/android/internal/policy/PhoneWindow.java)
+accept null callbacks before ViewRoot attachment. Runtime qualification belongs
+to each consumer's actual APK and independent real-input tests, not this comment.
