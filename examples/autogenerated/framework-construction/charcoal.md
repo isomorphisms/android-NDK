@@ -12,6 +12,16 @@ that color on the candidate. A missing theme therefore fails at the existing
 registered application boundary. This is an observation-only extension to the
 existing smali harness, not a candidate generator or Java/Kotlin implementation.
 
+The first API34 run41968338461 reached the real TextView check and rejected its
+color. The instrumentation had supplied its raw package Context, which does not
+model Activity theme application. It now creates a ContextThemeWrapper from the
+target's actual ApplicationInfo.theme. A missing or changed manifest theme still
+affects the actual candidate constructor; the observer never sets its color or
+chooses a theme resource independently. Failure now reports the observed ARGB.
+Fresh current-source Android execution must establish the repaired fixture.
+The unchanged positive candidate is also repackaged with only the manifest theme
+removed, which must fail the palette check before the original recovery case.
+
 The framework-effects producer supplies actual Android API34 execution. Until
 that exact source runs, these changes are not accepted. The retained IB screen
 fixture still binds its older application source and resources; it is not the

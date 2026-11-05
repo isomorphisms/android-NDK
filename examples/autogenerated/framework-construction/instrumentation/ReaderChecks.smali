@@ -76,7 +76,11 @@
     const-string v1, "FAIL native reader width reflow"
     goto :failure
     :palette_failure
-    const-string v1, "FAIL charcoal framework reader text"
+    invoke-static {v3}, Ljava/lang/Integer;->toHexString(I)Ljava/lang/String;
+    move-result-object v3
+    const-string v1, "FAIL charcoal framework reader text actual="
+    invoke-virtual {v1, v3}, Ljava/lang/String;->concat(Ljava/lang/String;)Ljava/lang/String;
+    move-result-object v1
     :failure
     return-object v1
 .end method

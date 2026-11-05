@@ -14,7 +14,14 @@
     invoke-super {p0, p1}, Landroid/app/Instrumentation;->onCreate(Landroid/os/Bundle;)V
     invoke-virtual {p0}, Landroid/app/Instrumentation;->getTargetContext()Landroid/content/Context;
     move-result-object v0
-    invoke-static {v0}, LReaderChecks;->check(Landroid/content/Context;)Ljava/lang/String;
+    # Instrumentation's raw package Context does not model Activity theming.
+    # Use the target's own declared theme, never an observer-selected color.
+    invoke-virtual {v0}, Landroid/content/Context;->getApplicationInfo()Landroid/content/pm/ApplicationInfo;
+    move-result-object v2
+    iget v3, v2, Landroid/content/pm/ApplicationInfo;->theme:I
+    new-instance v1, Landroid/view/ContextThemeWrapper;
+    invoke-direct {v1, v0, v3}, Landroid/view/ContextThemeWrapper;-><init>(Landroid/content/Context;I)V
+    invoke-static {v1}, LReaderChecks;->check(Landroid/content/Context;)Ljava/lang/String;
     move-result-object v1
     new-instance v2, Landroid/os/Bundle;
     invoke-direct {v2}, Landroid/os/Bundle;-><init>()V
