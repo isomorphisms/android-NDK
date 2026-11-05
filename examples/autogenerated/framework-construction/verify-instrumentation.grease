@@ -23,6 +23,7 @@ printf '32fa0e88a6c397b3922201adf5f3e534fbaed5a663c71d0c558c3ddce0af844a  %s\n' 
 if test -e "$evidence/instrumentation" { echo 'FAIL refusing reused instrumentation evidence' >&2; exit 1 }
 var output = "$evidence/instrumentation"
 mkdir -p "$output"
+"$tools/aapt2" compile --dir "$repository/native/presentation/res" -o "$output/charcoal-resources.zip"
 java -jar "$smali" assemble "$controls" -o "$output/observer.dex"
 sha256sum "$controls/ReaderChecks.smali" "$controls/ReaderInstrumentation.smali" "$controls/SourceAddressObserver.smali" \
   "$controls/oracle-manifest.xml" "$controls/receiver-manifest.xml" "$controls/target-manifest.xml" \
@@ -39,7 +40,7 @@ for package in org.isomorphisms.idric.construct.test org.isomorphisms.idric.cons
 
 proc package_fixture(manifest, dex, directory) {
   mkdir -p "$directory"
-  "$tools/aapt2" link -I "$sdk/platforms/android-34/android.jar" --manifest "$manifest" -o "$directory/base.apk"
+  "$tools/aapt2" link -I "$sdk/platforms/android-34/android.jar" --manifest "$manifest" "$output/charcoal-resources.zip" -o "$directory/base.apk"
   cp "$directory/base.apk" "$directory/unaligned.apk"
   cp "$dex" "$directory/classes.dex"
   forkwait {
@@ -96,11 +97,19 @@ rg -q -x -F 'org.isomorphisms.idric.construct.oracle/Idric.SourceAddressObserver
 rg -q -x -F 'org.isomorphisms.idric.construct.receiver/Idric.SourceAddressObserver' "$output/source-handlers.txt"
 if rg -q -F 'com.android.chrome/' "$output/source-handlers.txt" { echo 'FAIL factory browser remains eligible in chooser fixture' >&2; exit 1 }
 test "$(rg -c '/' "$output/source-handlers.txt")" -ge 2
-for name in positive text-mutant reflow-mutant selection-mutant recovery {
-  var candidate = "$evidence/$name/candidate.dex"
-  sha256sum -c "$evidence/$name/sha256.txt"
+for name in positive text-mutant reflow-mutant selection-mutant theme-mutant recovery {
+  var material = name
+  if (name === 'theme-mutant') { setvar material = 'positive' }
+  var candidate = "$evidence/$material/candidate.dex"
+  sha256sum -c "$evidence/$material/sha256.txt"
   var directory = "$output/$name"
-  package_fixture "$controls/target-manifest.xml" "$candidate" "$directory"
+  var manifest = "$controls/target-manifest.xml"
+  if (name === 'theme-mutant') {
+    mkdir -p "$directory"
+    sed 's# android:theme="@style/Theme.Charcoal"##' "$manifest" > "$directory/theme-mutant-manifest.xml"
+    setvar manifest = "$directory/theme-mutant-manifest.xml"
+  }
+  package_fixture "$manifest" "$candidate" "$directory"
   if (name === 'positive') {
     "$adb" -s emulator-5554 install "$directory/fixture.apk" > "$directory/install.txt" 2>&1
   } else {
@@ -123,8 +132,9 @@ for name in positive text-mutant reflow-mutant selection-mutant recovery {
     if (name === 'text-mutant') { rg -q -x -F 'INSTRUMENTATION_RESULT: stream=FAIL exact native reader text' "$directory/runtime.txt" }
     if (name === 'reflow-mutant') { rg -q -x -F 'INSTRUMENTATION_RESULT: stream=FAIL native reader width reflow' "$directory/runtime.txt" }
     if (name === 'selection-mutant') { rg -q -x -F 'INSTRUMENTATION_RESULT: stream=FAIL native reader selection' "$directory/runtime.txt" }
+    if (name === 'theme-mutant') { rg -q '^INSTRUMENTATION_RESULT: stream=FAIL charcoal framework reader text actual=' "$directory/runtime.txt" }
   }
 }
-echo 'PASS registered Android constructor/text/selection/reflow; three production mutants rejected; recovery passed' > "$output/result.txt"
+echo 'PASS registered Android constructor/text/selection/reflow; three production mutants and missing-theme fixture rejected; recovery passed' > "$output/result.txt"
 echo 'Native app UI and physical acceptance are separate; observer never supplies candidate DEX' >> "$output/result.txt"
 cat "$output/result.txt"
