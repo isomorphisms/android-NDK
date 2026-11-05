@@ -1,10 +1,19 @@
 # Native presentation primitives
 
 `material.h` is a small ICK-compiled JNI adapter over framework Views. It supplies
-Material 3 color roles, light/dark system appearance, Android 12 tonal palettes,
+Material 3-style roles with a fixed charcoal default independent of system mode,
 20dp component corners, scalable text, 48dp controls, ripple feedback and disabled
 states. It is Material 3-style; it does not embed AndroidX or claim its component
 implementation. Applications retain their renderer choice and data authorities.
+
+`charcoal.h` is the native drawing contract. `res/` supplies the matching
+`Theme.Charcoal` window, startup, dialog, text, input and selection resources.
+Package that resource tree and select `@style/Theme.Charcoal` in each manifest;
+setting only the View background cannot prevent a light launch window. Call
+`m3_window` for API26+ View consumers. Do not use `primary` as a link foreground:
+it is an interactive surface; use `on_surface` with an underline for links.
+The resource theme disables Android's pixel recoloring. It does not restyle
+external websites, documents, photographs, or the user's terminal palette.
 
 The dependency direction is application → generic framework adapter, matching
 the existing android-NDK ownership of framework/JNI facilities. IB retains

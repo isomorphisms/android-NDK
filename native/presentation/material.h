@@ -2,15 +2,17 @@
 #define IDRIC_NATIVE_MATERIAL_H
 #include <jni.h>
 #include <stdint.h>
+#include "charcoal.h"
 
 /* Framework Views styled with Material 3 roles. No application/store/transport
  * authority lives here. Call on the UI thread inside a bounded JNI local frame.
  * This is Icky C, compiled by the consumer's declared ICK frontend. */
-#define M3_PRESENTATION_VERSION 1
+#define M3_PRESENTATION_VERSION 2
 typedef struct {
     jint surface, on_surface, container, primary, on_primary, outline;
     jfloat density;
     int dark, dynamic;
+    jint secondary, disabled, interactive, selection, focus, error, warning, success;
 } M3Theme;
 
 static inline jmethodID m3_method(JNIEnv *e, jobject value, const char *name, const char *signature) {
@@ -77,43 +79,38 @@ static inline jint m3_system_color(JNIEnv *e, jobject resources, const char *nam
 static inline M3Theme m3_theme(JNIEnv *e, jobject context) {
     jobject resources ← (*e)->CallObjectMethod(e, context,
         m3_method(e, context, "getResources", "()Landroid/content/res/Resources;"));
-    jobject configuration ← (*e)->CallObjectMethod(e, resources,
-        m3_method(e, resources, "getConfiguration", "()Landroid/content/res/Configuration;"));
-    jclass type ← (*e)->GetObjectClass(e, configuration);
-    jint mode ← (*e)->GetIntField(e, configuration, (*e)->GetFieldID(e, type, "uiMode", "I"));
     jobject metrics ← (*e)->CallObjectMethod(e, resources,
         m3_method(e, resources, "getDisplayMetrics", "()Landroid/util/DisplayMetrics;"));
     jclass metric_type ← (*e)->GetObjectClass(e, metrics);
-    M3Theme theme ← { (jint)0xfffffbfe, (jint)0xff1c1b1f, (jint)0xfff3edf7,
-        (jint)0xff6750a4, (jint)0xffffffff, (jint)0xff79747e, 1.0f, 0, 0 };
+    M3Theme theme ← { (jint)CHARCOAL_BACKGROUND, (jint)CHARCOAL_TEXT,
+        (jint)CHARCOAL_SURFACE, (jint)CHARCOAL_INTERACTIVE,
+        (jint)CHARCOAL_TEXT, (jint)CHARCOAL_BORDER, 1.0f, 1, 0,
+        (jint)CHARCOAL_SECONDARY, (jint)CHARCOAL_DISABLED,
+        (jint)CHARCOAL_INTERACTIVE, (jint)CHARCOAL_SELECTION,
+        (jint)CHARCOAL_FOCUS, (jint)CHARCOAL_ERROR,
+        (jint)CHARCOAL_WARNING, (jint)CHARCOAL_SUCCESS };
     theme.density ← (*e)->GetFloatField(e, metrics, (*e)->GetFieldID(e, metric_type, "density", "F"));
-    theme.dark ← (mode & 0x30) == 0x20; /* UI_MODE_NIGHT_MASK / YES */
-    if (theme.dark) {
-        theme.surface ← (jint)0xff1c1b1f; theme.on_surface ← (jint)0xffe6e1e5;
-        theme.container ← (jint)0xff2b2930; theme.primary ← (jint)0xffd0bcff;
-        theme.on_primary ← (jint)0xff381e72; theme.outline ← (jint)0xff938f99;
-    }
-    /* System tonal palettes exist on API 31+. getIdentifier safely returns 0
-     * on API 29. Use paired tones, including foreground, as one palette. */
-    jint primary ← m3_system_color(e, resources,
-        theme.dark ? "system_accent1_200" : "system_accent1_600", theme.primary);
-    theme.dynamic ← primary != theme.primary;
-    theme.primary ← primary;
-    theme.on_primary ← m3_system_color(e, resources,
-        theme.dark ? "system_accent1_800" : "system_accent1_0", theme.on_primary);
-    theme.surface ← m3_system_color(e, resources,
-        theme.dark ? "system_neutral1_900" : "system_neutral1_10", theme.surface);
-    theme.on_surface ← m3_system_color(e, resources,
-        theme.dark ? "system_neutral1_100" : "system_neutral1_900", theme.on_surface);
-    theme.container ← m3_system_color(e, resources,
-        theme.dark ? "system_neutral1_800" : "system_neutral1_50", theme.container);
     (*e)->DeleteLocalRef(e, metric_type); (*e)->DeleteLocalRef(e, metrics);
-    (*e)->DeleteLocalRef(e, type); (*e)->DeleteLocalRef(e, configuration); (*e)->DeleteLocalRef(e, resources);
+    (*e)->DeleteLocalRef(e, resources);
     return theme;
+}
+/* API 26+ framework consumers. NativeActivity surface consumers keep their
+ * lifecycle claims; this changes only window colors and system icon flags. */
+static inline void m3_window(JNIEnv *e, jobject activity, M3Theme theme) {
+    jobject window ← (*e)->CallObjectMethod(e, activity,
+        m3_method(e, activity, "getWindow", "()Landroid/view/Window;"));
+    (*e)->CallVoidMethod(e, window, m3_method(e, window, "setStatusBarColor", "(I)V"), theme.surface);
+    (*e)->CallVoidMethod(e, window, m3_method(e, window, "setNavigationBarColor", "(I)V"), theme.surface);
+    jobject decor ← (*e)->CallObjectMethod(e, window,
+        m3_method(e, window, "getDecorView", "()Landroid/view/View;"));
+    jint flags ← (*e)->CallIntMethod(e, decor, m3_method(e, decor, "getSystemUiVisibility", "()I"));
+    (*e)->CallVoidMethod(e, decor, m3_method(e, decor, "setSystemUiVisibility", "(I)V"), flags & ~0x2010);
+    (*e)->DeleteLocalRef(e, decor); (*e)->DeleteLocalRef(e, window);
 }
 static inline void m3_text(JNIEnv *e, jobject view, jstring text, M3Theme theme, jfloat sp) {
     (*e)->CallVoidMethod(e, view, m3_method(e, view, "setText", "(Ljava/lang/CharSequence;)V"), text);
     (*e)->CallVoidMethod(e, view, m3_method(e, view, "setTextColor", "(I)V"), theme.on_surface);
+    (*e)->CallVoidMethod(e, view, m3_method(e, view, "setHighlightColor", "(I)V"), theme.selection);
     (*e)->CallVoidMethod(e, view, m3_method(e, view, "setTextSize", "(F)V"), sp);
 }
 static inline void m3_describe(JNIEnv *e, jobject view, const char *description) {
@@ -135,6 +132,7 @@ static inline void m3_control(JNIEnv *e, jobject view, M3Theme theme, int filled
     jclass shape_type ← (*e)->FindClass(e, "android/graphics/drawable/GradientDrawable");
     jobject shape ← (*e)->NewObject(e, shape_type, (*e)->GetMethodID(e, shape_type, "<init>", "()V"));
     (*e)->CallVoidMethod(e, shape, m3_method(e, shape, "setColor", "(I)V"), background);
+    (*e)->CallVoidMethod(e, shape, m3_method(e, shape, "setStroke", "(II)V"), m3_dp(theme, 1), theme.outline);
     (*e)->CallVoidMethod(e, shape, m3_method(e, shape, "setCornerRadius", "(F)V"), (jfloat)m3_dp(theme, 20));
     jclass colors_type ← (*e)->FindClass(e, "android/content/res/ColorStateList");
     jobject colors ← (*e)->CallStaticObjectMethod(e, colors_type,
@@ -150,7 +148,8 @@ static inline void m3_control(JNIEnv *e, jobject view, M3Theme theme, int filled
 }
 static inline void m3_enabled(JNIEnv *e, jobject view, int enabled) {
     (*e)->CallVoidMethod(e, view, m3_method(e, view, "setEnabled", "(Z)V"), enabled ? JNI_TRUE : JNI_FALSE);
-    (*e)->CallVoidMethod(e, view, m3_method(e, view, "setAlpha", "(F)V"), enabled ? 1.0f : 0.38f);
+    (*e)->CallVoidMethod(e, view, m3_method(e, view, "setTextColor", "(I)V"),
+        (jint)(enabled ? CHARCOAL_TEXT : CHARCOAL_DISABLED));
 }
 static inline jobject m3_button(JNIEnv *e, jobject context, jobject listener, M3Theme theme,
         jint identity, const char *label, int filled) {
