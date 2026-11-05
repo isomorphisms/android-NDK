@@ -22,6 +22,13 @@ Fresh current-source Android execution must establish the repaired fixture.
 The unchanged positive candidate is also repackaged with only the manifest theme
 removed, which must fail the palette check before the original recovery case.
 
+Run41970666811 observes actual ARGB b3ffffff even with the declared theme bound.
+Android's default TextView textAppearance bypasses textColorPrimary. Repair the
+shared owner with Widget.Charcoal.TextView and an explicit stateful textColor,
+referenced by both application and dialog themes. The oracle retains exact F4;
+neither it nor the candidate constructor supplies a replacement color. Fresh
+execution must qualify this shared implementation repair.
+
 The framework-effects producer supplies actual Android API34 execution. Until
 that exact source runs, these changes are not accepted. The retained IB screen
 fixture still binds its older application source and resources; it is not the
