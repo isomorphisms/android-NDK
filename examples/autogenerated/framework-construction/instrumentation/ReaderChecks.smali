@@ -8,6 +8,11 @@
     const-string v3, "Constructed reader text"
     invoke-static {v0, v3}, LIdric/Generated;->create_reader_view(Landroid/content/Context;Ljava/lang/String;)Landroid/widget/TextView;
     move-result-object v1
+    # Actual themed framework TextView; the observer does not recolor it.
+    invoke-virtual {v1}, Landroid/widget/TextView;->getCurrentTextColor()I
+    move-result v3
+    const v4, -0xb0b0c
+    if-ne v3, v4, :palette_failure
     sget-object v3, Ljava/lang/System;->out:Ljava/io/PrintStream;
     const-string v4, "STAGE framework TextView constructed"
     invoke-virtual {v3, v4}, Ljava/io/PrintStream;->println(Ljava/lang/String;)V
@@ -69,6 +74,9 @@
     goto :failure
     :reflow_failure
     const-string v1, "FAIL native reader width reflow"
+    goto :failure
+    :palette_failure
+    const-string v1, "FAIL charcoal framework reader text"
     :failure
     return-object v1
 .end method

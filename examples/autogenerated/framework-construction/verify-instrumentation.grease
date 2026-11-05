@@ -23,6 +23,7 @@ printf '32fa0e88a6c397b3922201adf5f3e534fbaed5a663c71d0c558c3ddce0af844a  %s\n' 
 if test -e "$evidence/instrumentation" { echo 'FAIL refusing reused instrumentation evidence' >&2; exit 1 }
 var output = "$evidence/instrumentation"
 mkdir -p "$output"
+"$tools/aapt2" compile --dir "$repository/native/presentation/res" -o "$output/charcoal-resources.zip"
 java -jar "$smali" assemble "$controls" -o "$output/observer.dex"
 sha256sum "$controls/ReaderChecks.smali" "$controls/ReaderInstrumentation.smali" "$controls/SourceAddressObserver.smali" \
   "$controls/oracle-manifest.xml" "$controls/receiver-manifest.xml" "$controls/target-manifest.xml" \
@@ -39,7 +40,7 @@ for package in org.isomorphisms.idric.construct.test org.isomorphisms.idric.cons
 
 proc package_fixture(manifest, dex, directory) {
   mkdir -p "$directory"
-  "$tools/aapt2" link -I "$sdk/platforms/android-34/android.jar" --manifest "$manifest" -o "$directory/base.apk"
+  "$tools/aapt2" link -I "$sdk/platforms/android-34/android.jar" --manifest "$manifest" "$output/charcoal-resources.zip" -o "$directory/base.apk"
   cp "$directory/base.apk" "$directory/unaligned.apk"
   cp "$dex" "$directory/classes.dex"
   forkwait {
