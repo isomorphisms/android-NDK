@@ -1,0 +1,74 @@
+module SharedClassTest
+
+import Backend.DEX.Encode
+import Backend.DEX.FrameworkClasses
+import Backend.DEX.IR
+import Data.List
+import System
+
+%default covering
+
+require : Bool -> IO ()
+require True = pure ()
+require False = do putStrLn "FAIL shared class encoder"; exitFailure
+
+reject : Either String value -> IO ()
+reject (Left _) = pure ()
+reject (Right _) = do putStrLn "FAIL accepted malformed shared class plan"; exitFailure
+
+main : IO ()
+main = do
+  let scalar = MkMethodPlan "shared scalar fixture" "answer" 0 []
+                 (ExistingValue IntegerValue) 1
+                 [IntegerConstant (MkRegister 0) 42, ReturnInteger (MkRegister 0)]
+  let checked = MkFilePlan "Lexample/Checked;" [scalar]
+  let native = Subclass "Lexample/Callback;" "Ljava/lang/Object;" (Just "callback")
+                 [Callback "answer" "I" ["I", "Ljava/lang/String;"],
+                  Callback "wide" "D" ["J", "D", "F", "B", "C", "S"]]
+  adapter <- case framework_class_plan native [] of
+    Left problem => do putStrLn problem; exitFailure
+    Right plan => pure plan
+  require (adapter.access_flags == 1)
+  let native_static = MkBoundMethodPlan "static native fixture" "ping" 0 [] VoidValue 0 [] NativeStaticMethod
+  let native_only = MkFilePlan "Lexample/NativeOnly;" [native_static]
+  first <- case encode_dex_classes [checked, adapter, native_only] of
+    Left problem => do putStrLn problem; exitFailure
+    Right bytes => pure bytes
+  require (encode_dex_classes [native_only, adapter, checked] == Right first)
+  reject (encode_dex_classes [])
+  reject (encode_dex_classes [checked, checked])
+  reject (encode_dex (MkFilePlan "Lexample/Bad;"
+    [{ instructions := [ReturnVoid] } native_static]))
+  reject (encode_dex (MkFilePlan "Lexample/Bad;"
+    [{ register_count := 1 } native_static]))
+  reject (encode_dex (MkFilePlan "Lexample/Bad;"
+    [{ parameter_count := 1, parameter_types := [VoidValue] } native_static]))
+  reject (encode_dex (MkFilePlan "Lexample/Bad;"
+    [{ method_name := "<init>" } native_static]))
+  let initialized = MkBoundMethodPlan "bad initializer" "<clinit>" 0 []
+                      (ExistingValue IntegerValue) 1 [] ClassInitializerMethod
+  reject (encode_dex (MkFilePlan "Lexample/Bad;" [initialized]))
+  reject (encode_dex (MkFilePlan "Lexample/Bad;"
+    [{ result_type := ReferenceValue (MkTypeReference "I") } native_static]))
+  reject (encode_dex (MkFilePlan "Lexample/Bad;"
+    [{ result_type := ReferenceValue (MkTypeReference "[V") } native_static]))
+  reject (encode_dex (MkFilePlan "Lexample/Bad;"
+    [{ parameter_count := 1,
+       parameter_types := [ReferenceValue (MkTypeReference "Lbad//Type;")] } native_static]))
+  let array255 = ReferenceValue (MkTypeReference (pack (replicate 255 '[' ++ ['I'])))
+  let array256 = ReferenceValue (MkTypeReference (pack (replicate 256 '[' ++ ['I'])))
+  reject (encode_dex (MkFilePlan "Lexample/Bad;"
+    [{ result_type := array256 } native_static]))
+  case encode_dex (MkFilePlan "Lexample/Array;" [{ result_type := array255 } native_static]) of
+    Left problem => do putStrLn problem; exitFailure
+    Right bytes => do
+      result <- write_dex "build/array-boundary.dex" bytes
+      case result of
+        Left problem => do putStrLn problem; exitFailure
+        Right () => pure ()
+  case write_dex "build/shared-class-test.dex" first of
+    action => do
+      result <- action
+      case result of
+        Left problem => do putStrLn problem; exitFailure
+        Right () => putStrLn "PASS shared class encoder, deterministic ordering and eleven refusals"

@@ -1,0 +1,63 @@
+module NativeIdentity
+
+import Data.Text
+import System
+
+-- The Int-counted repetition is entered only with the positive fixture count.
+%default covering
+
+%foreign "C:contract_identity,libcontract"
+native_identity : Text → PrimIO Text
+
+%foreign "C:contract_null_result,libcontract"
+native_null_result : PrimIO Text
+
+-- This legacy-only producer lets the explicit input adapter meet an actual
+-- null reference. It is test data, not a nonnull declaration.
+%foreign "C:contract_null_argument,libcontract"
+native_null_argument : PrimIO Text
+
+%foreign "C:contract_throw_failure,libcontract"
+native_throw_failure : PrimIO Text
+
+%foreign "C:contract_narrow,libcontract"
+native_narrow : Int → PrimIO Int
+
+repeat_identity : Int → Text → IO Text
+repeat_identity 0 text = pure text
+repeat_identity remaining text = do
+  result ← primIO (native_identity text)
+  repeat_identity (remaining - 1) result
+
+run_arguments : List Text → IO ()
+run_arguments (_ :: "identity" :: text :: _) = do
+  result ← primIO (native_identity text)
+  putStrLn result
+run_arguments (_ :: "repeat" :: text :: _) = do
+  result ← repeat_identity 10000 text
+  putStrLn result
+run_arguments (_ :: "null" :: _) = do
+  result ← primIO native_null_result
+  putStrLn result
+run_arguments (_ :: "null-argument" :: _) = do
+  text ← primIO native_null_argument
+  result ← primIO (native_identity text)
+  putStrLn result
+run_arguments (_ :: "throw" :: _) = do
+  result ← primIO native_throw_failure
+  putStrLn result
+-- These runtime-selected boundary values exercise the generated narrowing
+-- wrapper without depending on the separate, unsupported Text→Int primitive.
+run_arguments (_ :: "narrow" :: "2147483647" :: _) = do
+  result ← primIO (native_narrow 2147483647)
+  putStrLn (cast result)
+run_arguments (_ :: "narrow" :: "2147483648" :: _) = do
+  result ← primIO (native_narrow 2147483648)
+  putStrLn (cast result)
+run_arguments _ = putStrLn "use identity TEXT, repeat TEXT, null, null-argument, throw or narrow 2147483647|2147483648"
+
+%export "dex:native_identity"
+main : IO ()
+main = do
+  arguments ← getArgs
+  run_arguments arguments

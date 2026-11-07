@@ -1,0 +1,6 @@
+package callback_shell
+version = 0.2.0
+sourcedir = "src"
+modules = Backend.DEX.IR, Backend.DEX.Hash, Backend.DEX.Invoke,
+          Backend.DEX.Placement, Backend.DEX.Encode,
+          Backend.DEX.FrameworkClasses, Backend.DEX.EncodeCallbackShell

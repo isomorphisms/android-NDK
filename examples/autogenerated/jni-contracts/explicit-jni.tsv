@@ -1,0 +1,6 @@
+library_property	contract.library
+C:contract_null_argument,libcontract	nullArgument	()Ljava/lang/String;
+C:contract_identity,libcontract	identity	(Ljava/lang/String;)Ljava/lang/String;	current-thread	synchronous	borrowed-local	nonnull-strings	propagate-exceptions
+C:contract_null_result,libcontract	nullResult	()Ljava/lang/String;	current-thread	synchronous	borrowed-local	nonnull-strings	propagate-exceptions
+C:contract_throw_failure,libcontract	throwFailure	()Ljava/lang/String;	current-thread	synchronous	borrowed-local	nonnull-strings	propagate-exceptions
+C:contract_narrow,libcontract	narrow	(I)I	current-thread	synchronous	borrowed-local	nonnull-strings	propagate-exceptions

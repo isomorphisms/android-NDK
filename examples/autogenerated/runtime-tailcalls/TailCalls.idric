@@ -1,0 +1,66 @@
+module TailCalls
+
+import System
+
+%default covering
+
+self_count : Integer → Integer → Integer
+self_count remaining result =
+  if remaining == 0 then result else self_count (remaining - 1) (result + 1)
+
+mutual
+  even_steps : Integer → Integer → Integer → Integer
+  even_steps remaining left right =
+    if remaining == 0 then left else odd_steps (remaining - 1) right left
+
+  odd_steps : Integer → Integer → Integer → Integer
+  odd_steps remaining left right =
+    if remaining == 0 then left else even_steps (remaining - 1) right left
+
+swap_steps : Integer → Text → Text → Text
+swap_steps remaining left right =
+  if remaining == 0 then left else swap_steps (remaining - 1) right left
+
+mutual
+  %noinline
+  wider_steps : Integer → Integer → Text → Integer
+  wider_steps remaining result payload =
+    if remaining == 0 then result + cast (length (unpack payload))
+      else narrower_steps (remaining - 1) (result + 1)
+
+  %noinline
+  narrower_steps : Integer → Integer → Integer
+  narrower_steps remaining result =
+    if remaining == 0 then result
+      else wider_steps (remaining - 1) (result + 1) "discarded"
+
+%noinline
+many_arguments : Integer → Integer → Integer → Integer → Integer → Integer →
+  Integer → Integer → Integer → Integer → Integer → Integer → Integer → Integer
+many_arguments first second third fourth fifth sixth seventh eighth ninth tenth eleventh twelfth thirteenth =
+  first + second + third + fourth + fifth + sixth + seventh + eighth + ninth + tenth + eleventh + twelfth + thirteenth
+
+-- A tail group reenters itself before replacing its own invocation state.
+-- No mutable dispatch state may be shared between these invocations.
+reentrant_count : Integer → Integer → Integer
+reentrant_count remaining result =
+  if remaining == 0 then result
+    else reentrant_count (remaining - 1) (result + reentrant_count 0 3)
+
+effect_order : IO ()
+effect_order = do
+  putStrLn "before"
+  putStrLn ("nested=" ++ cast (reentrant_count 25 0))
+  putStrLn "after"
+
+%export "dex:tail_calls"
+main : IO ()
+main = do
+  arguments ← getArgs
+  let transitions : Integer = 999999 + cast (length arguments)
+  putStrLn ("self=" ++ cast (self_count transitions 0))
+  putStrLn ("mutual=" ++ cast (even_steps transitions 7 9))
+  putStrLn ("swap=" ++ swap_steps (transitions + 1) "left" "right")
+  putStrLn ("wide=" ++ cast (many_arguments transitions 1 2 3 4 5 6 7 8 9 10 11 12))
+  putStrLn ("varying=" ++ cast (wider_steps transitions 0 "initial"))
+  effect_order

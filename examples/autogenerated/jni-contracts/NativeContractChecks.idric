@@ -1,0 +1,68 @@
+module NativeContractChecks
+
+import Backend.DEX.NativeContract
+import Backend.DEX.Heap
+import Backend.DEX.IR
+import Compiler.ANF
+import Core.CompileExpr
+import Data.List
+import System
+
+%default covering
+
+expect : String -> Bool -> IO ()
+expect label True = pure ()
+expect label False = do
+  putStrLn ("FAIL " ++ label)
+  exitFailure
+
+rejected : Either String value -> Bool
+rejected (Left _) = True
+rejected _ = False
+
+explicit_policy : List String
+explicit_policy = ["current-thread", "synchronous", "borrowed-local", "nonnull-strings", "propagate-exceptions"]
+
+source_signature : Administrative_Normal_Form_Definition
+source_signature = Make_Administrative_Normal_Form_Foreign_Function
+  ["C:contract_identity,libcontract"] [CFString, CFWorld] (CFIORes CFString)
+
+nonnull_check : Instruction -> Bool
+nonnull_check (InvokeMethod invocation) = invocation.method.name == "requireNonNull"
+nonnull_check _ = False
+
+check_count : JNIService -> Either String Integer
+check_count service = do
+  plan <- heap_foreign_linked [service] "contractIdentityAdapter" source_signature
+  Right (cast (length (filter nonnull_check plan.instructions)))
+
+main : IO ()
+main = do
+  case parse_native_boundary_row ["C:contract_identity,libcontract", "identity", "(Ljava/lang/String;)Ljava/lang/String;"] of
+    Left explanation => do putStrLn explanation; exitFailure
+    Right parsed => expect "legacy policy remains unqualified"
+      (parsed.declared_contract == LegacyUnqualifiedNativeBoundary)
+  case parse_native_boundary_row
+    (["C:contract_identity,libcontract", "identity", "(Ljava/lang/String;)Ljava/lang/String;"] ++ explicit_policy) of
+    Left explanation => do putStrLn explanation; exitFailure
+    Right parsed => expect "explicit policy is retained"
+      (parsed.declared_contract == SynchronousBorrowedNonNullNativeBoundary)
+  expect "retained refs refused" (rejected (parse_native_boundary_row
+    ["C:x", "x", "()V", "current-thread", "synchronous", "retained-global", "nonnull-strings", "propagate-exceptions"]))
+  expect "asynchronous calls refused" (rejected (parse_native_boundary_row
+    ["C:x", "x", "()V", "current-thread", "asynchronous", "borrowed-local", "nonnull-strings", "propagate-exceptions"]))
+  expect "unknown thread refused" (rejected (parse_native_boundary_row
+    ["C:x", "x", "()V", "any-thread", "synchronous", "borrowed-local", "nonnull-strings", "propagate-exceptions"]))
+  expect "object retention not invented" (rejected (parse_native_boundary_row
+    (["C:x", "x", "(Ljava/lang/Object;)V"] ++ explicit_policy)))
+  expect "array ownership not invented" (rejected (parse_native_boundary_row
+    (["C:x", "x", "([I)V"] ++ explicit_policy)))
+  expect "partial contract refused" (rejected (parse_native_boundary_row
+    ["C:x", "x", "()V", "current-thread"]))
+  let legacy = MkJNIService "C:contract_identity,libcontract" "identity"
+        [ExistingValue TextValue] (ExistingValue TextValue) LegacyUnqualifiedNativeBoundary
+  let explicit = MkJNIService "C:contract_identity,libcontract" "identity"
+        [ExistingValue TextValue] (ExistingValue TextValue) SynchronousBorrowedNonNullNativeBoundary
+  expect "legacy null behavior preserved" (check_count legacy == Right 0)
+  expect "explicit argument and result null checks" (check_count explicit == Right 2)
+  putStrLn "PASS JNI explicit contracts, legacy behavior and refusal controls"

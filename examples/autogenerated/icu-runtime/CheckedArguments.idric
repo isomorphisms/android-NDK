@@ -1,0 +1,16 @@
+module CheckedArguments
+
+import Data.Text
+import System
+
+display_arguments : List Text → IO ()
+display_arguments [] = pure ()
+display_arguments (argument :: rest) = do
+  putStrLn ("arg:" ++ argument)
+  display_arguments rest
+
+%export "dex:checked_arguments"
+main : IO ()
+main = do
+  arguments ← getArgs
+  display_arguments arguments

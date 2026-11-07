@@ -1,0 +1,61 @@
+#!/usr/bin/env grease
+# Application inputs own package/resources/signer; this producer owns packaging.
+set -eu -o pipefail
+if (len(ARGV) !== 8) {
+  echo 'usage: grease build-direct-dex-activity.grease SDK MANIFEST RESOURCES DEX TEST_KEYSTORE PACKAGE CERTIFICATE FRESH_OUTPUT' >&2
+  exit 2
+}
+var sdk = ARGV[0]
+var manifest = ARGV[1]
+var resources = ARGV[2]
+var dex = ARGV[3]
+var keystore = ARGV[4]
+var package = ARGV[5]
+var certificate = ARGV[6]
+var output = ARGV[7]
+for path in "$sdk" "$manifest" "$resources" "$dex" "$keystore" "$output" {
+  if (path[0] !== '/') { echo 'FAIL absolute producer path required' >&2; exit 2 }
+}
+var tools = "$sdk/build-tools/35.0.0"
+for program in "$tools/aapt2" "$tools/zipalign" "$tools/apksigner" "$tools/dexdump" { test -x "$program" }
+test -s "$manifest"
+test -s "$dex"
+if ! test -s "$keystore" { echo 'FAIL explicit public test keystore missing' >&2; exit 1 }
+if test -e "$output" { echo 'FAIL refusing reused package output' >&2; exit 1 }
+mkdir -p "$output/evidence"
+"$tools/dexdump" -c "$dex" > "$output/evidence/dex-checksum.txt"
+# Stable PUBLIC TEST lane only. Production/private signing is not inferred.
+keytool -list -v -keystore "$keystore" -storepass wegert-debug -alias wegert-debug \
+  > "$output/evidence/keystore.txt"
+var colon_digest = $(sed -n 's/.*SHA256: //p' "$output/evidence/keystore.txt")
+var actual_digest = $(echo "$colon_digest" | tr '[:upper:]' '[:lower:]' | tr -d ':')
+if (actual_digest !== certificate) { echo 'FAIL declared test certificate does not match keystore' >&2; exit 1 }
+sha256sum "$manifest" "$dex" "$keystore" "$tools/aapt2" "$tools/zipalign" \
+  "$tools/apksigner" > "$output/evidence/inputs-sha256.txt"
+"$tools/aapt2" compile --dir "$resources" -o "$output/resources.zip"
+"$tools/aapt2" link -o "$output/resource-base.apk" -I "$sdk/platforms/android-34/android.jar" \
+  --manifest "$manifest" "$output/resources.zip"
+cp "$output/resource-base.apk" "$output/candidate-unaligned.apk"
+cp "$dex" "$output/classes.dex"
+cd "$output"
+zip -q candidate-unaligned.apk classes.dex
+"$tools/zipalign" -f -p 4 "$output/candidate-unaligned.apk" "$output/candidate-aligned.apk"
+"$tools/apksigner" sign --ks "$keystore" --ks-key-alias wegert-debug \
+  --ks-pass pass:wegert-debug --key-pass pass:wegert-debug \
+  --out "$output/candidate-signed.apk" "$output/candidate-aligned.apk"
+"$tools/apksigner" verify --verbose --print-certs "$output/candidate-signed.apk" > "$output/evidence/signature.txt"
+rg -q -x -F "Signer #1 certificate SHA-256 digest: $certificate" "$output/evidence/signature.txt"
+"$tools/zipalign" -c -p 4 "$output/candidate-signed.apk" > "$output/evidence/alignment.txt"
+"$tools/aapt2" dump badging "$output/candidate-signed.apk" > "$output/evidence/badging.txt"
+if ! rg -q -F "package: name='$package'" "$output/evidence/badging.txt" {
+  echo 'FAIL package identity does not match declared package' >&2
+  exit 1
+}
+rg -q -F "launchable-activity: name='Idric.Generated'" "$output/evidence/badging.txt"
+unzip -p "$output/candidate-signed.apk" classes.dex > "$output/evidence/received.dex"
+cmp "$dex" "$output/evidence/received.dex"
+mv "$output/candidate-signed.apk" "$output/ib-material-reader.apk"
+sha256sum "$output/ib-material-reader.apk" > "$output/evidence/apk-sha256.txt"
+echo 'PASS direct checked-DEX Activity package, resources, byte identity, alignment and stable public test signer' > "$output/evidence/result.txt"
+echo 'Candidate only; independent producer policy, install/UI/update and physical execution require separate receipts' >> "$output/evidence/result.txt"
+cat "$output/evidence/result.txt"

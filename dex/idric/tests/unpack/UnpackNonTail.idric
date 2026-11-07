@@ -1,0 +1,12 @@
+module UnpackNonTail
+
+count : List Char → Int32
+count [] = 0
+count (first :: rest) = 1 + count rest
+
+%export "dex:non_tail"
+non_tail : Text → Int32
+non_tail input = count (unpack input)
+
+main : IO ()
+main = pure ()

@@ -22,6 +22,24 @@ jobs:
           ref: dfa3751f0282cdf6a2083c97063b0e8e996d0d92
           path: signing/wegert
           persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: isomorphisms/catfood
+          ref: 609a9628d5a52860f956bf62e0914a0cd03292ae
+          path: .packaging-tools/catfood
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: dilapidated-shed/grease
+          ref: f19c94c6df18cddbdc1e81463e5bd689533e3c13
+          path: .packaging-tools/runtime/grease
+          submodules: true
+          persist-credentials: false
+      - name: Build the pinned Grease runtime through Cat Food
+        env:
+          CATFOOD_ROOT: ${{ github.workspace }}/.packaging-tools/runtime
+          CATFOOD_JOBS: '2'
+        run: sh .packaging-tools/catfood/build-tools.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -35,4 +53,5 @@ jobs:
         env:
           ANDROID_TEST_KEYSTORE: ${{ github.workspace }}/signing/wegert/_/build/app/wegert-debug.keystore
           ANDROID_NDK_VERSION: 29.0.14206865
+          ANDROID_GREASE: ${{ github.workspace }}/.packaging-tools/runtime/.build/grease/bin/grease
         run: bash apk/tests/run-packager.sh

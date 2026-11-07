@@ -1,0 +1,112 @@
+module TailRetentionChecks
+
+import Backend.DEX.Heap
+import Backend.DEX.IR
+import Compiler.ANF
+import Core.FC
+import Core.Name
+import Core.TT.Term
+import Data.List
+import System
+
+%default covering
+
+private
+large_name : Name
+large_name = UN (Basic "retention_large")
+
+private
+small_name : Name
+small_name = UN (Basic "retention_small")
+
+private
+variable : Int → Administrative_Normal_Form
+variable index = Administrative_Normal_Form_Variable_Expression emptyFC
+  (Administrative_Normal_Form_Local_Variable index)
+
+private
+definitions : List (Name, Administrative_Normal_Form_Definition)
+definitions =
+  [ (large_name, Make_Administrative_Normal_Form_Function [0, 1, 2]
+      (Administrative_Normal_Form_Binding emptyFC 3 (variable 2)
+        (Administrative_Normal_Form_Binding emptyFC 4 (variable 0)
+          (Administrative_Normal_Form_Named_Function_Application emptyFC Nothing small_name
+            [Administrative_Normal_Form_Local_Variable 4]))))
+  , (small_name, Make_Administrative_Normal_Form_Function [0]
+      (Administrative_Normal_Form_Named_Function_Application emptyFC Nothing large_name
+        [Administrative_Normal_Form_Local_Variable 0,
+         Administrative_Normal_Form_Erased_Variable,
+         Administrative_Normal_Form_Erased_Variable]))
+  ]
+
+-- Symbolic register values: 0 has no reference, 1 is the surviving payload,
+-- and values above 1 identify discarded objects that must cease being roots.
+private
+read_root : Register → List (Int, Int) → Int
+read_root slot roots = maybe 0 id (lookup slot.number roots)
+
+private
+write_root : Register → Int → List (Int, Int) → List (Int, Int)
+write_root slot value roots =
+  (slot.number, value) :: filter (\(number, _) => number /= slot.number) roots
+
+private
+run_transfer : List (Int, Int) → List Instruction → Either Text (List (Int, Int))
+run_transfer roots [] = Left "transfer did not redispatch"
+run_transfer roots (Goto (MkLabel 0) :: _) = Right roots
+run_transfer roots (MoveObject target source :: rest) =
+  run_transfer (write_root target (read_root source roots) roots) rest
+run_transfer roots (NullReference target :: rest) =
+  run_transfer (write_root target 0 roots) rest
+run_transfer roots (IntegerConstant target _ :: rest) =
+  run_transfer (write_root target 0 roots) rest
+run_transfer roots (Mark _ :: rest) = run_transfer roots rest
+run_transfer roots (_ :: _) = Left "unexpected operation in symbolic transfer"
+
+private
+member_entry : List Instruction → List Instruction
+member_entry [] = []
+member_entry (Mark (MkLabel 1) :: rest) = rest
+member_entry (_ :: rest) = member_entry rest
+
+private
+without_releases : Instruction → Bool
+without_releases (NullReference _) = False
+without_releases _ = True
+
+private
+retention_law : MethodPlan → List Instruction → Either Text Bool
+retention_law method instructions = do
+  let selector_slot = method.register_count - method.parameter_count
+  let surviving_slot = selector_slot + 1
+  let scratch_objects = [0, 1, 5, 7, 8, 9, 16]
+  let temporary_objects = scratch_objects ++ [17 .. selector_slot - 1]
+  let unused_parameters = [surviving_slot + 1 .. method.register_count - 1]
+  let initial = map (\slot => (slot, 100 + slot)) [0 .. method.register_count - 1]
+  let initialized = write_root (MkRegister surviving_slot) 1
+        (write_root (MkRegister 15) 0 initial)
+  after <- run_transfer initialized instructions
+  Right (read_root (MkRegister surviving_slot) after == 1 &&
+    all (\slot => read_root (MkRegister slot) after == 0)
+      (temporary_objects ++ unused_parameters))
+
+private
+fail : Text → IO a
+fail explanation = do
+  putStrLn ("FAIL: " ++ explanation)
+  exitFailure
+
+main : IO ()
+main = do
+  Right (_, dispatcher :: _) <- pure
+    (heap_tail_methods [(large_name, ("large", 3)), (small_name, ("small", 1))] definitions)
+    | Left explanation => fail explanation
+    | Right (_, []) => fail "tail cycle emitted no dispatcher"
+  let transfer = member_entry dispatcher.instructions
+  Right True <- pure (retention_law dispatcher transfer)
+    | Left explanation => fail explanation
+    | Right False => fail "dead references survived or live parameter was overwritten"
+  Right False <- pure (retention_law dispatcher (filter without_releases transfer))
+    | Left explanation => fail explanation
+    | Right True => fail "missing-release mutation escaped the rooting invariant"
+  putStrLn "PASS: tail transfer drops dead references and rejects missing-release mutation"

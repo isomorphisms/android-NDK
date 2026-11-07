@@ -1,0 +1,35 @@
+{__mainExpression:0} = []: %let v0 = (<{{__mainExpression:0}:0} underapp 1>()) in (PrimIO.unsafePerformIO(v0))
+{{__mainExpression:0}:0} = [0]: QuickSettingsBoolean.main(v0)
+_builtin.NIL = Constructor tag Just 0 arity 0 newtype by Nothing
+_builtin.CONS = Constructor tag Just 1 arity 2 newtype by Nothing
+_builtin.NOTHING = Constructor tag Just 0 arity 0 newtype by Nothing
+_builtin.JUST = Constructor tag Just 1 arity 1 newtype by Nothing
+{csegen:0} = []: <{{csegen:0}:0} underapp 1>()
+{{csegen:0}:0} = [0]: %let v1 = (1) in (Prelude.EqOrd.==(v0, v1))
+prim__sub_Integer = [0, 1]: %op -Integer(v0, v1)
+QuickSettingsBoolean.service_secure = [0, 1]: Android.QuickSettings.is_secure(v0, v1)
+QuickSettingsBoolean.service_locked = [0, 1]: Android.QuickSettings.is_locked(v0, v1)
+QuickSettingsBoolean.read_boxed_integer = Foreign call ["dex:virtual:Ljava/lang/Integer;:intValue:()I"] [Android.QuickSettings.References.BoxedInteger , %World] -> IORes Int_32
+QuickSettingsBoolean.main = [0]: ___
+QuickSettingsBoolean.integer_is_one = [0]: %let v1 = (1) in (Prelude.EqOrd.==(v0, v1))
+QuickSettingsBoolean.boxed_is_one = [0, 1]: %let v2 = (QuickSettingsBoolean.read_boxed_integer(v0, v1)) in (%let v3 = (1) in (Prelude.EqOrd.==(v2, v3)))
+QuickSettingsBoolean.boolean_true = []: 1
+QuickSettingsBoolean.boolean_negate = [0]: %case v0 of { %constalt(1) => 0| %constalt(0) => 1 Nothing }
+QuickSettingsBoolean.boolean_identity = [0]: v0
+QuickSettingsBoolean.boolean_false = []: 0
+Android.QuickSettings.is_secure = [0, 1]: %let v2 = ({csegen:0}()) in (%let v3 = (<Android.QuickSettings.{is_secure:0} underapp 1>(v0)) in (Prelude.IO.map(v2, v3, v1)))
+Android.QuickSettings.{is_secure:0} = [0, 1]: Android.QuickSettings.Foreign.is_secure(v0, v1)
+Android.QuickSettings.is_locked = [0, 1]: %let v2 = ({csegen:0}()) in (%let v3 = (<Android.QuickSettings.{is_locked:0} underapp 1>(v0)) in (Prelude.IO.map(v2, v3, v1)))
+Android.QuickSettings.{is_locked:0} = [0, 1]: Android.QuickSettings.Foreign.is_locked(v0, v1)
+Prelude.Types.prim__integerToNat = [0]: %let v2 = (%let v1 = (0) in (%op <=Integer(v1, v0))) in (%case v2 of { %constalt(0) => 0 Just v0 })
+Prelude.EqOrd.compare = [0, 1]: %let v3 = (Prelude.EqOrd.<(v0, v1)) in (%case v3 of { %constalt(1) => 0| %constalt(0) => %let v2 = (Prelude.EqOrd.==(v0, v1)) in (%case v2 of { %constalt(1) => 1| %constalt(0) => 2 Nothing }) Nothing })
+Prelude.EqOrd.== = [0, 1]: %let v2 = (%op ==Integer(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.== = [0, 1]: %let v2 = (%op ==Int32(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.< = [0, 1]: %let v2 = (%op <Integer(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.compareInteger = [0, 1]: Prelude.EqOrd.compare(v0, v1)
+Prelude.IO.map = [0, 1, 2]: %let v3 = (v1 @ (v2)) in (v0 @ (v3))
+PrimIO.unsafePerformIO = [0]: %let v1 = (<PrimIO.{unsafePerformIO:0} underapp 1>(v0)) in (PrimIO.unsafeCreateWorld(v1))
+PrimIO.{unsafePerformIO:0} = [0, 1]: v0 @ (v1)
+PrimIO.unsafeCreateWorld = [0]: %let v1 = (%MkWorld) in (v0 @ (v1))
+Android.QuickSettings.Foreign.is_secure = Foreign call ["dex:virtual:Landroid/service/quicksettings/TileService;:isSecure:()Z"] [Android.QuickSettings.References.TileService , %World] -> IORes Int_32
+Android.QuickSettings.Foreign.is_locked = Foreign call ["dex:virtual:Landroid/service/quicksettings/TileService;:isLocked:()Z"] [Android.QuickSettings.References.TileService , %World] -> IORes Int_32

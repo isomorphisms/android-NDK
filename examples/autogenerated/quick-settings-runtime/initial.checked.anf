@@ -1,0 +1,52 @@
+{__mainExpression:0} = []: %let v0 = (<{{__mainExpression:0}:0} underapp 1>()) in (PrimIO.unsafePerformIO(v0))
+{{__mainExpression:0}:0} = [0]: QuickSettingsRuntime.main(v0)
+_builtin.NIL = Constructor tag Just 0 arity 0 newtype by Nothing
+_builtin.CONS = Constructor tag Just 1 arity 2 newtype by Nothing
+_builtin.NOTHING = Constructor tag Just 0 arity 0 newtype by Nothing
+_builtin.JUST = Constructor tag Just 1 arity 1 newtype by Nothing
+prim__sub_Integer = [0, 1]: %op -Integer(v0, v1)
+QuickSettingsRuntime.tile_state = [0, 1]: Android.QuickSettings.get_tile_state(v0, v1)
+QuickSettingsRuntime.submit_add_request = [0, 1, 2, 3, 4, 5, 6]: Android.QuickSettings.request_add_tile(v0, v1, v2, v3, v4, v5, v6)
+QuickSettingsRuntime.set_active_then_update = [0, 1]: %let v2 = (%let v3 = (2) in (Android.QuickSettings.set_tile_state(v0, v3, v1))) in (Android.QuickSettings.update_tile(v0, v1))
+QuickSettingsRuntime.service_tile = [0, 1]: Android.QuickSettings.tile_for_service(v0, v1)
+QuickSettingsRuntime.main = [0]: ___
+QuickSettingsRuntime.callback_result_code = [0, 1]: %let v2 = (Android.QuickSettings.read_add_result(v0, v1)) in (QuickSettingsRuntime.add_result_code(v2))
+QuickSettingsRuntime.add_result_code = [0]: %case v0 of { %conalt Android.QuickSettings.TileNotAdded() => 0| %conalt Android.QuickSettings.TileAlreadyAdded() => 1| %conalt Android.QuickSettings.TileAdded() => 2| %conalt Android.QuickSettings.MismatchedPackage() => 1000| %conalt Android.QuickSettings.RequestInProgress() => 1001| %conalt Android.QuickSettings.BadComponent() => 1002| %conalt Android.QuickSettings.NotCurrentUser() => 1003| %conalt Android.QuickSettings.AppNotInForeground() => 1004| %conalt Android.QuickSettings.NoStatusBarService() => 1005| %conalt Android.QuickSettings.UnrecognizedAddResult(v1) => v1 Nothing }
+Android.QuickSettings.update_tile = [0, 1]: Android.QuickSettings.Foreign.update_tile(v0, v1)
+Android.QuickSettings.tile_for_service = [0, 1]: Android.QuickSettings.Foreign.tile_for_service(v0, v1)
+Android.QuickSettings.state_code = [0]: %case v0 of { %constalt(0) => 0| %constalt(1) => 1| %constalt(2) => 2 Nothing }
+Android.QuickSettings.set_tile_state = [0, 1, 2]: %let v3 = (Android.QuickSettings.state_code(v1)) in (Android.QuickSettings.Foreign.set_state(v0, v3, v2))
+Android.QuickSettings.request_add_tile = [0, 1, 2, 3, 4, 5, 6]: Android.QuickSettings.Foreign.request_add_tile(v0, v1, v2, v3, v4, v5, v6)
+Android.QuickSettings.read_add_result = [0, 1]: %let v2 = (<Android.QuickSettings.{read_add_result:0} underapp 1>()) in (%let v3 = (<Android.QuickSettings.{read_add_result:1} underapp 1>(v0)) in (Prelude.IO.map(v2, v3, v1)))
+Android.QuickSettings.{read_add_result:1} = [0, 1]: Android.QuickSettings.Foreign.read_add_result_code(v0, v1)
+Android.QuickSettings.{read_add_result:0} = [0]: Android.QuickSettings.decode_add_result(v0)
+Android.QuickSettings.get_tile_state = [0, 1]: %let v2 = (<Android.QuickSettings.{get_tile_state:0} underapp 1>()) in (%let v3 = (<Android.QuickSettings.{get_tile_state:1} underapp 1>(v0)) in (Prelude.IO.map(v2, v3, v1)))
+Android.QuickSettings.{get_tile_state:1} = [0, 1]: Android.QuickSettings.Foreign.get_state(v0, v1)
+Android.QuickSettings.{get_tile_state:0} = [0]: Android.QuickSettings.decode_state(v0)
+Android.QuickSettings.decode_state = [0]: %case v0 of { %constalt(0) => %let v1 = (0) in (%con _builtin.JUST(v1))| %constalt(1) => %let v2 = (1) in (%con _builtin.JUST(v2))| %constalt(2) => %let v3 = (2) in (%con _builtin.JUST(v3)) Just %con _builtin.NOTHING() }
+Android.QuickSettings.decode_add_result = [0]: %case v0 of { %constalt(0) => %con Android.QuickSettings.TileNotAdded()| %constalt(1) => %con Android.QuickSettings.TileAlreadyAdded()| %constalt(2) => %con Android.QuickSettings.TileAdded()| %constalt(1000) => %con Android.QuickSettings.MismatchedPackage()| %constalt(1001) => %con Android.QuickSettings.RequestInProgress()| %constalt(1002) => %con Android.QuickSettings.BadComponent()| %constalt(1003) => %con Android.QuickSettings.NotCurrentUser()| %constalt(1004) => %con Android.QuickSettings.AppNotInForeground()| %constalt(1005) => %con Android.QuickSettings.NoStatusBarService() Just %con Android.QuickSettings.UnrecognizedAddResult(v0) }
+Android.QuickSettings.UnrecognizedAddResult = Constructor tag Just 9 arity 1 newtype by Nothing
+Android.QuickSettings.TileNotAdded = Constructor tag Just 0 arity 0 newtype by Nothing
+Android.QuickSettings.TileAlreadyAdded = Constructor tag Just 1 arity 0 newtype by Nothing
+Android.QuickSettings.TileAdded = Constructor tag Just 2 arity 0 newtype by Nothing
+Android.QuickSettings.RequestInProgress = Constructor tag Just 4 arity 0 newtype by Nothing
+Android.QuickSettings.NotCurrentUser = Constructor tag Just 6 arity 0 newtype by Nothing
+Android.QuickSettings.NoStatusBarService = Constructor tag Just 8 arity 0 newtype by Nothing
+Android.QuickSettings.MismatchedPackage = Constructor tag Just 3 arity 0 newtype by Nothing
+Android.QuickSettings.BadComponent = Constructor tag Just 5 arity 0 newtype by Nothing
+Android.QuickSettings.AppNotInForeground = Constructor tag Just 7 arity 0 newtype by Nothing
+Prelude.Types.prim__integerToNat = [0]: %let v2 = (%let v1 = (0) in (%op <=Integer(v1, v0))) in (%case v2 of { %constalt(0) => 0 Just v0 })
+Prelude.EqOrd.compare = [0, 1]: %let v3 = (Prelude.EqOrd.<(v0, v1)) in (%case v3 of { %constalt(1) => 0| %constalt(0) => %let v2 = (Prelude.EqOrd.==(v0, v1)) in (%case v2 of { %constalt(1) => 1| %constalt(0) => 2 Nothing }) Nothing })
+Prelude.EqOrd.== = [0, 1]: %let v2 = (%op ==Integer(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.< = [0, 1]: %let v2 = (%op <Integer(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.compareInteger = [0, 1]: Prelude.EqOrd.compare(v0, v1)
+Prelude.IO.map = [0, 1, 2]: %let v3 = (v1 @ (v2)) in (v0 @ (v3))
+PrimIO.unsafePerformIO = [0]: %let v1 = (<PrimIO.{unsafePerformIO:0} underapp 1>(v0)) in (PrimIO.unsafeCreateWorld(v1))
+PrimIO.{unsafePerformIO:0} = [0, 1]: v0 @ (v1)
+PrimIO.unsafeCreateWorld = [0]: %let v1 = (%MkWorld) in (v0 @ (v1))
+Android.QuickSettings.Foreign.update_tile = Foreign call ["dex:virtual:Landroid/service/quicksettings/Tile;:updateTile:()V"] [Android.QuickSettings.References.Tile , %World] -> IORes Unit
+Android.QuickSettings.Foreign.tile_for_service = Foreign call ["dex:virtual:Landroid/service/quicksettings/TileService;:getQsTile:()Landroid/service/quicksettings/Tile;"] [Android.QuickSettings.References.TileService , %World] -> IORes Android.QuickSettings.References.Tile 
+Android.QuickSettings.Foreign.set_state = Foreign call ["dex:virtual:Landroid/service/quicksettings/Tile;:setState:(I)V"] [Android.QuickSettings.References.Tile , Int_32, %World] -> IORes Unit
+Android.QuickSettings.Foreign.request_add_tile = Foreign call ["dex:virtual:Landroid/app/StatusBarManager;:requestAddTileService:(Landroid/content/ComponentName;Ljava/lang/CharSequence;Landroid/graphics/drawable/Icon;Ljava/util/concurrent/Executor;Ljava/util/function/Consumer;)V"] [Android.QuickSettings.References.StatusBarManager , Android.QuickSettings.References.ComponentName , Android.QuickSettings.References.CharSequence , Android.QuickSettings.References.Icon , Android.QuickSettings.References.Executor , Android.QuickSettings.References.TileAddResultConsumer , %World] -> IORes Unit
+Android.QuickSettings.Foreign.read_add_result_code = Foreign call ["dex:virtual:Ljava/lang/Integer;:intValue:()I"] [Android.QuickSettings.References.BoxedInteger , %World] -> IORes Int_32
+Android.QuickSettings.Foreign.get_state = Foreign call ["dex:virtual:Landroid/service/quicksettings/Tile;:getState:()I"] [Android.QuickSettings.References.Tile , %World] -> IORes Int_32

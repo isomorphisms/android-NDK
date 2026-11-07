@@ -1,0 +1,41 @@
+module LoopValues
+
+import Data.Text
+
+scan_for : Char → List Char → Int32
+scan_for wanted [] = 0
+scan_for wanted (character :: rest) =
+  if wanted ≟ character then 1 else scan_for wanted rest
+
+scan_marker : Text → List Char → Text
+scan_marker fallback [] = fallback
+scan_marker fallback ('!' :: rest) = "found"
+scan_marker fallback (_ :: rest) = scan_marker fallback rest
+
+scan_flag : Bool → List Char → Int32
+scan_flag found [] = if found then 1 else 0
+scan_flag found ('!' :: rest) = scan_flag True rest
+scan_flag found (_ :: rest) = scan_flag found rest
+
+%export "dex:contains_linefeed"
+export
+contains_linefeed : Text → Int32
+contains_linefeed source = scan_for '\n' (unpack source)
+
+%export "dex:contains_music_symbol"
+export
+contains_music_symbol : Text → Int32
+contains_music_symbol source = scan_for '𝄞' (unpack source)
+
+%export "dex:source_marker"
+export
+source_marker : Text → Text
+source_marker source = scan_marker "fallback λ𝄞" (unpack source)
+
+%export "dex:saw_marker"
+export
+saw_marker : Text → Int32
+saw_marker source = scan_flag False (unpack source)
+
+main : IO ()
+main = pure ()

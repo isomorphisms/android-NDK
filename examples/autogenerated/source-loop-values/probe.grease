@@ -1,0 +1,39 @@
+#!/usr/bin/env grease
+if (len(ARGV) !== 7) { echo 'usage: grease probe.grease CORE SCHEME DRIVER BACKEND_TTC SOURCE MODULE NEW_OUTPUT' >&2; exit 2 }
+var core = ARGV[0]
+var scheme = ARGV[1]
+var driver = ARGV[2]
+var modules = ARGV[3]
+var source = ARGV[4]
+var module = ARGV[5]
+var output = ARGV[6]
+for path in "$core" "$scheme" "$driver" "$modules" "$source" "$output" {
+  if (len(path) === 0 or path[0] !== '/') { echo 'absolute path required' >&2; exit 2 }
+}
+if test -e "$output" { echo 'refusing reused source evidence' >&2; exit 1 }
+var prefix = "$core/_/bootstrap-build"
+var compiler = "$core/_/build/exec/idris2"
+var libraries = "$prefix/idris2-0.8.0/base-0.8.0:$prefix/idris2-0.8.0/prelude-0.8.0"
+mkdir -p "$output"
+sha256sum "$source/$module" > "$output/source-sha256.txt"
+env IDRIS2_PREFIX="$prefix" IDRIS2_PATH="$libraries" CHEZ="$scheme" \
+  "$compiler" --check --source-dir "$source" --build-dir "$output/source-check" \
+  "$source/$module" > "$output/source-check.txt" 2>&1
+try { rg -n '^[[:space:]]*(Error:|INTERNAL ERROR)' "$output/source-check.txt" }
+if (_error.code !== 1) { echo 'FAIL source checking' >&2; exit 1 }
+try {
+  env IDRIS2_PREFIX="$prefix" IDRIS2_PATH="$modules:$libraries" CHEZ="$scheme" \
+    "$driver" --cg dex --source-dir "$source" --build-dir "$output/build" \
+    --output-dir "$output" --dumpanf "$output/source.anf" "$source/$module" -o candidate \
+    > "$output/compile.txt" 2>&1
+}
+var status = _error.code
+printf 'compiler_exit=%s\n' "$status" > "$output/result.txt"
+cat "$output/compile.txt"
+if (status !== 0) { echo 'FAIL compiler process' >> "$output/result.txt"; exit 1 }
+try { rg -n '^[[:space:]]*(Error:|INTERNAL ERROR)' "$output/compile.txt" }
+if (_error.code !== 1) { echo 'BLOCKED checked DEX lowering' >> "$output/result.txt"; exit 1 }
+for suffix in dex dex.plan checked.anf smali { test -s "$output/candidate.$suffix" }
+sha256sum "$output/candidate.dex" > "$output/sha256.txt"
+echo 'PASS source emits direct DEX; independent parser and ART NOT_RUN' >> "$output/result.txt"
+cat "$output/result.txt"

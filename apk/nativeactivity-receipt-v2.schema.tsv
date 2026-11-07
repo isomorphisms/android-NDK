@@ -1,0 +1,40 @@
+field	role	meaning
+schema	material	receipt schema identifier
+schema_sha256	material	exact bytes of this schema file
+package	material	approved and observed application package
+version_code	material	approved and observed Android version code
+version_name	material	approved Android version name
+min_sdk	material	approved minimum Android API
+target_sdk	material	approved target Android API
+expected_launcher_label	material	independently approved launcher label or empty
+require_no_dex	material	whether the NativeActivity package must contain no DEX
+abi	material	Android ABI receiving the native library
+native_library	material	basename of the packaged native library
+source_date_epoch	material	epoch applied by the packager or unset
+approved_source_date_epoch	material	application-approved epoch or unset
+timestamp_normalization	material	declared timestamp normalization
+mode_normalization	material	declared file and directory mode normalization
+entry_order	material	declared payload traversal order
+zip_metadata	material	declared ZIP metadata treatment
+source_commit	material	exact application source revision or unknown outside reproducible mode
+signature_policy	material	declared signer scheme policy
+signature_mode	material	observed APK signature schemes
+manifest_sha256	material	exact application manifest bytes
+resource_closure_sha256	material	canonical resource path/type/content closure
+asset_closure_sha256	material	canonical asset path/type/content closure
+native_sha256	material	exact application native-library bytes
+signer_cert_sha256	material	approved and observed signer certificate
+packager_sha256	material	exact maintained packager bytes
+verifier_sha256	material	exact maintained receipt verifier bytes
+aapt2_sha256	material	exact aapt2 producer bytes
+zipalign_sha256	material	exact zipalign producer bytes
+apksigner_sha256	material	exact apksigner producer bytes
+apksigner_jar_sha256	material	exact apksigner implementation bytes
+android_jar_sha256	material	exact target API framework input bytes
+zip_sha256	material	exact ZIP producer bytes
+material_sha256	identity	SHA-256 of the ordered material rows above
+launcher_label	observed	label observed in the finished package
+launcher_activity_label	observed	activity label observed in the finished package
+unsigned_apk_sha256	output	unaligned unsigned package bytes after payload insertion
+aligned_apk_sha256	output	aligned unsigned package bytes
+apk_sha256	output	finished signed APK bytes

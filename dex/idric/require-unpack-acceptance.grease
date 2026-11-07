@@ -1,0 +1,30 @@
+#!/usr/bin/env grease
+
+# The workflow passes its absolute evidence directory as data. Grease does
+# not implicitly expose inherited shell variables inside source expressions.
+# These receipts close this diagnostic only, not the full browser or storage.
+if (len(ARGV) !== 1) {
+  echo 'usage: grease require-unpack-acceptance.grease ABSOLUTE_EVIDENCE_DIRECTORY' >&2
+  exit 2
+}
+var evidence = ARGV[0]
+if (len(evidence) === 0) { echo 'empty evidence path' >&2; exit 2 }
+if (evidence[0] !== '/') { echo 'absolute evidence path required' >&2; exit 2 }
+test -d "$evidence"
+test ! -e "$evidence/ib-blocked.txt"
+rg -q -x -F 'PASS unchanged IB diagnostic source and two executed production mutations' "$evidence/ib-art-success.txt"
+rg -q -x -F 'PASS checked Idric unpack on ART' "$evidence/art/positive.txt"
+rg -q -x -F 'process_exit=0' "$evidence/art/positive-status.txt"
+rg -q -x -F 'FAIL record_allowed valid' "$evidence/art/mutant.txt"
+rg -q -x -F 'process_exit=73' "$evidence/art/mutant-status.txt"
+rg -q -x -F 'PASS actual IB LongViewAndroid on ART' "$evidence/art/ib.txt"
+rg -q -x -F 'process_exit=0' "$evidence/art/ib-status.txt"
+rg -q -x -F 'FAIL actual IB invalid task' "$evidence/art/ib-separator.txt"
+rg -q -x -F 'process_exit=73' "$evidence/art/ib-separator-status.txt"
+rg -q -x -F 'FAIL actual IB same host' "$evidence/art/ib-wrong-host.txt"
+rg -q -x -F 'process_exit=73' "$evidence/art/ib-wrong-host-status.txt"
+for name in positive mutant ib ib-separator ib-wrong-host {
+  sha256sum -c "$evidence/$name/sha256.txt"
+  cmp "$evidence/$name/candidate.dex" "$evidence/art/$name-received.dex"
+}
+echo 'PASS required unchanged IB diagnostic and unpack ART receipts'

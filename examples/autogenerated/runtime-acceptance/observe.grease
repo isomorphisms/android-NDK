@@ -1,0 +1,41 @@
+#!/usr/bin/env grease
+if (len(ARGV) !== 4) { echo 'usage: grease observe.grease ADB SERIAL INPUT EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var input = ARGV[2]
+var evidence = ARGV[3]
+if test -e "$evidence" { echo 'FAIL ART evidence already exists' >&2; exit 1 }
+mkdir -p "$evidence"
+"$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r' | rg -x 1
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r' | rg -x x86_64
+"$adb" -s "$serial" shell getprop ro.build.version.sdk > "$evidence/android-api.txt"
+"$adb" -s "$serial" shell mkdir -p /data/local/tmp/idric-runtime-repair
+for name in plain values arguments tails {
+  "$adb" -s "$serial" push "$input/$name/$name.dex" "/data/local/tmp/idric-runtime-repair/$name.dex"
+}
+"$adb" -s "$serial" push "$input/mutant/plain.dex" /data/local/tmp/idric-runtime-repair/mutant.dex
+timeout 45 "$adb" -s "$serial" shell -T 'dalvikvm -cp /data/local/tmp/idric-runtime-repair/plain.dex Idric.Generated' > "$evidence/plain.actual" 2> "$evidence/plain.stderr"
+printf '%s\n' plain-output-ok > "$evidence/plain.expected"
+cmp "$evidence/plain.expected" "$evidence/plain.actual"
+timeout 45 "$adb" -s "$serial" shell -T 'dalvikvm -cp /data/local/tmp/idric-runtime-repair/values.dex Idric.Generated' > "$evidence/values.actual" 2> "$evidence/values.stderr"
+printf '%s\n' count=1:first 'count=1:A😀é' count=1:again > "$evidence/values.expected"
+cmp "$evidence/values.expected" "$evidence/values.actual"
+timeout 45 "$adb" -s "$serial" shell -T 'dalvikvm -cp /data/local/tmp/idric-runtime-repair/arguments.dex Idric.Generated "two words" "A😀é" ""' > "$evidence/arguments.actual" 2> "$evidence/arguments.stderr"
+printf '%s\n' arg:arguments 'arg:two words' 'arg:A😀é' arg: > "$evidence/arguments.expected"
+cmp "$evidence/arguments.expected" "$evidence/arguments.actual"
+timeout 180 "$adb" -s "$serial" shell -T 'dalvikvm -cp /data/local/tmp/idric-runtime-repair/tails.dex Idric.Generated' > "$evidence/tails.actual" 2> "$evidence/tails.stderr"
+printf '%s\n' self=1000000 mutual=7 swap=right wide=1000078 varying=1000009 before nested=75 after > "$evidence/tails.expected"
+cmp "$evidence/tails.expected" "$evidence/tails.actual"
+timeout 180 "$adb" -s "$serial" shell -T 'dalvikvm -cp /data/local/tmp/idric-runtime-repair/tails.dex Idric.Generated extra' > "$evidence/tails-one.actual" 2> "$evidence/tails-one.stderr"
+printf '%s\n' self=1000001 mutual=9 swap=left wide=1000079 varying=1000001 before nested=75 after > "$evidence/tails-one.expected"
+cmp "$evidence/tails-one.expected" "$evidence/tails-one.actual"
+timeout 45 "$adb" -s "$serial" shell -T 'dalvikvm -cp /data/local/tmp/idric-runtime-repair/mutant.dex Idric.Generated' > "$evidence/mutant.actual" 2> "$evidence/mutant.stderr"
+if cmp -s "$evidence/plain.expected" "$evidence/mutant.actual" { echo 'FAIL source mutant passed unchanged expectation' >&2; exit 1 }
+rg -x plain-output-wrong "$evidence/mutant.actual"
+for name in plain values arguments tails {
+  "$adb" -s "$serial" pull "/data/local/tmp/idric-runtime-repair/$name.dex" "$evidence/$name.received.dex"
+  cmp "$input/$name/$name.dex" "$evidence/$name.received.dex"
+}
+cp "$input/source-revision.txt" "$evidence/source-revision.txt"
+printf 'plain_output_ART\tPASS\nreused_closures_records_lists_ART\tPASS\nUnicode_arguments_ART\tPASS\nmillion_step_self_and_mutual_ART\tPASS\nargument_swap_ART\tPASS\nthirteen_arguments_ART\tPASS\nnested_invocation_effect_order_ART\tPASS\nsource_mutant_ART\tREJECTED\nphysical_A1\tNOT_RUN\nphysical_C67\tNOT_RUN\n' > "$evidence/art-receipt.tsv"
+printf '\033[32mPASS\033[0m checked runtime repair observations on emulator ART\n'

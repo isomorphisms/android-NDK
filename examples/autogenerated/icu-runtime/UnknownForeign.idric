@@ -1,0 +1,15 @@
+module UnknownForeign
+
+import System
+import Data.Text
+
+%foreign "C:unknown_runtime_service,libunknown"
+unknown_service : Text → PrimIO ()
+
+%export "dex:unknown_foreign"
+main : IO ()
+main = do
+  arguments ← getArgs
+  case arguments of
+    first :: _ ⇒ primIO (unknown_service first)
+    [] ⇒ pure ()

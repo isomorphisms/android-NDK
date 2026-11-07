@@ -1,0 +1,26 @@
+{__mainExpression:0} = []: %let v0 = (<{{__mainExpression:0}:0} underapp 1>()) in (PrimIO.unsafePerformIO(v0))
+{{__mainExpression:0}:0} = [0]: QuickSettingsSourceEffects.main(v0)
+_builtin.NIL = Constructor tag Just 0 arity 0 newtype by Nothing
+_builtin.CONS = Constructor tag Just 1 arity 2 newtype by Nothing
+_builtin.NOTHING = Constructor tag Just 0 arity 0 newtype by Nothing
+_builtin.JUST = Constructor tag Just 1 arity 1 newtype by Nothing
+prim__sub_Integer = [0, 1]: %op -Integer(v0, v1)
+QuickSettingsSourceEffects.write_then_read = [0, 1, 2]: %let v3 = (QuickSettingsSourceEffects.write_integer(v0, v1, v2)) in (%let v4 = (%let v5 = (0) in (QuickSettingsSourceEffects.set_position(v0, v5, v2))) in (QuickSettingsSourceEffects.read_integer(v0, v2)))
+QuickSettingsSourceEffects.write_integer = Foreign call ["dex:virtual:Landroid/os/Parcel;:writeInt:(I)V"] [QuickSettingsSourceEffects.Parcel , Int_32, %World] -> IORes Unit
+QuickSettingsSourceEffects.wrapped_recycle = [0, 1]: QuickSettingsSourceEffects.recycle_parcel(v0, v1)
+QuickSettingsSourceEffects.wrapped_read = [0, 1]: QuickSettingsSourceEffects.read_integer(v0, v1)
+QuickSettingsSourceEffects.set_position = Foreign call ["dex:virtual:Landroid/os/Parcel;:setDataPosition:(I)V"] [QuickSettingsSourceEffects.Parcel , Int_32, %World] -> IORes Unit
+QuickSettingsSourceEffects.recycle_parcel = Foreign call ["dex:virtual:Landroid/os/Parcel;:recycle:()V"] [QuickSettingsSourceEffects.Parcel , %World] -> IORes Unit
+QuickSettingsSourceEffects.read_integer = Foreign call ["dex:virtual:Landroid/os/Parcel;:readInt:()I"] [QuickSettingsSourceEffects.Parcel , %World] -> IORes Int_32
+QuickSettingsSourceEffects.primitive_read = [0, 1]: QuickSettingsSourceEffects.read_integer(v0, v1)
+QuickSettingsSourceEffects.obtain_then_recycle = [0]: %let v1 = (QuickSettingsSourceEffects.obtain_parcel(v0)) in (QuickSettingsSourceEffects.recycle_parcel(v1, v0))
+QuickSettingsSourceEffects.obtain_parcel = Foreign call ["dex:static:Landroid/os/Parcel;:obtain:()Landroid/os/Parcel;"] [%World] -> IORes QuickSettingsSourceEffects.Parcel 
+QuickSettingsSourceEffects.main = [0]: ___
+Prelude.Types.prim__integerToNat = [0]: %let v2 = (%let v1 = (0) in (%op <=Integer(v1, v0))) in (%case v2 of { %constalt(0) => 0 Just v0 })
+Prelude.EqOrd.compare = [0, 1]: %let v3 = (Prelude.EqOrd.<(v0, v1)) in (%case v3 of { %constalt(1) => 0| %constalt(0) => %let v2 = (Prelude.EqOrd.==(v0, v1)) in (%case v2 of { %constalt(1) => 1| %constalt(0) => 2 Nothing }) Nothing })
+Prelude.EqOrd.== = [0, 1]: %let v2 = (%op ==Integer(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.< = [0, 1]: %let v2 = (%op <Integer(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+Prelude.EqOrd.compareInteger = [0, 1]: Prelude.EqOrd.compare(v0, v1)
+PrimIO.unsafePerformIO = [0]: %let v1 = (<PrimIO.{unsafePerformIO:0} underapp 1>(v0)) in (PrimIO.unsafeCreateWorld(v1))
+PrimIO.{unsafePerformIO:0} = [0, 1]: v0 @ (v1)
+PrimIO.unsafeCreateWorld = [0]: %let v1 = (%MkWorld) in (v0 @ (v1))

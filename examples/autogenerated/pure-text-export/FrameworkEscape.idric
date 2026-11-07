@@ -1,0 +1,12 @@
+module FrameworkEscape
+
+import Data.Text
+
+%cg dex extends Landroid/app/Activity;
+
+%export "dex:prepend_marker"
+prepend_marker : Text → Text
+prepend_marker supplied = pack ('!' :: unpack supplied)
+
+main : IO ()
+main = pure ()

@@ -1,0 +1,19 @@
+module DexInvokeRange
+
+%foreign "dex:virtual:Ljava/lang/String;:regionMatches:(ZILjava/lang/String;II)Z"
+region_matches : Text → Int32 → Int32 → Text → Int32 → Int32 → Int32
+
+%export "dex:region_match"
+region_match : Text → Int32 → Int32 → Text → Int32 → Int32 → Int32
+region_match source ignore_case source_offset other other_offset count =
+  region_matches source ignore_case source_offset other other_offset count
+
+-- The input order deliberately differs from the framework signature, so this
+-- export exercises disjoint staging before its six-word range invocation.
+%export "dex:region_match_reordered"
+region_match_reordered : Text → Int32 → Text → Int32 → Int32 → Int32 → Int32
+region_match_reordered source source_offset other count other_offset ignore_case =
+  region_matches source ignore_case source_offset other other_offset count
+
+main : IO ()
+main = pure ()

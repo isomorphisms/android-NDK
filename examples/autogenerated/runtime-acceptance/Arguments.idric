@@ -1,0 +1,14 @@
+module Arguments
+
+import Data.Text
+import System
+
+display : List Text → IO ()
+display [] = pure ()
+display (value :: rest) = do
+  putStrLn ("arg:" ++ value)
+  display rest
+
+%export "dex:runtime_arguments"
+main : IO ()
+main = getArgs >>= display

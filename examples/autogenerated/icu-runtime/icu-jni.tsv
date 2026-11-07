@@ -1,0 +1,3 @@
+library_property	icu.library
+C:icu_send_http,libicu_transport	icuSendHttp	(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;I)I
+C:icu_send_https,libicu_transport	icuSendHttps	(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;I)I

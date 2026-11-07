@@ -1,0 +1,14 @@
+module CopyText
+
+import Data.Text
+
+copy_characters : List Char → List Char
+copy_characters [] = []
+copy_characters (character :: remaining) = character :: copy_characters remaining
+
+%export "dex:copy_text"
+copy_text : Text → Text
+copy_text supplied = pack (copy_characters (unpack supplied))
+
+main : IO ()
+main = pure ()

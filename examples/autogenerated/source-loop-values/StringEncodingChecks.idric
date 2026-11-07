@@ -1,0 +1,27 @@
+module StringEncodingChecks
+
+import Backend.DEX.Encode
+import Data.Text
+import System
+
+assert_case : Text → Bool → IO ()
+assert_case description accepted =
+  if accepted then putStrLn ("PASS " ++ description)
+  else die ("FAIL " ++ description)
+
+covering
+main : IO ()
+main = do
+  assert_case "empty string data" (encode_string_data "" ≟ Right [0, 0])
+  assert_case "ASCII encoding remains unchanged" (encode_string_data "A" ≟ Right [1, 65, 0])
+  assert_case "NUL uses modified encoding" (encode_string_data (pack [chr 0]) ≟ Right [1, 192, 128, 0])
+  assert_case "BMP text uses UTF-8 units" (encode_string_data "λ" ≟ Right [1, 206, 187, 0])
+  assert_case "supplementary text uses two surrogate units"
+    (encode_string_data "𝄞" ≟ Right [2, 237, 160, 180, 237, 180, 158, 0])
+  assert_case "UTF-16 length differs from code-point length"
+    (encode_string_data "λ𝄞" ≟ Right [3, 206, 187, 237, 160, 180, 237, 180, 158, 0])
+  assert_case "string IDs sort surrogate units before high BMP units"
+    (compare_dex_strings "𝄞" (pack [chr 57344]) ≟ LT)
+  assert_case "NUL sorting compares decoded units"
+    (compare_dex_strings (pack [chr 0]) "A" ≟ LT)
+  putStrLn "PASS DEX string data and ordering"

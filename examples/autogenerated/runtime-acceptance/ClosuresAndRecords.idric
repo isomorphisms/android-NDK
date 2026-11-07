@@ -1,0 +1,27 @@
+module ClosuresAndRecords
+
+import Data.Text
+import System
+
+record Message where
+  constructor MkMessage
+  prefix : Text
+  words : List Text
+
+decorate : Text → Text → Text
+decorate prefix word = prefix ++ ":" ++ word
+
+display : (Text → Text) → List Text → IO ()
+display render [] = pure ()
+display render (word :: remaining) = do
+  putStrLn (render word)
+  display render remaining
+
+%export "dex:closures_and_records"
+main : IO ()
+main = do
+  arguments ← getArgs
+  let message = MkMessage ("count=" ++ cast (length arguments)) ["first", "A😀é"]
+  let shared = decorate message.prefix
+  display shared message.words
+  display shared ["again"]

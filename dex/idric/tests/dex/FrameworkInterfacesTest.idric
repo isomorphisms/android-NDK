@@ -1,0 +1,28 @@
+module FrameworkInterfacesTest
+
+import Backend.DEX.FrameworkClasses
+import Data.Text
+import System
+
+%default covering
+
+listener : FrameworkClass
+listener = Subclass "Lexample/Listener;" "Ljava/lang/Object;" Nothing
+  [Callback "onClick" "V" ["Landroid/view/View;"]]
+
+require_rejection : Text → Either Text (List Int) → IO ()
+require_rejection expected (Left actual) =
+  if actual ≟ expected then pure () else do putStrLn actual; exitFailure
+require_rejection expected (Right _) = do putStrLn ("Accepted " ++ expected); exitFailure
+
+main : IO ()
+main = do
+  require_rejection "Duplicate implemented interface"
+    (encode_framework_classes_implementing [(listener, ["Landroid/view/View$OnClickListener;", "Landroid/view/View$OnClickListener;"])])
+  require_rejection "Invalid implemented interface descriptor"
+    (encode_framework_classes_implementing [(listener, ["V"])])
+  let declarations = [(listener, ["Landroid/view/View$OnClickListener;"])]
+  result ← write_framework_classes_implementing declarations "build/framework-interface.dex"
+  case result of
+    Left problem ⇒ do putStrLn problem; exitFailure
+    Right () ⇒ putStrLn "PASS interface plan and two hostile cases"

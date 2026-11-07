@@ -1,0 +1,72 @@
+module UnpackSource
+
+%export "dex:first_codepoint"
+export
+first_codepoint : Text → Int32
+first_codepoint input = case unpack input of
+  [] ⇒ -1
+  first :: rest ⇒ cast first
+
+%export "dex:second_codepoint"
+export
+second_codepoint : Text → Int32
+second_codepoint input = case unpack input of
+  [] ⇒ -1
+  first :: rest ⇒ case rest of
+    [] ⇒ -1
+    second :: more ⇒ cast second
+
+%export "dex:roundtrip"
+export
+roundtrip : Text → Text
+roundtrip input = pack (unpack input)
+
+%export "dex:tail_text"
+export
+tail_text : Text → Text
+tail_text input = case unpack input of
+  [] ⇒ ""
+  first :: rest ⇒ pack rest
+
+contains_separator : List Char → Bool
+contains_separator [] = False
+contains_separator ('\t' :: rest) = True
+contains_separator ('\n' :: rest) = True
+contains_separator ('\r' :: rest) = True
+contains_separator (first :: rest) = contains_separator rest
+
+%export "dex:record_allowed"
+export
+record_allowed : Text → Int32
+record_allowed input = case unpack input of
+  [] ⇒ 0
+  first :: rest ⇒ if contains_separator (first :: rest) then 0 else 1
+
+count_from : Int32 → List Char → Int32
+count_from count_so_far [] = count_so_far
+count_from count_so_far (first :: rest) = count_from (count_so_far + 1) rest
+
+%export "dex:codepoint_count"
+export
+codepoint_count : Text → Int32
+codepoint_count input = count_from 0 (unpack input)
+
+%export "dex:alias_preserved"
+export
+alias_preserved : Text → Int32
+alias_preserved input =
+  let characters = unpack input in
+  if contains_separator characters then -2
+  else case characters of
+    [] ⇒ -1
+    first :: rest ⇒ cast first
+
+%export "dex:integer_wrap"
+export
+integer_wrap : Text → Int32
+integer_wrap input = case unpack input of
+  [] ⇒ cast (the Integer (-2147483649))
+  first :: rest ⇒ cast (the Integer 4294967297)
+
+main : IO ()
+main = pure ()

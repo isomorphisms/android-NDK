@@ -1,0 +1,10 @@
+module PrependText
+
+import Data.Text
+
+%export "dex:prepend_marker"
+prepend_marker : Text → Text
+prepend_marker supplied = pack ('!' :: unpack supplied)
+
+main : IO ()
+main = pure ()

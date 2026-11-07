@@ -1,0 +1,11 @@
+#!/usr/bin/env grease
+# Read the exact cache-key input already produced by the pinned ick-host action.
+# Preserve its successful qualification before a later consumer test can fail.
+set -eu -o pipefail
+if (len(ARGV) !== 2) { echo 'usage: grease qualified-compiler-cache.grease KEY_INPUT GITHUB_OUTPUT' >&2; exit 2 }
+var key_input = ARGV[0]
+var output = ARGV[1]
+test -s "$key_input"
+var digest = $(sha256sum "$key_input" | cut -d ' ' -f 1)
+if (len(digest) !== 64) { echo 'FAIL invalid pinned compiler runtime key' >&2; exit 1 }
+printf 'runtime_key=%s\n' "$digest" >> "$output"

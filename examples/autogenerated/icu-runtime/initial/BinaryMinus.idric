@@ -1,0 +1,22 @@
+module CharacterCasts
+
+import Data.Text
+import System
+
+character_number : Int → Int
+character_number code = cast (the Char (cast code))
+
+display_character_numbers : List Int → IO ()
+display_character_numbers [] = pure ()
+display_character_numbers (code :: rest) = do
+  putStrLn (show (character_number code))
+  display_character_numbers rest
+
+%export "dex:character_casts"
+main : IO ()
+main = do
+  arguments ← getArgs
+  case arguments of
+    _ :: _ ⇒ display_character_numbers
+      [0 − 1, 0, 55295, 55296, 57343, 57344, 1114111, 1114112, 9223372036854775807]
+    [] ⇒ pure ()

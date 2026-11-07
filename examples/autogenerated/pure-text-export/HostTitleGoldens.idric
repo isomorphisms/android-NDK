@@ -1,0 +1,29 @@
+module HostTitleGoldens
+
+import Data.Text
+import IB.Information
+import IB.RecoveredInformation
+import System
+
+source_title : Text → Text
+source_title supplied = view_title
+  (information_from_log "source" "source" (recover_document_log "source" supplied))
+
+check_title : Text → Text → Text → IO ()
+check_title label supplied expected =
+  if source_title supplied ≟ expected then pure ()
+  else do
+    putStrLn ("FAIL host title " ++ label ++ ": " ++ show (source_title supplied))
+    exitFailure
+
+main : IO ()
+main = do
+  check_title "empty" "" ""
+  check_title "ordinary"
+    "<html><head><title>One document</title></head><body><p>body</p></body></html>"
+    "One document"
+  check_title "malformed" "<html><title>Recovered</title><p>unterminated body" "Recovered"
+  check_title "Unicode" "<title>café 🦉 漢</title>" "café 🦉 漢"
+  check_title "repeat" "<title>Second document</title>" "Second document"
+  check_title "no stale result" "<p>No title</p>" ""
+  putStrLn "PASS host reference for actual IB source-title goldens"

@@ -1,0 +1,59 @@
+module LayoutLongJump
+
+%foreign "dex:virtual:Ljava/lang/String;:indexOf:(Ljava/lang/String;)I"
+index_of : Text → Text → Int32
+
+%export "dex:layout_long_jump"
+layout_long_jump : Text → Int32
+layout_long_jump input =
+  if input ≟ "" then 0
+  else if index_of input "needle00" ≟ -1 then
+    if index_of input "needle01" ≟ -1 then
+      if index_of input "needle02" ≟ -1 then
+        if index_of input "needle03" ≟ -1 then
+          if index_of input "needle04" ≟ -1 then
+            if index_of input "needle05" ≟ -1 then
+              if index_of input "needle06" ≟ -1 then
+                if index_of input "needle07" ≟ -1 then
+                  if index_of input "needle08" ≟ -1 then
+                    if index_of input "needle09" ≟ -1 then
+                      if index_of input "needle10" ≟ -1 then
+                        if index_of input "needle11" ≟ -1 then
+                          if index_of input "needle12" ≟ -1 then
+                            if index_of input "needle13" ≟ -1 then
+                              if index_of input "needle14" ≟ -1 then
+                                if index_of input "needle15" ≟ -1 then
+                                  if index_of input "needle16" ≟ -1 then
+                                    if index_of input "needle17" ≟ -1 then
+                                      if index_of input "needle18" ≟ -1 then
+                                        if index_of input "needle19" ≟ -1 then
+                                          if index_of input "needle20" ≟ -1 then
+                                            if index_of input "needle21" ≟ -1 then
+                                              if index_of input "needle22" ≟ -1 then
+                                                if index_of input "needle23" ≟ -1 then 1 else 0
+                                              else 0
+                                            else 0
+                                          else 0
+                                        else 0
+                                      else 0
+                                    else 0
+                                  else 0
+                                else 0
+                              else 0
+                            else 0
+                          else 0
+                        else 0
+                      else 0
+                    else 0
+                  else 0
+                else 0
+              else 0
+            else 0
+          else 0
+        else 0
+      else 0
+    else 0
+  else 0
+
+main : IO ()
+main = pure ()

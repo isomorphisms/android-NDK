@@ -1,0 +1,315 @@
+module DexInvocationChecks
+
+import Backend.DEX.Encode
+import Backend.DEX.IR
+import Backend.DEX.Invoke
+import Backend.DEX.Placement
+import Data.List
+import Data.Text
+import System
+
+-- The inherited encoder is covering and fail exits the process; this host
+-- regression program deliberately retains that boundary instead of totality.
+%default covering
+
+private
+fail : Text → IO a
+fail message = do
+  putStrLn ("FAIL: " ++ message)
+  exitFailure
+
+private
+expect : Text → Bool → IO ()
+expect label True = pure ()
+expect label False = fail label
+
+private
+must_right : Text → Either Text value → IO value
+must_right label (Left explanation) = fail (label ++ ": " ++ explanation)
+must_right label (Right value) = pure value
+
+private
+expect_bytes : Text → List Int → Either Text (List Int) → IO ()
+expect_bytes label expected result = do
+  actual ← must_right label result
+  expect (label ++ ": expected " ++ show expected ++ ", got " ++ show actual)
+    (actual ≟ expected)
+
+private
+expect_left : Text → Either Text value → IO ()
+expect_left label (Left _) = pure ()
+expect_left label (Right _) = fail (label ++ ": malformed plan accepted")
+
+private
+register_sequence : Int → Number → List Register
+register_sequence start Z = []
+register_sequence start (S count) =
+  MkRegister start :: register_sequence (start + 1) count
+
+private
+integer_type : FrameworkValueType
+integer_type = ExistingValue IntegerValue
+
+private
+text_type : FrameworkValueType
+text_type = ExistingValue TextValue
+
+-- Public platform references used only as encoding metadata by this host
+-- program. These checks neither read the clock nor sleep on Android.
+private
+clock_nanoseconds : MethodReference
+clock_nanoseconds =
+  MkMethodReference (MkTypeReference "Ljava/lang/System;") "nanoTime" [] LongValue
+
+private
+sleep_milliseconds : MethodReference
+sleep_milliseconds =
+  MkMethodReference (MkTypeReference "Ljava/lang/Thread;") "sleep" [LongValue] VoidValue
+
+private
+yield_thread : MethodReference
+yield_thread =
+  MkMethodReference (MkTypeReference "Ljava/lang/Thread;") "yield" [] VoidValue
+
+private
+string_region_matches : MethodReference
+string_region_matches =
+  MkMethodReference (MkTypeReference "Ljava/lang/String;") "regionMatches"
+    [ ExistingValue BooleanValue, integer_type, text_type, integer_type, integer_type ]
+    (ExistingValue BooleanValue)
+
+private
+region_call : List Register → Register → InvocationPlan
+region_call registers result =
+  Invoke InvokeVirtual string_region_matches registers (Just result)
+
+private
+void_call : InvokeKind → Number → List Register → InvocationPlan
+void_call kind count registers =
+  Invoke kind
+    (MkMethodReference (MkTypeReference "LIdric/Boundary;") "consume"
+      (replicate count integer_type) VoidValue)
+    registers Nothing
+
+private
+staged_method : MethodPlan
+staged_method =
+  MkMethodPlan "invoke-check" "staged_region" 6
+    [text_type, integer_type, integer_type, text_type, integer_type, integer_type]
+    integer_type 320
+    [ MoveObject (MkRegister 300) (MkRegister 314)
+    , Move (MkRegister 11) (MkRegister 315)
+    , Move (MkRegister 4) (MkRegister 316)
+    , MoveObject (MkRegister 12) (MkRegister 317)
+    , Move (MkRegister 6) (MkRegister 318)
+    , Move (MkRegister 18) (MkRegister 319)
+    , InvokeMethod
+        (region_call (map MkRegister [300, 11, 4, 12, 6, 18]) (MkRegister 300))
+    , ReturnInteger (MkRegister 300)
+    ]
+
+private
+wide_boundary_method : MethodPlan
+wide_boundary_method =
+  MkMethodPlan "invoke-check" "wide_boundary" 1 [integer_type] VoidValue 18
+    [ IntegerConstant (MkRegister 0) 11
+    , IntegerConstant (MkRegister 2) 22
+    , IntegerConstant (MkRegister 4) 33
+    , IntegerConstant (MkRegister 6) 44
+    , InvokeMethod
+        (Invoke InvokeStatic clock_nanoseconds [] (Just (MkRegister 16)))
+    , InvokeMethod
+        (Invoke InvokeStatic
+          (MkMethodReference (MkTypeReference "LIdric/Boundary;") "consume_wide"
+            [LongValue, integer_type, integer_type, integer_type, integer_type] VoidValue)
+          (map MkRegister [16, 0, 2, 4, 6]) Nothing)
+    , ReturnVoid
+    ]
+
+private
+object_result_method : MethodPlan
+object_result_method =
+  let boxed = ReferenceValue (MkTypeReference "Ljava/lang/Integer;") in
+  MkMethodPlan "invoke-check" "box_high" 1 [integer_type] boxed 301
+    [ InvokeMethod
+        (Invoke InvokeStatic
+          (MkMethodReference (MkTypeReference "Ljava/lang/Integer;") "valueOf"
+            [integer_type] boxed)
+          [MkRegister 300] (Just (MkRegister 300)))
+    , ReturnObject (MkRegister 300)
+    ]
+
+private
+wide_result_method : MethodPlan
+wide_result_method =
+  MkMethodPlan "invoke-check" "wide_high" 0 [] LongValue 302
+    [ InvokeMethod
+        (Invoke InvokeStatic clock_nanoseconds [] (Just (MkRegister 300)))
+    , ReturnWide (MkRegister 300)
+    ]
+
+private
+single_file : MethodPlan → FilePlan
+single_file method = MkFilePlan "LIdric/InvocationChecks;" [method]
+
+private
+read16 : Number → List Int → Either Text Int
+read16 offset bytes =
+  case take 2 (drop offset bytes) of
+    [low, high] ⇒ Right (low + high * 256)
+    _ ⇒ Left "truncated DEX ushort"
+
+private
+read32 : Number → List Int → Either Text Int
+read32 offset bytes =
+  case take 4 (drop offset bytes) of
+    [first, second, third, fourth] ⇒
+      Right (first + second * 256 + third * 65536 + fourth * 16777216)
+    _ ⇒ Left "truncated DEX uint"
+
+-- Read the emitted DEX map independently of the encoder's private layout.
+private
+code_item_offset : List Int → Either Text Number
+code_item_offset bytes = do
+  map_offset ← read32 52 bytes
+  count ← read32 (cast map_offset) bytes
+  find_code_item (cast count) (cast map_offset + 4)
+  where
+    find_code_item : Number → Number → Either Text Number
+    find_code_item Z offset = Left "DEX map has no code_item"
+    find_code_item (S remaining) offset = do
+      kind ← read16 offset bytes
+      if kind ≟ 0x2001
+        then do
+          location ← read32 (offset + 8) bytes
+          Right (cast location)
+        else find_code_item remaining (offset + 12)
+
+private
+check_header : Text → MethodPlan → List Int → IO (Number, List Int)
+check_header label method expected = do
+  bytes ← must_right label (encode_dex (single_file method))
+  offset ← must_right label (code_item_offset bytes)
+  registers ← must_right label (read16 offset bytes)
+  incoming ← must_right label (read16 (offset + 2) bytes)
+  outgoing ← must_right label (read16 (offset + 4) bytes)
+  expect (label ++ ": code_item registers/ins/outs")
+    ([registers, incoming, outgoing] ≟ expected)
+  pure (offset + 16, bytes)
+
+private
+invocations : List Instruction → List InvocationPlan
+invocations [] = []
+invocations (InvokeMethod invocation :: rest) = invocation :: invocations rest
+invocations (_ :: rest) = invocations rest
+
+main : IO ()
+main = do
+  let six = region_call (register_sequence 0 6) (MkRegister 6)
+  expect_bytes "virtual 3rc six-word public String call"
+    [0x74, 0x06, 0x23, 0x01, 0x00, 0x00, 0x0a, 0x06]
+    (encode_invoke 0x0123 six)
+  expect_left "35c refuses six words" (encode_invoke_35c 0 six)
+  expect_bytes "35c packs all five explicit register words"
+    [0x71, 0x54, 0x34, 0x12, 0x10, 0x32]
+    (encode_invoke 0x1234 (void_call InvokeStatic 5 (register_sequence 0 5)))
+  expect_bytes "static range with six high arguments"
+    [0x77, 0x06, 0x34, 0x12, 0x00, 0x01]
+    (encode_invoke 0x1234 (void_call InvokeStatic 6 (register_sequence 256 6)))
+  expect_bytes "interface range includes its receiver"
+    [0x78, 0x06, 0x34, 0x12, 0x00, 0x01]
+    (encode_invoke 0x1234 (void_call InvokeInterface 5 (register_sequence 256 6)))
+  expect_bytes "wide pair v15/v16 uses range"
+    [0x77, 0x02, 0x00, 0x00, 0x0f, 0x00]
+    (encode_invoke 0 (Invoke InvokeStatic sleep_milliseconds [MkRegister 15] Nothing))
+  expect_bytes "move-result-wide can start at v255"
+    [0x71, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xff]
+    (encode_invoke 0 (Invoke InvokeStatic clock_nanoseconds [] (Just (MkRegister 255))))
+  expect_bytes "unused nonvoid result needs no move-result"
+    [0x71, 0x00, 0x00, 0x00, 0x00, 0x00]
+    (encode_invoke 0 (Invoke InvokeStatic clock_nanoseconds [] Nothing))
+  expect_bytes "255 register words fit 3rc"
+    [0x77, 0xff, 0x34, 0x12, 0x00, 0x00]
+    (encode_invoke 0x1234 (void_call InvokeStatic 255 (register_sequence 0 255)))
+  expect_left "256 register words are rejected"
+    (encode_invoke 0 (void_call InvokeStatic 256 (register_sequence 0 256)))
+  expect_left "missing virtual receiver is rejected"
+    (encode_invoke 0 (region_call (register_sequence 0 5) (MkRegister 5)))
+  expect_left "3rc cannot silently consume discontiguous words"
+    (encode_invoke_3rc 0 (region_call (map MkRegister [0, 2, 4, 6, 8, 10]) (MkRegister 1)))
+  expect_left "wide argument overflows the register address"
+    (encode_invoke 0 (Invoke InvokeStatic sleep_milliseconds [MkRegister 65535] Nothing))
+  expect_left "3rc method index overflow"
+    (encode_invoke_3rc 65536 six)
+  expect_left "void result cannot use a result register"
+    (encode_invoke 0 (Invoke InvokeStatic yield_thread [] (Just (MkRegister 0))))
+
+  placed ← must_right "safe high-register placement" (prepare_method_invocations staged_method)
+  expect "staging preserves incoming tail and reserves disjoint scratch"
+    (placed.register_count ≟ 334)
+  expect "incoming reference/scalar copies preserve their families and order"
+    (map show (take 6 placed.instructions) ≟
+      [ "move-object v316, v328", "move v317, v329", "move v318, v330"
+      , "move-object v319, v331", "move v320, v332", "move v321, v333"
+      ])
+  case invocations placed.instructions of
+    [call] ⇒ do
+      expect "staged arguments are disjoint and contiguous"
+        (call.arguments ≟ register_sequence 322 6)
+      expect "high result uses a low immediate move-result destination"
+        (call.result_register ≟ Just (MkRegister 0))
+      expect_bytes "staged range encoding"
+        [0x74, 0x06, 0x23, 0x01, 0x42, 0x01, 0x0a, 0x00]
+        (encode_invoke 0x0123 call)
+    _ ⇒ fail "staging changed the invocation count"
+  expect "receiver and String argument use object moves"
+    (elem "move-object v322, v302" (map show placed.instructions) &&
+     elem "move-object v325, v14" (map show placed.instructions))
+  expect "aliased receiver becomes a scalar only after the invocation"
+    (elem "move v302, v0" (map show placed.instructions))
+  _ ← check_header "staged code_item" staged_method [334, 6, 6]
+
+  wide ← must_right "wide boundary placement" (prepare_method_invocations wide_boundary_method)
+  expect "wide pair crossing original local/parameter boundary remains consecutive"
+    (elem "move-wide v20, v18" (map show wide.instructions))
+  _ ← check_header "wide outgoing words" wide_boundary_method [27, 1, 6]
+  boxed ← must_right "object result placement" (prepare_method_invocations object_result_method)
+  expect "high reference result uses move-object"
+    (elem "move-object v302, v0" (map show boxed.instructions))
+  _ ← check_header "object result code_item" object_result_method [305, 1, 1]
+  long_result ← must_right "wide result placement" (prepare_method_invocations wide_result_method)
+  expect "high long result uses move-wide"
+    (elem "move-wide v302, v0" (map show long_result.instructions))
+  _ ← check_header "wide result code_item" wide_result_method [304, 0, 0]
+
+  let void_method = MkMethodPlan "invoke-check" "void_result" 0 [] VoidValue 0 [ReturnVoid]
+  (void_offset, void_bytes) ← check_header "void result" void_method [0, 0, 0]
+  expect "void method emits return-void" (take 2 (drop void_offset void_bytes) ≟ [0x0e, 0x00])
+  let null_method =
+        MkMethodPlan "invoke-check" "null_result" 0 []
+          (ReferenceValue (MkTypeReference "Ljava/lang/Object;")) 1
+          [NullReference (MkRegister 0), ReturnObject (MkRegister 0)]
+  (null_offset, null_bytes) ← check_header "null result" null_method [1, 0, 0]
+  expect "null is zero in an object register and returns as an object"
+    (take 4 (drop null_offset null_bytes) ≟ [0x12, 0x00, 0x11, 0x00])
+  let wide_input =
+        MkMethodPlan "invoke-check" "wide_input" 1 [LongValue] LongValue 2
+          [ReturnWide (MkRegister 0)]
+  (wide_offset, wide_bytes) ← check_header "long input word count" wide_input [2, 2, 0]
+  expect "long return emits return-wide"
+    (take 2 (drop wide_offset wide_bytes) ≟ [0x10, 0x00])
+  expect_left "a void parameter is rejected"
+    (encode_dex (single_file (MkMethodPlan "invalid" "void_input" 1 [VoidValue] VoidValue 1 [ReturnVoid])))
+  expect_left "a scalar method cannot return an object opcode"
+    (encode_dex (single_file (MkMethodPlan "invalid" "wrong_return" 0 [] integer_type 1
+      [NullReference (MkRegister 0), ReturnObject (MkRegister 0)])))
+  expect_left "register frame overflow during staging is rejected"
+    (prepare_method_invocations ({ register_count := 65535 } staged_method))
+  expect_left "out-of-frame source register cannot alias staging storage"
+    (prepare_method_invocations ({ register_count := 319 } staged_method))
+
+  let object_descriptor = MkTypeReference "Ljava/lang/Object;"
+  let represented = MkMethodReference object_descriptor "accept" [ExistingValue ObjectValue] VoidValue
+  let explicit = MkMethodReference object_descriptor "accept" [ReferenceValue object_descriptor] VoidValue
+  expect "method IDs compare exact descriptors across reference representations" (represented ≟ explicit)
+  putStrLn "PASS: DEX invocation placement and word counts"

@@ -1,1 +1,2 @@
-*.idric linguist-language=Idris
+# Retained compiler ANF is raw evidence, including its original trailing spaces.
+*.anf -whitespace

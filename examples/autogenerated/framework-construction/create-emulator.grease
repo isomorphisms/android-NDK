@@ -1,0 +1,30 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+if (len(ARGV) !== 4) {
+  echo 'usage: grease create-emulator.grease AVDMANAGER SDK_ROOT USER_ROOT AVD_ROOT' >&2
+  exit 2
+}
+var manager = ARGV[0]
+var sdk = ARGV[1]
+var user_root = ARGV[2]
+var avd_root = ARGV[3]
+for path in "$manager" "$sdk" "$user_root" "$avd_root" {
+  if (path[0] !== '/') { echo 'FAIL absolute host path required' >&2; exit 2 }
+}
+test -x "$manager"
+test -s "$sdk/system-images/android-34/default/x86_64/package.xml"
+if test -e "$avd_root/ib-reader-34.avd" { echo 'FAIL refusing existing emulator' >&2; exit 1 }
+if test -e "$avd_root/ib-reader-34.ini" { echo 'FAIL refusing existing emulator metadata' >&2; exit 1 }
+mkdir -p "$user_root" "$avd_root"
+printf 'no\n' | env ANDROID_USER_HOME="$user_root" ANDROID_AVD_HOME="$avd_root" \
+  ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk" \
+  "$manager" create avd --name ib-reader-34 \
+  --package 'system-images;android-34;default;x86_64' --path "$avd_root/ib-reader-34.avd"
+test -s "$avd_root/ib-reader-34.avd/config.ini"
+# avdmanager can infer a different SDK when its entrypoint is outside SDK_ROOT.
+# Bind this disposable emulator to the explicitly verified image and AVD path.
+sed '/^image.sysdir.1 *=/d' "$avd_root/ib-reader-34.avd/config.ini" > "$avd_root/ib-reader-34.avd/config.tmp"
+printf 'image.sysdir.1 = %s/system-images/android-34/default/x86_64/\n' "$sdk" >> "$avd_root/ib-reader-34.avd/config.tmp"
+mv "$avd_root/ib-reader-34.avd/config.tmp" "$avd_root/ib-reader-34.avd/config.ini"
+printf 'avd.ini.encoding=UTF-8\npath=%s/ib-reader-34.avd\ntarget=android-34\n' "$avd_root" > "$avd_root/ib-reader-34.ini"
+cat "$avd_root/ib-reader-34.avd/config.ini"

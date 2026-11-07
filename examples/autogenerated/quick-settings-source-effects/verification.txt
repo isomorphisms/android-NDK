@@ -1,0 +1,35 @@
+Checked-source effects and nominal-reference probe
+Date: 2026-10-09 UTC
+
+Actual compiler source: ff4d852862a3942592f8ade9afde8d409d9803be
+Compiler executable version: 0.8.0-ff4d85286
+Compiler payload SHA256:
+10002074cfae31a15e6f136cd191b6abe9f8d58efcec438d21145e72802b2819
+Original baseline custom DEX driver payload SHA256:
+e03122427c52e0d893cac4184583b5724aadd8ac063ed164e8216e75ee40ba0a
+
+PASS: QuickSettingsSourceEffects.idric frontend source check.
+PASS: OrdinaryReferenceRefusal.idric frontend source check (backend must refuse).
+PASS: ConflictingReferenceRefusal.idric frontend source check (backend must refuse).
+PASS: QuickSettingsBoolean.idric frontend compilation to checked ANF.
+PASS: candidate Backend.DEX.Codegen --check, including live IR, Invoke, Placement,
+Encode, Foreign, Lower, and Smali dependencies, after the Boolean correction.
+
+Baseline --cg dex Parcel result:
+  dex rejected source ABI for QuickSettingsSourceEffects.obtain_then_recycle:
+  unsupported source type; explicit Int32 and Text parameters/results only.
+Baseline --cg dex Boolean result:
+  dex rejected source ABI for QuickSettingsBoolean.boolean_false:
+  unsupported source type; explicit Int32 and Text parameters/results only.
+Both baseline backend rejections exit 0. No candidate DEX was produced.
+The preserved *.anf files are compiler output, not hand-authored substitutes.
+
+Candidate emission, independent disassembly, refusal diagnostics, and ART
+execution require the root-owned fresh driver build and verifier receipts.
+This file records source-stage evidence only.
+
+Source SHA256:
+6409db1cd7cd1b9442d91e8cdbc57dc5edbdae78d7240c5fe1ac4c90c5f13e2a  QuickSettingsSourceEffects.idric
+10874d2a1135e859033a3b3c23315a6f2999d3ada14fdce7e43468c8bc8b4fd3  OrdinaryReferenceRefusal.idric
+bac991d57cf8e77dd3aa0c65b56c9e666675fa850a3080d2434a585b028598c9  ConflictingReferenceRefusal.idric
+7e6be970b234bcf8379ca89c1f2777fb63f59a38de20259f4cc26a044e87bbf9  QuickSettingsBoolean.idric

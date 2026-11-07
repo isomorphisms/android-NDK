@@ -1,0 +1,14 @@
+module WideLoopValue
+
+import Data.Text
+
+advance_count : Number → List Char → Number
+advance_count count [] = count
+advance_count count (_ :: rest) = advance_count (count + 1) rest
+
+%export "dex:source_length"
+source_length : Text → Int32
+source_length source = cast (advance_count 0 (unpack source))
+
+main : IO ()
+main = pure ()

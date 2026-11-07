@@ -1,0 +1,31 @@
+module LayoutText
+
+-- Compiler regression derived from IB's checked LongViewTextProbe at
+-- a624cef0c1f8b867154e49c7f172f7069b4a3708. This is a layout fixture,
+-- not an alternative browser validator or persistence implementation.
+%foreign "dex:virtual:Ljava/lang/String;:indexOf:(Ljava/lang/String;)I"
+index_of : Text → Text → Int32
+
+absent : Text → Text → Bool
+absent source pattern = index_of source pattern ≟ -1
+
+%export "dex:layout_text"
+layout_text : Text → Int32
+layout_text input =
+  if input ≟ "" then 0
+  else if absent input "?" then
+    if absent input "#" then
+      if absent input "\t" then
+        if absent input "\n" then
+          if absent input "\r" then 1 else 0
+        else 0
+      else 0
+    else 0
+  else 0
+
+%export "dex:escaped_literal"
+escaped_literal : Text
+escaped_literal = "quote=\" slash=\\ tab=\t line=\n return=\r"
+
+main : IO ()
+main = pure ()

@@ -1,0 +1,79 @@
+#!/usr/bin/env grease
+# Native fixture observation; expected values are independent of the producer.
+if (len(ARGV) !== 4) { echo 'usage: grease observe.grease ADB SERIAL INPUT EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var input = ARGV[2]
+var evidence = ARGV[3]
+if test -e "$evidence" { echo 'FAIL refusing reused JNI ART evidence' >&2; exit 1 }
+mkdir -p "$evidence"
+"$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r' | rg -x 1
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r' | rg -x x86_64
+"$adb" -s "$serial" shell getprop > "$evidence/device-properties.txt"
+"$adb" -s "$serial" shell mkdir -p /data/local/tmp/idric-native-contracts
+"$adb" -s "$serial" push "$input/native-contract.dex" /data/local/tmp/idric-native-contracts/candidate.dex
+"$adb" -s "$serial" push "$input/libcontract.so" /data/local/tmp/idric-native-contracts/libcontract.so
+"$adb" -s "$serial" push "$input/legacy-contract.dex" /data/local/tmp/idric-native-contracts/legacy.dex
+"$adb" -s "$serial" push "$input/integer-observer.dex" /data/local/tmp/idric-native-contracts/integer-observer.dex
+var base = 'CLASSPATH=/data/local/tmp/idric-native-contracts/candidate.dex app_process -Xcheck:jni -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin Idric.Generated'
+timeout 45 "$adb" -s "$serial" shell -T "$base identity 'café🦉'" > "$evidence/identity.stdout" 2> "$evidence/identity.stderr"
+printf '%s\n' 'café🦉' > "$evidence/identity.expected"
+cmp "$evidence/identity.expected" "$evidence/identity.stdout"
+timeout 60 "$adb" -s "$serial" shell -T "$base repeat 'café🦉'" > "$evidence/repeat.stdout" 2> "$evidence/repeat.stderr"
+cmp "$evidence/identity.expected" "$evidence/repeat.stdout"
+timeout 45 "$adb" -s "$serial" shell -T "$base narrow 2147483647" > "$evidence/narrow.stdout" 2> "$evidence/narrow.stderr"
+printf '%s\n' 2147483647 > "$evidence/narrow.expected"
+cmp "$evidence/narrow.expected" "$evidence/narrow.stdout"
+rg -F 'native narrow invoked' "$evidence/narrow.stderr"
+proc rejects(label, invocation, command, diagnostic) {
+  # app_process installs Android's uncaught-exception handler. Its diagnostic
+  # goes to logcat before the process is killed, rather than to stderr.
+  "$adb" -s "$serial" logcat -b main -b system -b crash -c
+  var status = 0
+  # exec preserves the shell PID as the actual VM PID. Filter every diagnostic
+  # to that process: API29 can retain earlier crash-buffer messages after -c.
+  var observed_command = 'echo $$; exec env ' ++ invocation ++ ' ' ++ command
+  try {
+    timeout 45 "$adb" -s "$serial" shell -T "$observed_command" > "$evidence/$label.stdout" 2> "$evidence/$label.stderr"
+  }
+  setvar status = _error.code
+  printf '%s\n' "$status" > "$evidence/$label.status"
+  var runtime_pid = $(head -n 1 "$evidence/$label.stdout" | tr -d '\r')
+  printf '%s\n' "$runtime_pid" | rg -x '[1-9][0-9]*' > "$evidence/$label.pid"
+  "$adb" -s "$serial" logcat -b main -b system -b crash -d --pid="$runtime_pid" -v threadtime -s AndroidRuntime:E > "$evidence/$label.logcat"
+  if (status === 0 or status === 124) { echo "FAIL $label did not reject with a completed failure" >&2; exit 1 }
+  rg -F "$diagnostic" "$evidence/$label.stdout" "$evidence/$label.stderr" "$evidence/$label.logcat"
+  printf '%s\tREJECTED\n' "$label" >> "$evidence/receipt.tsv"
+}
+rejects null-result "$base" null 'JNI contract rejects null String result'
+rejects null-argument "$base" null-argument 'JNI contract rejects null String argument'
+if rg -F 'native identity received null' "$evidence/null-argument.stderr" { echo 'FAIL null input invoked native code before refusal' >&2; exit 1 }
+rejects native-exception "$base" throw 'native contract fixture failure'
+rejects narrow-overflow "$base" 'narrow 2147483648' 'ArithmeticException'
+if rg -F 'native narrow invoked' "$evidence/narrow-overflow.stderr" { echo 'FAIL overflow invoked native code before refusal' >&2; exit 1 }
+var legacy_base = 'CLASSPATH=/data/local/tmp/idric-native-contracts/legacy.dex app_process -Xcheck:jni -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin Idric.Generated'
+timeout 45 "$adb" -s "$serial" shell -T "$legacy_base identity 'café🦉'" > "$evidence/legacy-identity.stdout" 2> "$evidence/legacy-identity.stderr"
+cmp "$evidence/identity.expected" "$evidence/legacy-identity.stdout"
+# A legacy null passes the native adapter and fails at the existing Object
+# concat used to append putStrLn's newline. Do not invent a printable null value.
+rejects legacy-null "$legacy_base" null 'java.lang.NullPointerException'
+rg -F 'java.lang.String.concat(java.lang.String)' "$evidence/legacy-null.logcat"
+if rg -F 'JNI contract rejects null String' "$evidence/legacy-null.logcat" { echo 'FAIL explicit null contract leaked into legacy behavior' >&2; exit 1 }
+var integer_observation = 'CLASSPATH=/data/local/tmp/idric-native-contracts/candidate.dex:/data/local/tmp/idric-native-contracts/integer-observer.dex app_process -Xcheck:jni -Dcontract.library=/data/local/tmp/idric-native-contracts/libcontract.so /system/bin acceptance.IntegerBoundaryObserver'
+"$adb" -s "$serial" logcat -c
+try { timeout 45 "$adb" -s "$serial" shell -T "$integer_observation" > "$evidence/integer-boundaries.stdout" 2> "$evidence/integer-boundaries.stderr" }
+var integer_status = _error.code
+"$adb" -s "$serial" logcat -d -v threadtime -s AndroidRuntime:E > "$evidence/integer-boundaries.logcat"
+test "$integer_status" = 0
+rg -x 'PASS checked integer boundary refusals' "$evidence/integer-boundaries.stdout"
+printf 'integer_and_long_boundaries\tPASS\n' >> "$evidence/receipt.tsv"
+"$adb" -s "$serial" pull /data/local/tmp/idric-native-contracts/candidate.dex "$evidence/received.dex"
+cmp "$input/native-contract.dex" "$evidence/received.dex"
+"$adb" -s "$serial" pull /data/local/tmp/idric-native-contracts/legacy.dex "$evidence/legacy.received.dex"
+cmp "$input/legacy-contract.dex" "$evidence/legacy.received.dex"
+"$adb" -s "$serial" pull /data/local/tmp/idric-native-contracts/libcontract.so "$evidence/received.so"
+cmp "$input/libcontract.so" "$evidence/received.so"
+sha256sum "$input/native-contract.dex" "$input/legacy-contract.dex" "$input/libcontract.so" > "$evidence/artifacts.sha256"
+cp "$input/source-revision.txt" "$evidence/source-revision.txt"
+printf 'identity_non_BMP\tPASS\nrepeated_scoped_acquire_release\tPASS\nexact_narrowing\tPASS\nlegacy_identity_and_null\tPASS\nphysical_A1\tNOT_RUN\nphysical_C67\tNOT_RUN\n' >> "$evidence/receipt.tsv"
+printf '\033[32mPASS\033[0m declared JNI string/null/exception/narrowing behavior on x86_64 ART\n'

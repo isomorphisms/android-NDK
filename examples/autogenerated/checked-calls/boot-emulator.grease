@@ -1,0 +1,33 @@
+#!/usr/bin/env grease
+# Keep emulator and all ADB observations in one host network namespace.
+if (len(ARGV) !== 9) {
+  echo 'usage: grease boot-emulator.grease ADB EMULATOR AVD_HOME AVD_NAME EVIDENCE CANDIDATE RUNNER MUTANT AICI_OBSERVER'
+  exit 2
+}
+var adb = ARGV[0]
+var emulator = ARGV[1]
+var avd_home = ARGV[2]
+var avd = ARGV[3]
+var evidence = ARGV[4]
+var candidate = ARGV[5]
+var runner = ARGV[6]
+var mutant = ARGV[7]
+var observer = ARGV[8]
+mkdir -p "$evidence"
+fork {
+  env ANDROID_AVD_HOME="$avd_home" "$emulator" -avd "$avd" -no-window \
+    -no-audio -accel off -gpu swiftshader_indirect -no-snapshot -no-boot-anim -read-only -no-metrics \
+    -port 5584 > "$evidence/emulator.log" 2>&1
+}
+trap --add EXIT { "$adb" -s emulator-5584 emu kill }
+"$adb" start-server
+timeout 240 "$adb" -s emulator-5584 wait-for-device
+var count = 0
+while (count < 240) {
+  var ready = $("$adb" -s emulator-5584 shell getprop sys.boot_completed | tr -d '\r')
+  if (ready === '1') { break }
+  setvar count += 1
+  sleep 1
+}
+test "$count" -lt 240
+grease "$observer" "$adb" emulator-5584 "$candidate" "$runner" "$mutant" "$evidence"

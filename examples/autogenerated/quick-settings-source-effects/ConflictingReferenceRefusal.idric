@@ -1,0 +1,19 @@
+module ConflictingReferenceRefusal
+
+data AmbiguousReference : Type where [external]
+
+%foreign "dex:virtual:Landroid/os/Parcel;:readInt:()I"
+read_parcel : AmbiguousReference → PrimIO Int32
+
+%foreign "dex:virtual:Ljava/lang/Integer;:intValue:()I"
+read_integer : AmbiguousReference → PrimIO Int32
+
+%export "dex:conflicting_reference"
+conflicting_reference : AmbiguousReference → IO Int32
+conflicting_reference reference = do
+  first ← primIO (read_parcel reference)
+  second ← primIO (read_integer reference)
+  pure (first + second)
+
+main : IO ()
+main = pure ()
