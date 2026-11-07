@@ -18,6 +18,7 @@ where the actual hardware differs.
 
 - [Architecture overview](ARCHITECTURE.md)
 - [DEX / ART backend and historical integration fixtures](dex/README.md)
+- [Where the direct-DEX decisions live](dex/idric/src/Backend/DEX/README.md#locating-and-changing-direct-dex-choices)
 - [Quick Settings source bindings for Idriç consumers](quick-settings/README.md)
 - [JNI boundary](jni/)
 - [APK and distribution path](apk/)
