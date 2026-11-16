@@ -127,14 +127,33 @@ main = do
       [CFInt32]
       CFUnit)
 
-  expect_left "arrays are deliberately outside first slice"
+  case parse_dex_foreign
+    "dex:static:Lexample/Foo;:take:([D[I)V"
+    [CFUser (UN (Basic "Coefficients")) [], CFUser (UN (Basic "Exponents")) []]
+    CFUnit of
+    Left explanation => fail explanation
+    Right foreign => expect "primitive array references keep distinct descriptors"
+      (foreign_target_arguments foreign ==
+        [ReferenceValue (MkTypeReference "[D"), ReferenceValue (MkTypeReference "[I")])
+  expect_left "Float32 arrays remain outside the checked slice"
     (parse_dex_foreign
-      "dex:static:Lexample/Foo;:take:([I)V"
+      "dex:static:Lexample/Foo;:take:([F)V"
       [CFUser (UN (Basic "Array")) []]
       CFUnit)
+  expect_left "nested arrays remain outside the checked slice"
+    (parse_dex_foreign "dex:static:Lexample/Foo;:take:([[I)V"
+      [CFUser (UN (Basic "Array")) []] CFUnit)
+  expect_left "object arrays remain outside the checked slice"
+    (parse_dex_foreign "dex:static:Lexample/Foo;:take:([Ljava/lang/Object;)V"
+      [CFUser (UN (Basic "Array")) []] CFUnit)
 
   expect_left "declaring owner must be a class descriptor"
     (parse_dex_foreign "dex:static:I:hashCode:()I" [] CFInt32)
+  expect_left "primitive array value cannot be a declaring owner"
+    (parse_dex_foreign "dex:static:[I:hashCode:()I" [] CFInt32)
+  expect_left "primitive array value cannot be constructed with new-instance"
+    (parse_dex_foreign "dex:construct:[D:<init>:()V" [CFWorld]
+      (CFIORes (CFUser (UN (Basic "Array")) [])))
 
   expect_left "reference parameter rejects forbidden descriptor characters"
     (parse_dex_foreign

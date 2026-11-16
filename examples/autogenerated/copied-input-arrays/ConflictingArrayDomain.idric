@@ -1,0 +1,23 @@
+module ConflictingArrayDomain
+
+data ArrayReference : Type where [external]
+data DoubleBufferReference : Type where [external]
+data IntBufferReference : Type where [external]
+
+%foreign "dex:static:Ljava/nio/DoubleBuffer;:allocate:(I)Ljava/nio/DoubleBuffer;"
+allocate_coefficients : Int32 → PrimIO DoubleBufferReference
+%foreign "dex:virtual:Ljava/nio/DoubleBuffer;:array:()[D"
+coefficient_array : DoubleBufferReference → PrimIO ArrayReference
+%foreign "dex:static:Ljava/nio/IntBuffer;:wrap:([I)Ljava/nio/IntBuffer;"
+wrong_wrap : ArrayReference → PrimIO IntBufferReference
+
+%export "dex:conflicting_array_domain"
+conflicting_array_domain : Int32 → IO Int32
+conflicting_array_domain input = do
+  buffer ← primIO (allocate_coefficients input)
+  values ← primIO (coefficient_array buffer)
+  _ ← primIO (wrong_wrap values)
+  pure input
+
+main : IO ()
+main = pure ()

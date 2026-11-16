@@ -1,0 +1,8 @@
+library_property copiedarrays.library
+C:copied_surface,libcopiedarrays copySurface (IIIIIII[D[I)J current-thread synchronous borrowed-local nonnull-inputs copy-input-arrays propagate-exceptions
+C:copied_count,libcopiedarrays coefficientCount (J)I
+C:copied_bits,libcopiedarrays coefficientBits (JI)J
+C:copied_exponent,libcopiedarrays exponentAt (JI)I
+C:copied_release,libcopiedarrays releaseSurface (J)V
+C:copied_entries,libcopiedarrays entryCount ()J
+C:copied_last,libcopiedarrays lastHandle ()J

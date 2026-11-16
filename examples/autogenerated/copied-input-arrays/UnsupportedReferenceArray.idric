@@ -1,0 +1,14 @@
+module UnsupportedReferenceArray
+
+data ArrayReference : Type where [external]
+%foreign "dex:static:Lqualification/ArrayProvider;:values:()[Ljava/lang/Object;"
+array_values : PrimIO ArrayReference
+
+%export "dex:unsupported_reference_array"
+unsupported_reference_array : Int32 → IO Int32
+unsupported_reference_array input = do
+  _ ← primIO array_values
+  pure input
+
+main : IO ()
+main = pure ()

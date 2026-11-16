@@ -154,7 +154,7 @@ proc refuse_source(module, diagnostic) {
 refuse_source WrongDoubleResult 'dex foreign result type does not match'
 refuse_source WrongDoubleArgument 'dex foreign argument types do not match'
 refuse_source UnsupportedFloat 'Unsupported DEX descriptor type'
-refuse_source UnsupportedArray 'DEX array descriptors are outside the checked foreign-call slice'
+refuse_source UnsupportedArray 'dex foreign result type does not match'
 refuse_source UnsupportedDoubleExport 'dex rejected source ABI'
 refuse_source UnsupportedTextCast 'Managed DEX unsupported Text numeric target Double'
 refuse_source UnsupportedInt64Coefficient 'Managed DEX unsupported binary64 cast from'

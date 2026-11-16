@@ -1,0 +1,14 @@
+module UnsupportedNestedArray
+
+data ArrayReference : Type where [external]
+%foreign "dex:static:Lqualification/ArrayProvider;:values:()[[I"
+array_values : PrimIO ArrayReference
+
+%export "dex:unsupported_nested_array"
+unsupported_nested_array : Int32 → IO Int32
+unsupported_nested_array input = do
+  _ ← primIO array_values
+  pure input
+
+main : IO ()
+main = pure ()

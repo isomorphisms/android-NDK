@@ -605,6 +605,22 @@ load_jni_services directives =
     _ => throw (UserError "dex accepts exactly one explicit JNI map")
 
 private
+native_external_constraints : List JNIService ->
+  List (Name, Administrative_Normal_Form_Definition) -> Either String (List (Name, TypeReference))
+native_external_constraints services [] = Right []
+native_external_constraints services ((name, definition) :: rest) = do
+  current <- case definition of
+    Make_Administrative_Normal_Form_Foreign_Function conventions arguments result =>
+      case filter (\service => elem service.convention conventions) services of
+        [] => Right []
+        [service] => native_copy_reference_constraints service.boundary_contract
+          service.argument_types service.result_type arguments result
+        _ => Left "Multiple JNI bindings select the same checked foreign declaration"
+    _ => Right []
+  more <- native_external_constraints services rest
+  Right (current ++ more)
+
+private
 clear_candidate_outputs : String -> String -> Core ()
 clear_candidate_outputs directory name = traverse_ clear [".dex", ".dex.plan", ".smali", ".runtime.tsv"]
   where
@@ -635,7 +651,13 @@ compile_dex definitions syntax temporary_directory output_directory
       Left explanation =>
         throw (UserError ("dex rejected foreign declaration: " ++ explanation))
       Right accepted => pure accepted
-  external_domains <- resolve_external_domains foreigns
+  directives <- getDirectives (Other backend_name)
+  native_services <- load_jni_services directives
+  framework_domains <- resolve_external_domains foreigns
+  native_constraints <- case native_external_constraints (maybe [] snd native_services) (anf resolved_compile_data) of
+    Left explanation => throw (UserError ("dex rejected native source declaration: " ++ explanation))
+    Right accepted => pure accepted
+  external_domains <- validate_external_domains native_constraints framework_domains
   export_abis <- traverse (resolve_export_abi external_domains) qualified_exports
   let reachable = reachable_functions (anf resolved_compile_data)
                     (map internal_name export_abis) []
@@ -653,8 +675,6 @@ compile_dex definitions syntax temporary_directory output_directory
   case validate_exports export_abis of
     Left explanation => throw (UserError ("dex rejected exports: " ++ explanation))
     Right () => pure ()
-  directives <- getDirectives (Other backend_name)
-  native_services <- load_jni_services directives
   let live_definitions = filter (\definition => elem (fst definition) reachable) (anf resolved_compile_data)
   let requirements = checked_runtime_requirements live_definitions
   -- The checked command contract selects the managed runtime, except when
@@ -699,7 +719,12 @@ compile_dex definitions syntax temporary_directory output_directory
           else case lower_exports integer_less_name calls compiled_abis (anf resolved_compile_data) of
             Left explanation => throw (UserError ("dex rejected checked program: " ++ explanation))
             Right accepted => pure accepted
-        let callback_directives = filter (/= "managed-exports") directives
+        -- The JNI map was independently parsed above. It selects native
+        -- declarations; it is not a framework callback declaration.
+        let callback_directives = if elem "managed-exports" directives
+              then filter (\directive => directive /= "managed-exports" &&
+                not (isPrefixOf (unpack "jni-map=") (unpack directive))) directives
+              else directives
         case with_interface_callbacks "LIdric/Generated;" methods callback_directives of
           Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
           Right accepted => pure accepted

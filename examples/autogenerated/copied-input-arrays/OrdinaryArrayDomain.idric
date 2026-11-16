@@ -1,0 +1,16 @@
+module OrdinaryArrayDomain
+
+data FakeArray = MkFakeArray
+data DoubleBufferReference : Type where [external]
+
+%foreign "dex:static:Ljava/nio/DoubleBuffer;:wrap:([D)Ljava/nio/DoubleBuffer;"
+wrong_wrap : FakeArray → PrimIO DoubleBufferReference
+
+%export "dex:ordinary_array_domain"
+ordinary_array_domain : Int32 → IO Int32
+ordinary_array_domain input = do
+  _ ← primIO (wrong_wrap MkFakeArray)
+  pure input
+
+main : IO ()
+main = pure ()

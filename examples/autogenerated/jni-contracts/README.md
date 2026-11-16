@@ -42,6 +42,13 @@ policies are deliberately refused by this contract. A future implementation
 must provide an explicit ownership/release model before admitting them. A
 numeric parameter is not automatically a verified native handle.
 
+The separate [`copied-input-arrays`](../copied-input-arrays/attempt.md)
+prerequisite adds an opt-in synchronous copy policy for nonnull `[D`/`[I`
+inputs and an Int64/void result. It does not change this scalar/String policy
+or give legacy array declarations an ownership contract. Framework array
+references are constrained to concrete external source domains; native code
+must implement validation, copying and native-owned release itself.
+
 `prepare.grease` accepts REPOSITORY FRONTEND DRIVER BAKSMALI EVIDENCE. It runs
 the host contract controls, compiles explicit and legacy versions of the checked
 program, independently decodes both and checks retention refusal. The generated

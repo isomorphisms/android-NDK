@@ -1,0 +1,13 @@
+module UnsupportedArrayOwner
+
+%foreign "dex:static:[I:hashCode:()I"
+array_owner : PrimIO Int32
+
+%export "dex:unsupported_array_owner"
+unsupported_array_owner : Int32 → IO Int32
+unsupported_array_owner input = do
+  value ← primIO array_owner
+  pure (input + value)
+
+main : IO ()
+main = pure ()

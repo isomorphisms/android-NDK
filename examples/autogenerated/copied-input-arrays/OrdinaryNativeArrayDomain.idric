@@ -1,0 +1,14 @@
+module OrdinaryNativeArrayDomain
+
+data FakeArray = MkFakeArray
+%foreign "C:ordinary_native_array,libcopiedarrays"
+ordinary_native_array : FakeArray → PrimIO Int64
+
+%export "dex:ordinary_native_array_domain"
+ordinary_native_array_domain : Int32 → IO Int32
+ordinary_native_array_domain input = do
+  _ ← primIO (ordinary_native_array MkFakeArray)
+  pure input
+
+main : IO ()
+main = pure ()

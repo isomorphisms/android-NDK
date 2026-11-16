@@ -150,8 +150,12 @@ parse_type allow_void all@('L' :: rest) =
     Just (descriptor, after) => do
       validate_reference_descriptor (pack descriptor)
       Right (reference_type descriptor, after)
+parse_type allow_void ('[' :: 'D' :: rest) =
+  Right (ReferenceValue (MkTypeReference "[D"), rest)
+parse_type allow_void ('[' :: 'I' :: rest) =
+  Right (ReferenceValue (MkTypeReference "[I"), rest)
 parse_type allow_void ('[' :: rest) =
-  Left "DEX array descriptors are outside the checked foreign-call slice"
+  Left "DEX array descriptors admit only checked primitive [D/[I references"
 parse_type allow_void (character :: rest) =
   Left ("Unsupported DEX descriptor type " ++ show character)
 
