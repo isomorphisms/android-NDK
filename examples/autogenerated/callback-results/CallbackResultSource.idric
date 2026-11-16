@@ -1,0 +1,42 @@
+module CallbackResultSource
+
+import Data.Text
+
+data ActivityReference : Type where [external]
+data IntentReference : Type where [external]
+data ViewReference : Type where [external]
+data InsetsReference : Type where [external]
+
+%foreign "dex:virtual:Landroid/app/Activity;:getIntent:()Landroid/content/Intent;"
+current_intent : ActivityReference → PrimIO IntentReference
+
+%foreign "dex:virtual:Landroid/content/Intent;:getAction:()Ljava/lang/String;"
+intent_action : IntentReference → PrimIO Text
+
+%foreign "dex:virtual:Landroid/view/View;:getId:()I"
+view_identity : ViewReference → PrimIO Int32
+
+%foreign "dex:virtual:Landroid/view/WindowInsets;:consumeSystemWindowInsets:()Landroid/view/WindowInsets;"
+consume_insets : InsetsReference → PrimIO InsetsReference
+
+%cg dex extends Landroid/app/Activity;
+%cg dex callback receiver Landroid/view/View$OnLongClickListener; onLongClick (Landroid/view/View;)Z receive_long_click
+%cg dex callback receiver Landroid/view/View$OnApplyWindowInsetsListener; onApplyWindowInsets (Landroid/view/View;Landroid/view/WindowInsets;)Landroid/view/WindowInsets; receive_insets
+
+%export "dex:receive_long_click"
+receive_long_click : ActivityReference → ViewReference → IO Bool
+receive_long_click activity view = do
+  intent ← primIO (current_intent activity)
+  action ← primIO (intent_action intent)
+  identity ← primIO (view_identity view)
+  pure (action ≟ "permit" && identity ≟ 101)
+
+%export "dex:receive_insets"
+receive_insets : ActivityReference → ViewReference → InsetsReference → IO InsetsReference
+receive_insets activity view insets = do
+  intent ← primIO (current_intent activity)
+  action ← primIO (intent_action intent)
+  if action ≟ "consume" then primIO (consume_insets insets) else pure insets
+
+main : IO ()
+main = pure ()
