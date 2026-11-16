@@ -24,6 +24,7 @@ record LifecycleOverride where
   method_name : String
   signature : String
   checked_export : String
+  before_parent : Bool
 
 private
 callback_result_supported : FrameworkValueType -> Bool
@@ -75,11 +76,25 @@ parse_callback directive = case words directive of
   ["override", "onResume", "()V", checked_export] => do
     _ <- validate_method_name checked_export
     Right Nothing
+  ["override", "onPause", "()V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
+  ["override", "onSaveInstanceState", "(Landroid/os/Bundle;)V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
+  ["override", "onActivityResult", "(IILandroid/content/Intent;)V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
   ["override", "onDestroy", "()V", checked_export] => do
     _ <- validate_method_name checked_export
     Right Nothing
+  ["override", "before-parent", "onDestroy", "()V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
+  "override" :: "before-parent" :: _ =>
+    Left "DEX before-parent lifecycle admits onDestroy() only"
   "extends" :: _ => Left "DEX checked subclass currently admits android.app.Activity only"
-  "override" :: _ => Left "DEX checked lifecycle admits onCreate(Bundle), onNewIntent(Intent), onResume() and onDestroy() only"
+  "override" :: _ => Left "DEX checked lifecycle admits onCreate(Bundle), onNewIntent(Intent), onResume(), onPause(), onSaveInstanceState(Bundle), onActivityResult(Int32, Int32, Intent) and onDestroy() only"
   [] => Right Nothing
   _ => Left "Unsupported DEX directive; expected unquoted callback, activity, extends or override declaration"
 
@@ -91,13 +106,21 @@ private
 explicit_override : String -> Maybe LifecycleOverride
 explicit_override directive = case words directive of
   ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] =>
-    Just (DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export)
+    Just (DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export False)
   ["override", "onNewIntent", "(Landroid/content/Intent;)V", checked_export] =>
-    Just (DeclaredOverride "onNewIntent" "(Landroid/content/Intent;)V" checked_export)
+    Just (DeclaredOverride "onNewIntent" "(Landroid/content/Intent;)V" checked_export False)
   ["override", "onResume", "()V", checked_export] =>
-    Just (DeclaredOverride "onResume" "()V" checked_export)
+    Just (DeclaredOverride "onResume" "()V" checked_export False)
+  ["override", "onPause", "()V", checked_export] =>
+    Just (DeclaredOverride "onPause" "()V" checked_export False)
+  ["override", "onSaveInstanceState", "(Landroid/os/Bundle;)V", checked_export] =>
+    Just (DeclaredOverride "onSaveInstanceState" "(Landroid/os/Bundle;)V" checked_export False)
+  ["override", "onActivityResult", "(IILandroid/content/Intent;)V", checked_export] =>
+    Just (DeclaredOverride "onActivityResult" "(IILandroid/content/Intent;)V" checked_export False)
   ["override", "onDestroy", "()V", checked_export] =>
-    Just (DeclaredOverride "onDestroy" "()V" checked_export)
+    Just (DeclaredOverride "onDestroy" "()V" checked_export False)
+  ["override", "before-parent", "onDestroy", "()V", checked_export] =>
+    Just (DeclaredOverride "onDestroy" "()V" checked_export True)
   _ => Nothing
 
 private
@@ -245,11 +268,12 @@ override_method class_descriptor superclass methods lifecycle = do
                       target.method_name target.parameter_types target.result_type
   let incoming = argument_registers 1 expected_arguments
   let source_incoming = if target.parameter_types == receiver_only then take 1 incoming else incoming
+  let parent_call = InvokeMethod (Invoke InvokeSuper call_parent incoming Nothing)
+  let source_call = InvokeMethod (Invoke InvokeStatic call_source source_incoming Nothing)
+  let calls = if lifecycle.before_parent then [source_call, parent_call] else [parent_call, source_call]
   let bridge = MkMethodPlan ("platform lifecycle to " ++ target.source_name)
                  lifecycle.method_name (cast (length arguments)) arguments result (words + 2)
-                 [ InvokeMethod (Invoke InvokeSuper call_parent incoming Nothing)
-                 , InvokeMethod (Invoke InvokeStatic call_source source_incoming Nothing)
-                 , ReturnVoid ]
+                 (calls ++ [ReturnVoid])
   Right ({ mode := InstanceMethod } bridge)
 
 ||| Metadata supplies the platform method contract; the compiler checks its
@@ -265,6 +289,9 @@ with_interface_callbacks class_descriptor methods directives = do
   let parents = filter explicit_parent directives
   let overrides = mapMaybe explicit_override directives
   if length parents > 1 then Left "DEX class has repeated superclass declarations" else Right ()
+  if length (nub (map (\lifecycle => lifecycle.method_name) overrides)) /= length overrides
+    then Left "DEX class has repeated lifecycle overrides"
+    else Right ()
   if not (null overrides) && null parents
     then Left "DEX lifecycle override requires its Activity superclass"
     else Right ()

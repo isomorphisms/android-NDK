@@ -2,7 +2,9 @@ module Backend.DEX.ManagedBoundary
 
 import Backend.DEX.Foreign
 import Backend.DEX.IR
+import Backend.DEX.ReferenceNull
 import Backend.DEX.ManagedRunnable
+import Backend.DEX.ManagedExceptions
 import Data.List
 
 %default covering
@@ -184,6 +186,12 @@ public export
 managed_foreign_bridge : String -> DEXForeign -> Either String MethodPlan
 managed_foreign_bridge method (DeclareDEXForeign PrimitiveIOForeign ManagedRunnableCapture _ _) =
   Right (managed_runnable_factory method)
+managed_foreign_bridge method (DeclareDEXForeign PrimitiveIOForeign ManagedCatchIOUnit _ _) =
+  Right (managed_catch_io_unit method)
+managed_foreign_bridge method (DeclareDEXForeign PrimitiveIOForeign ManagedFinallyIOUnit _ _) =
+  Right (managed_finally_io_unit method)
+managed_foreign_bridge method (DeclareDEXForeign PrimitiveIOForeign ManagedThrowThrowable _ _) =
+  Right (managed_throw_throwable method)
 managed_foreign_bridge method foreign = do
   let arguments = foreign_target_arguments foreign
   let count : Int = cast (length arguments) + if foreign.effect == PrimitiveIOForeign then 1 else 0
@@ -204,6 +212,12 @@ managed_foreign_bridge method foreign = do
       [left, right] => Right [Binary32Binary operation (MkRegister 0) left right]
       _ => Left "Managed checked Float32 arithmetic requires exactly two arguments"
     ManagedRunnableCapture => Left "Captured Runnable requires the checked effectful factory"
+    ManagedCatchIOUnit => Left "Checked catch requires the checked effectful action bridge"
+    ManagedFinallyIOUnit => Left "Checked finally requires the checked effectful action bridge"
+    ManagedThrowThrowable => Left "Checked throw requires the checked effectful action bridge"
+    CheckedReferenceNull => case registers of
+      [input] => Right (reference_null_instructions input (MkRegister 0) (MkLabel 0) (MkLabel 1))
+      _ => Left "Managed checked reference null test requires exactly one argument"
   completed <- to_managed (foreign_target_result foreign) (MkRegister 0) (MkRegister 16)
   Right (MkMethodPlan "checked managed framework declaration" method count
     (replicate (cast count) object_value) object_value (64 + count)

@@ -6,8 +6,34 @@ import Backend.DEX.Lower
 import Core.CompileExpr
 import Core.Name
 import Data.List
+import Data.String
 
 %default total
+
+||| A property supplies an absolute path to System.load. A logical name is
+||| resolved by System.loadLibrary in the generated class's loader context.
+public export
+data JNILibrarySource
+  = JNIPathProperty String
+  | JNILibraryName String
+
+private
+logical_library_name : String -> Bool
+logical_library_name name = not (null (unpack name)) &&
+  all (\character => (character >= 'a' && character <= 'z') ||
+        (character >= 'A' && character <= 'Z') ||
+        (character >= '0' && character <= '9') || character == '_') (unpack name)
+
+public export
+parse_jni_library_header : List String -> Either String JNILibrarySource
+parse_jni_library_header ["library_property", property] =
+  if null (unpack property) then Left "JNI library property must be nonempty"
+    else Right (JNIPathProperty property)
+parse_jni_library_header ["library", name] =
+  if logical_library_name name then Right (JNILibraryName name)
+    else Left "JNI library name must be nonempty ASCII letters, digits or underscore"
+parse_jni_library_header _ =
+  Left "JNI map requires exactly one library NAME or library_property PROPERTY header"
 
 ||| Legacy maps carry no newly inferred lifetime or nullability guarantee.
 ||| The explicit contract is a declaration checked at the generated boundary,
@@ -57,6 +83,13 @@ copied_input_array (ReferenceValue descriptor) =
 copied_input_array _ = False
 
 private
+array_reference : FrameworkValueType -> Bool
+array_reference (ReferenceValue descriptor) = case unpack descriptor.descriptor of
+  '[' :: _ => True
+  _ => False
+array_reference _ = False
+
+private
 copy_input_value : FrameworkValueType -> Bool
 copy_input_value (ExistingValue IntegerValue) = True
 copy_input_value LongValue = True
@@ -94,8 +127,8 @@ parse_signature convention method descriptor contract = do
   (arguments, result) <- parse_method_descriptor descriptor
   case contract of
     LegacyUnqualifiedNativeBoundary =>
-      if any copied_input_array arguments || copied_input_array result
-        then Left "Legacy JNI maps do not admit array descriptors; declare the explicit synchronous copy-input-array contract"
+      if any array_reference arguments || array_reference result
+        then Left "Legacy JNI maps do not admit array descriptors; declare a supported explicit native ownership contract"
         else Right ()
     SynchronousBorrowedNonNullNativeBoundary => validate_explicit_signature arguments result
     SynchronousCopiedInputArrayNativeBoundary => validate_copy_signature arguments result

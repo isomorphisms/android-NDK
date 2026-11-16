@@ -142,10 +142,15 @@ render_instruction (InvokeMethod invocation) =
     render_result result register = " # invalid-result-plan"
 render_instruction (IntegerBranch condition left right target) =
   show condition ++ " " ++ show left ++ ", " ++ show right ++ ", " ++ show target
+render_instruction (ReferenceNullBranch condition reference target) =
+  show condition ++ " " ++ show reference ++ ", " ++ show target
 render_instruction (Goto target) = "goto " ++ show target
 render_instruction (Goto16 target) = "goto/16 " ++ show target
 render_instruction (Goto32 target) = "goto/32 " ++ show target
 render_instruction (Mark label) = show label
+render_instruction (MoveException register) = "move-exception " ++ show register
+render_instruction (CatchRegion caught beginning ending handler) =
+  ".catch " ++ show caught ++ " {" ++ show beginning ++ " .. " ++ show ending ++ "} " ++ show handler
 render_instruction (ReturnInteger register) = "return " ++ show register
 render_instruction (ReturnObject register) = "return-object " ++ show register
 render_instruction (ReturnWide register) = "return-wide " ++ show register

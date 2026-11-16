@@ -7,6 +7,7 @@ depends = idris2
 
 modules =
   Backend.DEX.IR,
+  Backend.DEX.ReferenceNull,
   Backend.DEX.Binary64,
   Backend.DEX.Placement,
   Backend.DEX.Invoke,
@@ -26,6 +27,7 @@ modules =
   Backend.DEX.Heap,
   Backend.DEX.ManagedBoundary,
   Backend.DEX.ManagedRunnable,
+  Backend.DEX.ManagedExceptions,
   Backend.DEX.EncodeCallbackShell,
   Backend.DEX.Smali,
   Backend.DEX.Codegen,

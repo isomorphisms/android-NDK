@@ -361,6 +361,16 @@ Show IntegerCondition where
   show GreaterThanInteger = "if-gt"
   show LessEqualInteger = "if-le"
 
+||| A reference comparison with null uses the DEX 21t opcode family, not an
+||| integer comparison or a platform-library call.
+public export
+data ReferenceNullCondition = EqualNull | NotEqualNull
+
+public export
+Show ReferenceNullCondition where
+  show EqualNull = "if-eqz"
+  show NotEqualNull = "if-nez"
+
 ||| Typed DEX planning instructions. Object/reference/wide operations remain
 ||| separate from ordinary integer operations so the encoder cannot silently
 ||| use the wrong opcode family.
@@ -393,10 +403,13 @@ data Instruction
   | TextEqual Register Register Register
   | InvokeMethod InvocationPlan
   | IntegerBranch IntegerCondition Register Register Label
+  | ReferenceNullBranch ReferenceNullCondition Register Label
   | Goto Label
   | Goto16 Label
   | Goto32 Label
   | Mark Label
+  | MoveException Register
+  | CatchRegion TypeReference Label Label Label
   | ReturnInteger Register
   | ReturnObject Register
   | ReturnWide Register
@@ -472,10 +485,15 @@ Show Instruction where
   show (IntegerBranch condition left right target) =
     show condition ++ " " ++ show left ++ ", " ++
     show right ++ ", " ++ show target
+  show (ReferenceNullBranch condition reference target) =
+    show condition ++ " " ++ show reference ++ ", " ++ show target
   show (Goto target) = "goto " ++ show target
   show (Goto16 target) = "goto/16 " ++ show target
   show (Goto32 target) = "goto/32 " ++ show target
   show (Mark label) = show label
+  show (MoveException register) = "move-exception " ++ show register
+  show (CatchRegion caught beginning ending handler) =
+    ".catch " ++ show caught ++ " {" ++ show beginning ++ " .. " ++ show ending ++ "} " ++ show handler
   show (ReturnInteger register) = "return " ++ show register
   show (ReturnObject register) = "return-object " ++ show register
   show (ReturnWide register) = "return-wide " ++ show register

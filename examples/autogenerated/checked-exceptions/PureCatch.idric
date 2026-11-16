@@ -1,0 +1,9 @@
+module PureCatch
+data ThrowableReference : Type where [external]
+%foreign "dex:catch-io-unit"
+bad_catch : IO () → (ThrowableReference → IO ()) → Int32
+%export "dex:pure_exception_boundary"
+pure_exception_boundary : Int32
+pure_exception_boundary = bad_catch (pure ()) (\_ ⇒ pure ())
+main : IO ()
+main = pure ()

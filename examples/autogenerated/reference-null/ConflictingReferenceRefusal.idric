@@ -1,0 +1,16 @@
+module ConflictingReferenceRefusal
+
+data KeyEventReference : Type where [external]
+
+%foreign "dex:reference-is-null"
+bad_null : KeyEventReference → Int32
+
+%foreign "dex:virtual:Landroid/view/KeyEvent;:getKeyCode:()I"
+key_code : KeyEventReference → Int32
+
+%export "dex:bad_null"
+bad_export : KeyEventReference → Int32
+bad_export event = bad_null event + key_code event
+
+main : IO ()
+main = pure ()

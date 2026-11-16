@@ -1,7 +1,9 @@
 module UnsupportedReferenceArray
 
 data ArrayReference : Type where [external]
-%foreign "dex:static:Lqualification/ArrayProvider;:values:()[Ljava/lang/Object;"
+-- The exact opaque Object[] SDK domain is qualified separately. Other
+-- reference arrays remain outside this bounded descriptor surface.
+%foreign "dex:static:Lqualification/ArrayProvider;:values:()[Ljava/lang/String;"
 array_values : PrimIO ArrayReference
 
 %export "dex:unsupported_reference_array"

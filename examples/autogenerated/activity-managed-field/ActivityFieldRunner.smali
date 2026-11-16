@@ -1,8 +1,28 @@
 .class public LActivityFieldRunner;
-.super Ljava/lang/Object;
+.super Landroid/widget/FrameLayout;
 
 # Independent observer: source exports and actual platform listener dispatch.
 # No source algebraic state or IORef logic is reproduced in this file.
+# The real View's false long-click result falls through to its context menu.
+# Supply a parent which declines that menu instead of an invalid unattached View.
+.method private constructor <init>(Landroid/content/Context;)V
+    .registers 2
+    invoke-direct {p0, p1}, Landroid/widget/FrameLayout;-><init>(Landroid/content/Context;)V
+    return-void
+.end method
+
+.method public showContextMenuForChild(Landroid/view/View;)Z
+    .registers 3
+    const/4 v0, 0
+    return v0
+.end method
+
+.method public showContextMenuForChild(Landroid/view/View;FF)Z
+    .registers 5
+    const/4 v0, 0
+    return v0
+.end method
+
 .method private static checkpoint(Ljava/lang/String;)V
     .registers 2
     sget-object v0, Ljava/lang/System;->out:Ljava/io/PrintStream;
@@ -41,6 +61,9 @@
     move-result-object v1
     new-instance v2, Landroid/view/View;
     invoke-direct {v2, v1}, Landroid/view/View;-><init>(Landroid/content/Context;)V
+    new-instance v5, LActivityFieldRunner;
+    invoke-direct {v5, v1}, LActivityFieldRunner;-><init>(Landroid/content/Context;)V
+    invoke-virtual {v5, v2}, Landroid/widget/FrameLayout;->addView(Landroid/view/View;)V
     const/16 v6, 101
     invoke-virtual {v2, v6}, Landroid/view/View;->setId(I)V
     new-instance v3, LIdric/Generated;

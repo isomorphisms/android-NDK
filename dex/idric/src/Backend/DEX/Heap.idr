@@ -1261,6 +1261,15 @@ heap_native_loader property = MkBoundMethodPlan "explicit JNI library path prope
       VoidValue [register 0] Nothing
   , ReturnVoid] ClassInitializerMethod
 
+public export
+heap_named_native_loader : String -> MethodPlan
+heap_named_native_loader name = MkBoundMethodPlan "explicit JNI logical library name" "<clinit>"
+  0 [] VoidValue 1
+  [TextConstant (register 0) name
+  , call InvokeStatic (MkTypeReference "Ljava/lang/System;") "loadLibrary" [text_value]
+      VoidValue [register 0] Nothing
+  , ReturnVoid] ClassInitializerMethod
+
 -- BigInteger's *ValueExact methods are API 31. The supported ART lane is API
 -- 29: bitLength plus the API 1 conversions preserves the same signed bounds.
 -- bitLength excludes the sign bit, including for the minimum negative value.

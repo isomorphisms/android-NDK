@@ -464,7 +464,12 @@ managed_methods services foreigns abis definitions = do
             Right (lowered :: more)
 
 private
-managed_plan : String -> Maybe (String, List JNIService) -> List ExportABI -> List Name ->
+jni_library_initializer : JNILibrarySource -> MethodPlan
+jni_library_initializer (JNIPathProperty property) = heap_native_loader property
+jni_library_initializer (JNILibraryName name) = heap_named_native_loader name
+
+private
+managed_plan : String -> Maybe (JNILibrarySource, List JNIService) -> List ExportABI -> List Name ->
   List (Name, Administrative_Normal_Form_Definition) -> Either String FilePlan
 managed_plan program_name native [entry] reachable definitions = do
   if entry.effect /= PrimitiveIOForeign || entry.result_type /= VoidValue ||
@@ -484,7 +489,7 @@ managed_plan program_name native [entry] reachable definitions = do
   entry_bridge <- managed_export_bridge_arity entry.effect entry.method_name checked arity
     entry.parameter_types entry.result_type
   let native_methods = if null services then [] else
-        maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native services) native
+        maybe [] (\mapping => jni_library_initializer (fst mapping) :: map heap_native services) native
   let closure_targets = checked_closure_targets live
   let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
   let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
@@ -510,7 +515,7 @@ managed_plan _ _ _ _ _ = Left "Managed command execution requires exactly one IO
 -- Explicit qualification lane for checked heap semantics behind the existing
 -- framework/scalar ABI. Ordinary source data never acquires a foreign ABI.
 private
-managed_exports_plan : List ManagedActivityField -> Maybe (String, List JNIService) -> List (Name, DEXForeign) ->
+managed_exports_plan : List ManagedActivityField -> Maybe (JNILibrarySource, List JNIService) -> List (Name, DEXForeign) ->
   List ExportABI -> List Name -> List (Name, Administrative_Normal_Form_Definition) ->
   Either String FilePlan
 managed_exports_plan fields native foreigns exports reachable definitions = do
@@ -518,7 +523,7 @@ managed_exports_plan fields native foreigns exports reachable definitions = do
   let abis = managed_abis 0 live ++ activity_field_abis fields
   methods <- managed_methods (maybe [] snd native) foreigns abis live
   bridges <- traverse (bridge abis) exports
-  let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
+  let native_methods = maybe [] (\mapping => jni_library_initializer (fst mapping) :: map heap_native (snd mapping)) native
   -- Public exports admit only checked scalars and opaque SDK references.
   -- Their managed closures originate in the same checked partial applications
   -- as command entries. Direct-call definitions need no dispatcher branch.
@@ -631,9 +636,12 @@ managed_text_plan _ _ _ = Left "Managed pure Text execution requires exactly one
 private
 parse_jni_services : List String -> Either String (List JNIService)
 parse_jni_services [] = Right []
-parse_jni_services (line :: rest) =
-  if null (words line) then parse_jni_services rest else do
-    parsed <- parse_native_boundary_row (words line)
+parse_jni_services (line :: rest) = case words line of
+  [] => parse_jni_services rest
+  "library" :: _ => Left "JNI map repeats a library header"
+  "library_property" :: _ => Left "JNI map repeats a library header"
+  columns => do
+    parsed <- parse_native_boundary_row columns
     if isPrefixOf (unpack "__idric") (unpack parsed.native_method_name) || parsed.native_method_name == "main"
       then Left "JNI method name is reserved for the checked runtime" else Right ()
     let service = MkJNIService parsed.native_convention parsed.native_method_name
@@ -643,7 +651,7 @@ parse_jni_services (line :: rest) =
       then Left "JNI map repeats a convention or native method" else Right (service :: more)
 
 private
-load_jni_services : List String -> Core (Maybe (String, List JNIService))
+load_jni_services : List String -> Core (Maybe (JNILibrarySource, List JNIService))
 load_jni_services directives =
   case filter (\directive => isPrefixOf (unpack "jni-map=") (unpack directive)) directives of
     [] => pure Nothing
@@ -651,12 +659,12 @@ load_jni_services directives =
       let path = pack (drop 8 (unpack directive))
       contents <- Core.readFile path
       case lines contents of
-        header :: rows => case words header of
-          ["library_property", property] => case parse_jni_services rows of
+        header :: rows => case parse_jni_library_header (words header) of
+          Left explanation => throw (UserError ("dex rejected JNI map: " ++ explanation))
+          Right library => case parse_jni_services rows of
             Left explanation => throw (UserError ("dex rejected JNI map: " ++ explanation))
             Right [] => throw (UserError "dex rejected empty JNI map")
-            Right services => pure (Just (property, services))
-          _ => throw (UserError "dex JNI map requires library_property header")
+            Right services => pure (Just (library, services))
         [] => throw (UserError "dex rejected empty JNI map")
     _ => throw (UserError "dex accepts exactly one explicit JNI map")
 
@@ -756,8 +764,14 @@ compile_dex definitions syntax temporary_directory output_directory
   let framework_calls = any (\foreign => elem (fst foreign) reachable) foreigns
   -- An explicit checked-export boundary wins over automatic command selection.
   -- In particular, a lone IO Unit export is not necessarily an ART main entry.
+  let framework_adapter = any (\directive => case words directive of
+        "extends" :: _ => True
+        "activity" :: _ => True
+        "override" :: _ => True
+        "callback" :: _ => True
+        _ => False) directives
   let managed_command = command_entry && not framework_calls &&
-                        not managed_export_boundary
+                        not managed_export_boundary && not framework_adapter
   -- A scalar-only Text export can require operations owned by the managed
   -- Text runtime even when optimization removes all ordinary constructors.
   -- Select from the checked graph, retaining the same pure ABI and refusals.

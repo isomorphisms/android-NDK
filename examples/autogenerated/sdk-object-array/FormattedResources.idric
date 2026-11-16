@@ -1,0 +1,80 @@
+module FormattedResources
+
+data ResourcesReference : Type where [external]
+data ArgumentList : Type where [external]
+data FormatArguments : Type where [external]
+data ObjectReference : Type where [external]
+data BoxedInteger : Type where [external]
+data BoxedLong : Type where [external]
+
+%foreign "dex:construct:Ljava/util/ArrayList;:<init>:()V"
+new_arguments : PrimIO ArgumentList
+%foreign "dex:virtual:Ljava/util/ArrayList;:add:(Ljava/lang/Object;)Z"
+add_argument : ArgumentList → ObjectReference → PrimIO Int32
+%foreign "dex:virtual:Ljava/util/ArrayList;:toArray:()[Ljava/lang/Object;"
+arguments_array : ArgumentList → PrimIO FormatArguments
+
+%foreign "dex:static:Ljava/lang/Integer;:valueOf:(I)Ljava/lang/Integer;"
+box_integer : Int32 → BoxedInteger
+%foreign "dex:static:Ljava/lang/Long;:valueOf:(J)Ljava/lang/Long;"
+box_long : Int64 → BoxedLong
+%foreign "dex:cast:Ljava/lang/Integer;:Ljava/lang/Object;"
+integer_object : BoxedInteger → ObjectReference
+%foreign "dex:cast:Ljava/lang/Long;:Ljava/lang/Object;"
+long_object : BoxedLong → ObjectReference
+%foreign "dex:cast:Ljava/lang/String;:Ljava/lang/Object;"
+text_object : Text → ObjectReference
+
+%foreign "dex:virtual:Landroid/content/res/Resources;:getString:(I[Ljava/lang/Object;)Ljava/lang/String;"
+resource_format : ResourcesReference → Int32 → FormatArguments → PrimIO Text
+
+pair_arguments : ObjectReference → ObjectReference → IO FormatArguments
+pair_arguments first second = do
+  values ← primIO new_arguments
+  _ ← primIO (add_argument values first)
+  _ ← primIO (add_argument values second)
+  primIO (arguments_array values)
+
+%export "dex:format_rendering_status"
+format_rendering_status : ResourcesReference → Int32 → Int32 → Int32 → IO Text
+format_rendering_status resources identifier width height = do
+  values ← pair_arguments (integer_object (box_integer width)) (integer_object (box_integer height))
+  primIO (resource_format resources identifier values)
+
+%export "dex:format_complete_status"
+format_complete_status : ResourcesReference → Int32 → Int32 → Int64 → IO Text
+format_complete_status resources identifier degree elapsed = do
+  values ← pair_arguments (integer_object (box_integer degree)) (long_object (box_long elapsed))
+  primIO (resource_format resources identifier values)
+
+%export "dex:format_formula_error"
+format_formula_error : ResourcesReference → Int32 → Text → IO Text
+format_formula_error resources identifier reason = do
+  values ← primIO new_arguments
+  _ ← primIO (add_argument values (text_object reason))
+  arguments ← primIO (arguments_array values)
+  primIO (resource_format resources identifier arguments)
+
+-- This separate qualification export lets the ART observer supply positional
+-- format strings without choosing an application's resources or English text.
+%foreign "dex:static:Ljava/lang/String;:format:(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;"
+format_text : Text → FormatArguments → Text
+
+%export "dex:format_argument_order"
+format_argument_order : Text → Int32 → Int32 → Text → IO Text
+format_argument_order template first second reason = do
+  values ← primIO new_arguments
+  _ ← primIO (add_argument values (integer_object (box_integer first)))
+  _ ← primIO (add_argument values (integer_object (box_integer second)))
+  _ ← primIO (add_argument values (text_object reason))
+  arguments ← primIO (arguments_array values)
+  pure (format_text template arguments)
+
+%export "dex:format_complete_arguments"
+format_complete_arguments : Text → Int32 → Int64 → IO Text
+format_complete_arguments template degree elapsed = do
+  arguments ← pair_arguments (integer_object (box_integer degree)) (long_object (box_long elapsed))
+  pure (format_text template arguments)
+
+main : IO ()
+main = pure ()

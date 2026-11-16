@@ -1,0 +1,26 @@
+module DestroyBeforeParent
+
+data ActivityReference : Type where [external]
+
+%foreign "dex:virtual:Landroid/app/Activity;:setTitle:(Ljava/lang/CharSequence;)V"
+set_title : ActivityReference → Text → PrimIO ()
+
+%cg dex extends Landroid/app/Activity;
+%cg dex override onCreate (Landroid/os/Bundle;)V receive_create
+%cg dex override onResume ()V receive_resume
+%cg dex override before-parent onDestroy ()V receive_destroy
+
+%export "dex:receive_create"
+receive_create : ActivityReference → IO ()
+receive_create activity = primIO (set_title activity "Created")
+
+%export "dex:receive_resume"
+receive_resume : ActivityReference → IO ()
+receive_resume activity = primIO (set_title activity "Resumed")
+
+%export "dex:receive_destroy"
+receive_destroy : ActivityReference → IO ()
+receive_destroy activity = primIO (set_title activity "Destroyed")
+
+main : IO ()
+main = pure ()

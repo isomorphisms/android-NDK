@@ -1,0 +1,77 @@
+module CheckedExceptions
+
+import Data.Text
+
+data BuilderReference : Type where [external]
+data ThrowableReference : Type where [external]
+data FailureReference : Type where [external]
+
+%foreign "dex:virtual:Ljava/lang/StringBuilder;:append:(Ljava/lang/String;)Ljava/lang/StringBuilder;"
+append_visible : BuilderReference → Text → PrimIO BuilderReference
+
+%foreign "dex:virtual:Ljava/lang/StringBuilder;:toString:()Ljava/lang/String;"
+read_visible : BuilderReference → PrimIO Text
+
+%foreign "dex:virtual:Ljava/lang/Throwable;:getMessage:()Ljava/lang/String;"
+throwable_message : ThrowableReference → PrimIO Text
+
+%foreign "dex:construct:Ljava/lang/IllegalStateException;:<init>:(Ljava/lang/String;)V"
+make_failure : Text → PrimIO FailureReference
+
+%foreign "dex:cast:Ljava/lang/IllegalStateException;:Ljava/lang/Throwable;"
+as_throwable : FailureReference → ThrowableReference
+
+%foreign "dex:catch-io-unit"
+catch_unit : IO () → (ThrowableReference → IO ()) → PrimIO ()
+
+%foreign "dex:finally-io-unit"
+finally_unit : IO () → IO () → PrimIO ()
+
+%foreign "dex:throw-throwable"
+throw_failure : ThrowableReference → PrimIO ()
+
+append : BuilderReference → Text → IO ()
+append sink text = do
+  _ ← primIO (append_visible sink text)
+  pure ()
+
+raise : Text → IO ()
+raise message = do
+  failure ← primIO (make_failure message)
+  primIO (throw_failure (as_throwable failure))
+
+observe_failure : BuilderReference → ThrowableReference → IO ()
+observe_failure sink failure = do
+  message ← primIO (throwable_message failure)
+  append sink ("caught:" ++ message ++ "|")
+
+scenario : BuilderReference → Int32 → IO ()
+scenario sink 0 = primIO (catch_unit (append sink "normal|") (observe_failure sink))
+scenario sink 1 = primIO (catch_unit (raise "original") (observe_failure sink))
+scenario sink 2 = primIO (catch_unit
+  (primIO (finally_unit (raise "original") (append sink "cleanup|")))
+  (observe_failure sink))
+scenario sink 3 = primIO (finally_unit (append sink "normal|") (append sink "cleanup|"))
+scenario sink 4 = primIO (catch_unit
+  (primIO (finally_unit (raise "original") (raise "cleanup")))
+  (observe_failure sink))
+scenario sink 5 = primIO (catch_unit
+  (primIO (catch_unit (raise "original") (\_ ⇒ raise "handler")))
+  (observe_failure sink))
+scenario sink 6 = primIO (catch_unit
+  (primIO (finally_unit (append sink "normal|") (raise "cleanup")))
+  (observe_failure sink))
+scenario sink _ = append sink "invalid|"
+
+%export "dex:exercise_checked_exceptions"
+exercise_checked_exceptions : BuilderReference → Int32 → IO Text
+exercise_checked_exceptions sink mode = do
+  scenario sink mode
+  primIO (read_visible sink)
+
+%export "dex:rethrow_checked_reference"
+rethrow_checked_reference : ThrowableReference → IO ()
+rethrow_checked_reference failure = primIO (throw_failure failure)
+
+main : IO ()
+main = pure ()

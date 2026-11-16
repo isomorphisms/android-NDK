@@ -1,0 +1,42 @@
+module ReferenceNullSource
+
+data ObjectReference : Type where [external]
+data KeyEventReference : Type where [external]
+data IntentReference : Type where [external]
+data UriReference : Type where [external]
+data StreamReference : Type where [external]
+
+%foreign "dex:reference-is-null"
+reference_is_null : ObjectReference → Int32
+
+%foreign "dex:cast:Landroid/view/KeyEvent;:Ljava/lang/Object;"
+key_event_object : KeyEventReference → ObjectReference
+%foreign "dex:cast:Landroid/content/Intent;:Ljava/lang/Object;"
+intent_object : IntentReference → ObjectReference
+%foreign "dex:cast:Landroid/net/Uri;:Ljava/lang/Object;"
+uri_object : UriReference → ObjectReference
+%foreign "dex:cast:Ljava/io/OutputStream;:Ljava/lang/Object;"
+stream_object : StreamReference → ObjectReference
+
+%export "dex:object_null"
+object_null : ObjectReference → Int32
+object_null = reference_is_null
+
+%export "dex:key_event_null"
+key_event_null : KeyEventReference → Int32
+key_event_null event = reference_is_null (key_event_object event)
+
+%export "dex:intent_null"
+intent_null : IntentReference → Int32
+intent_null intent = reference_is_null (intent_object intent)
+
+%export "dex:uri_null"
+uri_null : UriReference → Int32
+uri_null uri = reference_is_null (uri_object uri)
+
+%export "dex:stream_null"
+stream_null : StreamReference → Int32
+stream_null stream = reference_is_null (stream_object stream)
+
+main : IO ()
+main = pure ()

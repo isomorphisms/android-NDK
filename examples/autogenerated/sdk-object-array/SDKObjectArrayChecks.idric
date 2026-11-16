@@ -1,0 +1,104 @@
+module SDKObjectArrayChecks
+
+import Backend.DEX.Foreign
+import Backend.DEX.IR
+import Backend.DEX.ManagedBoundary
+import Backend.DEX.NativeContract
+import Backend.DEX.Encode
+import Core.CompileExpr
+import Core.Name
+import Data.List
+import Data.Text
+import System
+
+%default covering
+
+fail : Text → IO a
+fail message = do putStrLn ("FAIL opaque SDK Object array: " ++ message); exitFailure
+
+check : Text → Bool → IO ()
+check _ True = pure ()
+check message False = fail message
+
+accept : Either Text a → IO a
+accept (Right value) = pure value
+accept (Left message) = fail message
+
+refuse : Text → Either Text a → IO ()
+refuse _ (Left _) = pure ()
+refuse message (Right _) = fail (message ++ " accepted")
+
+domain : Text → CFType
+domain name = CFUser (UN (Basic name)) []
+
+array : FrameworkValueType
+array = ReferenceValue (MkTypeReference "[Ljava/lang/Object;")
+
+copy_policy : List Text
+copy_policy = ["current-thread", "synchronous", "borrowed-local", "nonnull-inputs", "copy-input-arrays", "propagate-exceptions"]
+
+scalar_policy : List Text
+scalar_policy = ["current-thread", "synchronous", "borrowed-local", "nonnull-strings", "propagate-exceptions"]
+
+output_policy : List Text
+output_policy = ["current-thread", "synchronous", "borrowed-local", "nonnull-output", "publish-output-on-success", "propagate-exceptions"]
+
+main : IO ()
+main = do
+  parsed ← accept (parse_method_descriptor "(I[Ljava/lang/Object;)Ljava/lang/String;")
+  check "exact SDK argument descriptor" (parsed ≟ ([ExistingValue IntegerValue, array], ExistingValue TextValue))
+  result ← accept (parse_method_descriptor "()[Ljava/lang/Object;")
+  check "exact SDK result descriptor" (result ≟ ([], array))
+  traverse_ (\signature ⇒ refuse signature (parse_method_descriptor signature))
+    ["([Ljava/lang/String;)V", "([[Ljava/lang/Object;)V", "([Ljava/lang/Object)V",
+     "([Ljava/lang/Object;;)V", "()[Ljava/lang/Object;extra", "([F)V", "([[I)V"]
+  refuse "array declaring owner" (parse_dex_foreign "dex:virtual:[Ljava/lang/Object;:toString:()Ljava/lang/String;"
+    [domain "Values"] CFString)
+  let resources = domain "Resources"
+  let arguments = domain "Arguments"
+  let object = domain "Object"
+  formatted ← accept (parse_dex_foreign
+    "dex:virtual:Landroid/content/res/Resources;:getString:(I[Ljava/lang/Object;)Ljava/lang/String;"
+    [resources, CFInt32, arguments, CFWorld] (CFIORes CFString))
+  constraints ← accept (foreign_reference_constraints formatted)
+  check "resource and opaque array source domains" (constraints ≟
+    [(UN (Basic "Resources"), MkTypeReference "Landroid/content/res/Resources;"),
+     (UN (Basic "Arguments"), MkTypeReference "[Ljava/lang/Object;")])
+  to_array ← accept (parse_dex_foreign "dex:virtual:Ljava/util/ArrayList;:toArray:()[Ljava/lang/Object;"
+    [domain "ArgumentList", CFWorld] (CFIORes arguments))
+  check "real ArrayList reference array result" (foreign_target_result to_array ≟ array)
+  refuse "Text cannot pose as Object array" (parse_dex_foreign
+    "dex:virtual:Landroid/content/res/Resources;:getString:(I[Ljava/lang/Object;)Ljava/lang/String;"
+    [resources, CFInt32, CFString, CFWorld] (CFIORes CFString))
+  refuse "applied source list cannot pose as Object array" (parse_dex_foreign
+    "dex:virtual:Landroid/content/res/Resources;:getString:(I[Ljava/lang/Object;)Ljava/lang/String;"
+    [resources, CFInt32, CFUser (UN (Basic "List")) [CFString], CFWorld] (CFIORes CFString))
+  upcast ← accept (parse_dex_foreign "dex:cast:Ljava/lang/String;:Ljava/lang/Object;" [CFString] object)
+  check "Text upcast source is exact primitive String" (foreign_target_arguments upcast ≟ [ExistingValue TextValue])
+  upcast_constraints ← accept (foreign_reference_constraints upcast)
+  check "Text creates only checked Object result constraint"
+    (upcast_constraints ≟ [(UN (Basic "Object"), MkTypeReference "Ljava/lang/Object;")])
+  refuse "external alias cannot claim primitive String source" (parse_dex_foreign
+    "dex:cast:Ljava/lang/String;:Ljava/lang/Object;" [domain "PretendText"] object)
+  refuse "wrong Text source descriptor" (parse_dex_foreign "dex:cast:Ljava/lang/CharSequence;:Ljava/lang/Object;" [CFString] object)
+  refuse "wrong Text target descriptor" (parse_dex_foreign "dex:cast:Ljava/lang/String;:Ljava/util/ArrayList;" [CFString] object)
+  refuse "Text result cannot pose as external Object" (parse_dex_foreign "dex:cast:Ljava/lang/String;:Ljava/lang/Object;" [CFString] CFString)
+  refuse "implicit Text Object argument remains refused" (parse_dex_foreign
+    "dex:virtual:Ljava/util/ArrayList;:add:(Ljava/lang/Object;)Z" [domain "ArgumentList", CFString, CFWorld] (CFIORes CFInt32))
+  refuse "unboxed Int32 Object argument remains refused" (parse_dex_foreign
+    "dex:virtual:Ljava/util/ArrayList;:add:(Ljava/lang/Object;)Z" [domain "ArgumentList", CFInt32, CFWorld] (CFIORes CFInt32))
+  resource_bridge ← accept (managed_foreign_bridge "format_resource" formatted)
+  array_bridge ← accept (managed_foreign_bridge "arguments_array" to_array)
+  text_bridge ← accept (managed_foreign_bridge "text_object" upcast)
+  finalized ← accept (finalize_file_plan (MkFilePlan "LIdric/ObjectArrayPlan;"
+    [resource_bridge, array_bridge, text_bridge]))
+  bytes ← accept (encode_finalized_dex finalized)
+  check "shared managed bridge finalizes and encodes" (length bytes > 112)
+  check "SDK Object array is not JNI copied primitive array" (not (copied_input_array array))
+  refuse "legacy JNI Object array input" (parse_native_boundary_row ["C:x", "x", "([Ljava/lang/Object;)V"])
+  refuse "legacy JNI Object array result" (parse_native_boundary_row ["C:x", "x", "()[Ljava/lang/Object;"])
+  refuse "explicit scalar JNI Object array" (parse_native_boundary_row (["C:x", "x", "([Ljava/lang/Object;)V"] ++ scalar_policy))
+  refuse "copied JNI mixed Object array" (parse_native_boundary_row (["C:x", "x", "([D[Ljava/lang/Object;)J"] ++ copy_policy))
+  refuse "copied JNI Object array output" (parse_native_boundary_row (["C:x", "x", "([D)[Ljava/lang/Object;"] ++ copy_policy))
+  refuse "output JNI Object array" (parse_native_boundary_row (["C:x", "x", "([Ljava/lang/Object;[I)I"] ++ output_policy))
+  putStrLn "PASS opaque SDK Object arrays and exact Text upcast; JNI policies preserved"

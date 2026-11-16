@@ -1,0 +1,8 @@
+module WrongHandler
+%foreign "dex:catch-io-unit"
+bad_catch : IO () → (Text → IO ()) → PrimIO ()
+%export "dex:wrong_exception_handler"
+wrong_exception_handler : IO ()
+wrong_exception_handler = primIO (bad_catch (pure ()) (\_ ⇒ pure ()))
+main : IO ()
+main = wrong_exception_handler

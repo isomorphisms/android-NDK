@@ -1,0 +1,9 @@
+module OrdinaryThrowable
+data ThrowableReference = Ordinary
+%foreign "dex:throw-throwable"
+bad_throw : ThrowableReference → PrimIO ()
+%export "dex:ordinary_exception_domain"
+ordinary_exception_domain : IO ()
+ordinary_exception_domain = primIO (bad_throw Ordinary)
+main : IO ()
+main = ordinary_exception_domain
