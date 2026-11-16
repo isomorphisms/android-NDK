@@ -6,6 +6,7 @@ import Backend.DEX.Capabilities
 import Backend.DEX.Foreign
 import Backend.DEX.NativeContract
 import Backend.DEX.IR
+import Backend.DEX.GeneratedOwner
 import Backend.DEX.Lower
 import Backend.DEX.Heap
 import Backend.DEX.ManagedBoundary
@@ -716,7 +717,10 @@ compile_dex definitions syntax temporary_directory output_directory
       Left explanation =>
         throw (UserError ("dex rejected foreign declaration: " ++ explanation))
       Right accepted => pure accepted
-  directives <- getDirectives (Other backend_name)
+  declared_directives <- getDirectives (Other backend_name)
+  (generated_owner, directives) <- case select_generated_owner declared_directives of
+    Left explanation => throw (UserError ("dex rejected generated owner: " ++ explanation))
+    Right accepted => pure accepted
   native_services <- load_jni_services directives
   framework_domains <- resolve_external_domains foreigns
   native_constraints <- case native_external_constraints (maybe [] snd native_services) (anf resolved_compile_data) of
@@ -813,8 +817,8 @@ compile_dex definitions syntax temporary_directory output_directory
         case with_interface_callbacks "LIdric/Generated;" methods callback_directives of
           Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
           Right accepted => pure ({ fields := accepted.fields ++ activity_field_declarations activity_fields } accepted)
-  let class_plans : List FilePlan = [plan] ++
-        (if captures_runnable then [managed_runnable_class] else [])
+  let class_plans : List FilePlan = relocate_generated_classes generated_owner
+        ([plan] ++ (if captures_runnable then [managed_runnable_class] else []))
   finalized <-
     case traverse finalize_file_plan class_plans of
       Left explanation => throw (UserError ("dex layout rejected plan: " ++ explanation))
@@ -831,7 +835,7 @@ compile_dex definitions syntax temporary_directory output_directory
     Left explanation => throw (UserError ("Could not write DEX: " ++ explanation))
     Right () => pure ()
   Core.writeFile checked_file
-    ("directives:\n" ++ unlines directives ++ "\n" ++
+    ("directives:\n" ++ unlines declared_directives ++ "\n" ++
      render_checked_exports compiled_abis (anf resolved_compile_data))
   Core.writeFile plan_file (concatMap (render_file_plan . finalized_plan) finalized)
   case finalized of

@@ -1,0 +1,70 @@
+module GeneratedOwnerSource
+
+import Data.IORef
+import Data.Text
+
+data ActivityReference : Type where [external]
+data RunnableReference : Type where [external]
+data ThrowableReference : Type where [external]
+data AppState = Ready Text
+
+%extern
+get_state : ActivityReference → PrimIO (IORef AppState)
+
+%extern
+set_state : ActivityReference → IORef AppState → PrimIO ()
+
+%foreign "dex:virtual:Landroid/app/Activity;:getTaskId:()I"
+activity_identity : ActivityReference → PrimIO Int32
+
+%foreign "dex:capture-runnable"
+capture_runnable : IO () → PrimIO RunnableReference
+
+%foreign "dex:catch-io-unit"
+catch_unit : IO () → (ThrowableReference → IO ()) → PrimIO ()
+
+%foreign "dex:virtual:Ljava/lang/Throwable;:getMessage:()Ljava/lang/String;"
+failure_message : ThrowableReference → PrimIO Text
+
+%foreign "C:owner_identity,libowner"
+native_identity : Int32 → PrimIO Int32
+
+%cg dex extends Landroid/app/Activity;
+%cg dex managed-field LIdric/Generated; state GeneratedOwnerSource.get_state GeneratedOwnerSource.set_state
+%cg dex override onCreate (Landroid/os/Bundle;)V create_state
+
+%export "dex:create_state"
+create_state : ActivityReference → IO ()
+create_state activity = do
+  ignored ← primIO (activity_identity activity)
+  -- This literal is data, even though it spells the compiler's internal owner.
+  cell ← newIORef (Ready "LIdric/Generated;")
+  primIO (set_state activity cell)
+
+remember_failure : ActivityReference → ThrowableReference → IO ()
+remember_failure activity failure = do
+  message ← primIO (failure_message failure)
+  cell ← primIO (get_state activity)
+  writeIORef cell (Ready message)
+
+run_job : ActivityReference → Text → IO ()
+run_job activity label = do
+  identity ← primIO (native_identity 7)
+  cell ← primIO (get_state activity)
+  writeIORef cell (Ready (label ++ ":" ++ cast identity))
+
+%export "dex:make_job"
+make_job : ActivityReference → Text → IO RunnableReference
+make_job activity label = primIO
+  (capture_runnable (primIO (catch_unit (run_job activity label)
+    (remember_failure activity))))
+
+%export "dex:read_state"
+read_state : ActivityReference → IO Text
+read_state activity = do
+  cell ← primIO (get_state activity)
+  Ready value ← readIORef cell
+  pure value
+
+main : IO ()
+main = pure ()
