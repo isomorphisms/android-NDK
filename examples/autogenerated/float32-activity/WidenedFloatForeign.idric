@@ -1,0 +1,14 @@
+module WidenedFloatForeign
+
+-- A platform F result may not acquire the frontend's Double type.
+%foreign "dex:static:Ljava/lang/Float;:intBitsToFloat:(I)F"
+wrong_float : Int32 → Double
+%foreign "dex:static:Ljava/lang/Double;:doubleToRawLongBits:(D)J"
+double_bits : Double → Int64
+
+%export "dex:widened_float"
+widened_float : Int32 → Int64
+widened_float bits = double_bits (wrong_float bits)
+
+main : IO ()
+main = pure ()

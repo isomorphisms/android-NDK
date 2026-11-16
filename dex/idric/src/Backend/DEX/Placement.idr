@@ -70,6 +70,8 @@ instruction_registers (LongConstant destination value) =
 instruction_registers (AddLong destination left right) =
   Right [destination, next_register destination, left, next_register left,
          right, next_register right]
+instruction_registers (Binary32Binary _ destination left right) =
+  Right [destination, left, right]
 instruction_registers (Binary64Constant destination _) =
   Right [destination, next_register destination]
 instruction_registers (Binary64Binary _ destination left right) =
@@ -163,6 +165,8 @@ instruction_staging (SignedIntToBinary64 destination source) =
 instruction_staging (LongConstant destination value) =
   Right (destination.number > 255, 0)
 instruction_staging (AddLong destination left right) =
+  Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
+instruction_staging (Binary32Binary _ destination left right) =
   Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
 instruction_staging (Binary64Constant destination _) = Right (destination.number > 255, 0)
 instruction_staging (Binary64Binary _ destination left right) =
@@ -335,6 +339,20 @@ place_instruction scratch_start (Binary64Constant destination bits) =
   if low_byte_register target
     then Right [Binary64Constant target bits]
     else Right [Binary64Constant scratch_zero bits, MoveWide target scratch_zero]
+place_instruction scratch_start (Binary32Binary operation destination left right) =
+  let target = shift_register destination
+      first = shift_register left
+      second = shift_register right in
+  if low_byte_register target && low_byte_register first && low_byte_register second
+    then Right [Binary32Binary operation target first second]
+    else
+      let output = if low_byte_register target then target else scratch_zero
+          result_move = if output == target then [] else [Move target output]
+      in Right
+        ([ Move scratch_zero first
+         , Move scratch_one second
+         , Binary32Binary operation output scratch_zero scratch_one
+         ] ++ result_move)
 place_instruction scratch_start (Binary64Binary operation destination left right) =
   let target = shift_register destination
       first = shift_register left

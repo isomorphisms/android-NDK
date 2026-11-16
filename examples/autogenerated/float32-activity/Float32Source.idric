@@ -1,0 +1,74 @@
+module Float32Source
+
+-- A distinct checked external value domain; not a source Double alias.
+data Float32 : Type where [external]
+data MotionEvent : Type where [external]
+data ScaleDetector : Type where [external]
+
+%foreign "dex:static:Ljava/lang/Float;:intBitsToFloat:(I)F"
+from_bits : Int32 → Float32
+%foreign "dex:static:Ljava/lang/Float;:floatToRawIntBits:(F)I"
+float_bits : Float32 → Int32
+%foreign "dex:virtual:Ljava/lang/Float;:doubleValue:()D"
+widen : Float32 → Double
+%foreign "dex:static:Ljava/lang/Double;:doubleToRawLongBits:(D)J"
+double_bits : Double → Int64
+
+%foreign "dex:float32:add"
+add_float : Float32 → Float32 → Float32
+%foreign "dex:float32:subtract"
+subtract_float : Float32 → Float32 → Float32
+%foreign "dex:float32:multiply"
+multiply_float : Float32 → Float32 → Float32
+%foreign "dex:float32:divide"
+divide_float : Float32 → Float32 → Float32
+
+calculate : Int32 → Float32 → Float32 → Float32
+calculate selector left right =
+  if selector ≟ 0 then add_float left right else
+  if selector ≟ 1 then subtract_float left right else
+  if selector ≟ 2 then multiply_float left right else
+  divide_float left right
+
+%export "dex:f32_calculate_bits"
+f32_calculate_bits : Int32 → Int32 → Int32 → Int32
+f32_calculate_bits selector left_bits right_bits =
+  float_bits (calculate selector (from_bits left_bits) (from_bits right_bits))
+
+%export "dex:f32_calculate_widened_bits"
+f32_calculate_widened_bits : Int32 → Int32 → Int32 → Int64
+f32_calculate_widened_bits selector left_bits right_bits =
+  double_bits (widen (calculate selector (from_bits left_bits) (from_bits right_bits)))
+
+%foreign "dex:static:Landroid/view/MotionEvent;:obtain:(JJIFFI)Landroid/view/MotionEvent;"
+obtain_event : Int64 → Int64 → Int32 → Float32 → Float32 → Int32 → PrimIO MotionEvent
+%foreign "dex:virtual:Landroid/view/MotionEvent;:getX:()F"
+event_x : MotionEvent → PrimIO Float32
+%foreign "dex:virtual:Landroid/view/MotionEvent;:getY:()F"
+event_y : MotionEvent → PrimIO Float32
+%foreign "dex:virtual:Landroid/view/MotionEvent;:recycle:()V"
+recycle_event : MotionEvent → PrimIO ()
+
+-- Exercise real Android F arguments/results and the source-owned order:
+-- subtract coordinates as Float32, then explicitly widen that result.
+%export "dex:f32_event_delta_bits"
+f32_event_delta_bits : Int32 → Int32 → IO Int64
+f32_event_delta_bits left_bits right_bits = do
+  event ← primIO (obtain_event 0 0 2 (from_bits left_bits) (from_bits right_bits) 0)
+  x ← primIO (event_x event)
+  y ← primIO (event_y event)
+  let result = double_bits (widen (subtract_float x y))
+  primIO (recycle_event event)
+  pure result
+
+%foreign "dex:virtual:Landroid/view/ScaleGestureDetector;:getScaleFactor:()F"
+scale_factor : ScaleDetector → PrimIO Float32
+
+%export "dex:f32_scale_factor_bits"
+f32_scale_factor_bits : ScaleDetector → IO Int32
+f32_scale_factor_bits detector = do
+  factor ← primIO (scale_factor detector)
+  pure (float_bits factor)
+
+main : IO ()
+main = pure ()

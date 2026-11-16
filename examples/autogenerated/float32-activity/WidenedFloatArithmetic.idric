@@ -1,0 +1,11 @@
+module WidenedFloatArithmetic
+
+%foreign "dex:float32:subtract"
+wrong_subtract : Double → Double → Double
+
+%export "dex:widened_float_arithmetic"
+widened_float_arithmetic : Int32 → Int32
+widened_float_arithmetic value = if wrong_subtract 1.0 0.0 > 0.0 then value else 0
+
+main : IO ()
+main = pure ()

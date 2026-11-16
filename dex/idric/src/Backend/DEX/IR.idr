@@ -312,6 +312,17 @@ Show IntegerBinaryOperation where
   show MultiplyInteger = "mul-int"
 
 public export
+data Binary32Operation
+  = AddBinary32 | SubtractBinary32 | MultiplyBinary32 | DivideBinary32
+
+public export
+Show Binary32Operation where
+  show AddBinary32 = "add-float"
+  show SubtractBinary32 = "sub-float"
+  show MultiplyBinary32 = "mul-float"
+  show DivideBinary32 = "div-float"
+
+public export
 data Binary64Operation
   = AddBinary64 | SubtractBinary64 | MultiplyBinary64 | DivideBinary64
 
@@ -365,6 +376,7 @@ data Instruction
   | SignedIntToBinary64 Register Register
   | LongConstant Register Int
   | AddLong Register Register Register
+  | Binary32Binary Binary32Operation Register Register Register
   | Binary64Constant Register Integer
   | Binary64Binary Binary64Operation Register Register Register
   | NegateBinary64 Register Register
@@ -417,6 +429,8 @@ Show Instruction where
     "const-wide/16 " ++ show destination ++ ", " ++ show value
   show (AddLong destination left right) =
     "add-long " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
+  show (Binary32Binary operation destination left right) =
+    show operation ++ " " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
   show (Binary64Constant destination bits) =
     "const-wide " ++ show destination ++ ", " ++
     show (if bits >= 9223372036854775808 then bits - 18446744073709551616 else bits) ++ "L"

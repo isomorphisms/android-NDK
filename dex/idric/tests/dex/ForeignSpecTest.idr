@@ -87,7 +87,7 @@ main = do
     (parse_dex_foreign "dex:static:Ljava/lang/Math;:sqrt:(D)D" [CFInt64] CFDouble)
   expect_left "integral target rejects binary64 source"
     (parse_dex_foreign "dex:static:Ljava/lang/Long;:signum:(J)I" [CFDouble] CFInt32)
-  expect_left "Float32 remains an unsupported checked foreign descriptor"
+  expect_left "Float32 wire refuses a silently widened Double source"
     (parse_dex_foreign "dex:static:Ljava/lang/Math;:sqrt:(F)F" [CFDouble] CFDouble)
   case calling_uid of
     Left explanation => fail explanation

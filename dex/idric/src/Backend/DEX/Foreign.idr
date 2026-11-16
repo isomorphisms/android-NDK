@@ -25,6 +25,7 @@ data ForeignOperation
   = MethodInvocation InvokeKind MethodReference
   | CheckedReferenceCast TypeReference TypeReference
   | ObjectConstruction MethodReference
+  | Float32Arithmetic Binary32Operation
 
 public export
 record DEXForeign where
@@ -140,6 +141,8 @@ parse_type allow_void ('J' :: rest) =
   Right (LongValue, rest)
 parse_type allow_void ('D' :: rest) =
   Right (ExistingValue DoubleValue, rest)
+parse_type allow_void ('F' :: rest) =
+  Right (ExistingValue FloatValue, rest)
 parse_type True ('V' :: rest) =
   Right (VoidValue, rest)
 parse_type False ('V' :: rest) =
@@ -231,6 +234,7 @@ source_matches_target CFInt32 (ExistingValue IntegerValue) = True
 source_matches_target CFInt32 (ExistingValue BooleanValue) = True
 source_matches_target CFInt64 LongValue = True
 source_matches_target CFDouble (ExistingValue DoubleValue) = True
+source_matches_target (CFUser _ []) (ExistingValue FloatValue) = True
 source_matches_target CFString (ExistingValue TextValue) = True
 source_matches_target CFString (ReferenceValue reference) =
   reference.descriptor == "Ljava/lang/CharSequence;"
@@ -279,6 +283,7 @@ foreign_target_arguments foreign = case foreign.operation of
   MethodInvocation kind method => target_argument_types kind method
   CheckedReferenceCast source target => [reference_type (unpack source.descriptor)]
   ObjectConstruction method => method.argument_types
+  Float32Arithmetic _ => [ExistingValue FloatValue, ExistingValue FloatValue]
 
 public export
 foreign_target_result : DEXForeign -> FrameworkValueType
@@ -286,6 +291,7 @@ foreign_target_result foreign = case foreign.operation of
   MethodInvocation kind method => method.result
   CheckedReferenceCast source target => reference_type (unpack target.descriptor)
   ObjectConstruction method => ReferenceValue method.owner
+  Float32Arithmetic _ => ExistingValue FloatValue
 
 ||| Preserve the consolidated constructor views while retaining one explicit
 ||| ObjectConstruction operation in the canonical checked representation.
@@ -309,6 +315,31 @@ describe_foreign foreign = case foreign.operation of
   MethodInvocation kind method => show method
   CheckedReferenceCast source target => "checked cast " ++ show source ++ " to " ++ show target
   ObjectConstruction method => "construction " ++ show method
+  Float32Arithmetic operation => "checked Float32 " ++ show operation
+
+private
+float32_operation : String -> Either String Binary32Operation
+float32_operation "add" = Right AddBinary32
+float32_operation "subtract" = Right SubtractBinary32
+float32_operation "multiply" = Right MultiplyBinary32
+float32_operation "divide" = Right DivideBinary32
+float32_operation other = Left ("Unsupported checked Float32 operation " ++ show other)
+
+private
+float32_signature : List CFType -> CFType -> Either String ()
+float32_signature [CFUser left [], CFUser right []] (CFUser result []) =
+  if left == right && left == result then Right ()
+    else Left "Checked Float32 arithmetic requires one consistent external value domain"
+float32_signature _ _ =
+  Left "Checked Float32 arithmetic requires two values and a result in one external Float32 domain"
+
+private
+parse_float32_foreign : String -> List CFType -> CFType -> Either String DEXForeign
+parse_float32_foreign operation arguments result = do
+  checked <- float32_operation operation
+  (effect, ordinary, value) <- normalise_signature arguments result
+  float32_signature ordinary value
+  Right (DeclareDEXForeign effect (Float32Arithmetic checked) ordinary value)
 
 private
 signatures_match :
@@ -345,22 +376,9 @@ validate_signature kind method source_arguments source_result = do
       Left
         ("dex foreign result type does not match " ++ show method)
 
-||| Parse and type-check one backend-specific calling convention:
-|||
-||| dex:<static|virtual|interface>:<owner-descriptor>:<name>:<method-descriptor>
-||| dex:construct:<owner-descriptor>:<init>:(<arguments>)V allocates and
-||| initializes its own receiver; checked PrimIO returns the opaque owner.
-|||
-||| Example:
-||| dex:static:Landroid/os/Binder;:getCallingUid:()I
-public export
-parse_dex_foreign :
-  String -> List CFType -> CFType -> Either String DEXForeign
-parse_dex_foreign convention source_arguments source_result = do
-  body <-
-    case drop_prefix (unpack "dex:") (unpack convention) of
-      Nothing => Left "Foreign convention is not for the dex backend"
-      Just value => Right value
+private
+parse_standard_foreign : List Char -> List CFType -> CFType -> Either String DEXForeign
+parse_standard_foreign body source_arguments source_result =
   case drop_prefix (unpack "cast:") body of
     Just cast_fields => do
       (source_chars, target_chars) <- maybe (Left "DEX cast requires source and target reference descriptors")
@@ -388,6 +406,25 @@ parse_dex_foreign convention source_arguments source_result = do
         then DeclareDEXForeign effect (ObjectConstruction method) ordinary_arguments ordinary_result
         else MkDEXForeign effect kind method ordinary_arguments ordinary_result)
 
+||| Parse and type-check one backend-specific calling convention:
+|||
+||| dex:<static|virtual|interface>:<owner-descriptor>:<name>:<method-descriptor>
+||| dex:construct:<owner-descriptor>:<init>:(<arguments>)V allocates and
+||| initializes its own receiver; checked PrimIO returns the opaque owner.
+||| dex:float32:<add|subtract|multiply|divide> uses one consistent external
+||| Float32 value domain and emits a true one-word float arithmetic operation.
+public export
+parse_dex_foreign :
+  String -> List CFType -> CFType -> Either String DEXForeign
+parse_dex_foreign convention source_arguments source_result = do
+  body <-
+    case drop_prefix (unpack "dex:") (unpack convention) of
+      Nothing => Left "Foreign convention is not for the dex backend"
+      Just value => Right value
+  case drop_prefix (unpack "float32:") body of
+    Just operation => parse_float32_foreign (pack operation) source_arguments source_result
+    Nothing => parse_standard_foreign body source_arguments source_result
+
 private
 reference_constraint :
   CFType -> FrameworkValueType -> Either String (List (Name, TypeReference))
@@ -399,6 +436,8 @@ reference_constraint (CFUser name []) (ReferenceValue descriptor) =
   Right [(name, descriptor)]
 reference_constraint (CFUser name []) (ExistingValue ObjectValue) =
   Right [(name, MkTypeReference "Ljava/lang/Object;")]
+reference_constraint (CFUser name []) (ExistingValue FloatValue) =
+  Right [(name, MkTypeReference "Ljava/lang/Float;")]
 reference_constraint source (ReferenceValue descriptor) =
   Left "DEX reference requires a concrete external source domain"
 reference_constraint source (ExistingValue ObjectValue) =

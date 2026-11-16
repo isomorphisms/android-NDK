@@ -145,6 +145,10 @@ instruction_width (AddLong destination left right) =
   if valid_register 255 destination && valid_register 255 left && valid_register 255 right
     then Right 2
     else Left "DEX add-long format 23x requires registers v0..v255"
+instruction_width (Binary32Binary _ destination left right) =
+  if valid_register 255 destination && valid_register 255 left && valid_register 255 right
+    then Right 2
+    else Left "DEX binary32 format 23x requires registers v0..v255"
 instruction_width (Binary64Constant destination bits) =
   if not (valid_register 255 destination)
     then Left "DEX const-wide requires a register pair beginning in v0..v255"
@@ -341,6 +345,13 @@ binary_opcode SubtractInteger = 0x91
 binary_opcode MultiplyInteger = 0x92
 
 private
+binary32_opcode : Binary32Operation -> Integer
+binary32_opcode AddBinary32 = 0xa6
+binary32_opcode SubtractBinary32 = 0xa7
+binary32_opcode MultiplyBinary32 = 0xa8
+binary32_opcode DivideBinary32 = 0xa9
+
+private
 binary64_opcode : Binary64Operation -> Integer
 binary64_opcode AddBinary64 = 0xab
 binary64_opcode SubtractBinary64 = 0xac
@@ -437,6 +448,11 @@ encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(AddLong destination left right) = do
   _ <- instruction_width instruction
   Right (u16le (0x9b + cast destination.number * 256) ++
+         u16le (cast left.number + cast right.number * 256))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(Binary32Binary operation destination left right) = do
+  _ <- instruction_width instruction
+  Right (u16le (binary32_opcode operation + cast destination.number * 256) ++
          u16le (cast left.number + cast right.number * 256))
 encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(Binary64Constant destination bits) = do

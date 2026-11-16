@@ -71,6 +71,7 @@ render_instruction (LongConstant destination value) =
 render_instruction (AddLong destination left right) =
   "add-long " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
 render_instruction instruction@(Binary64Constant _ _) = show instruction
+render_instruction instruction@(Binary32Binary _ _ _ _) = show instruction
 render_instruction instruction@(Binary64Binary _ _ _ _) = show instruction
 render_instruction instruction@(NegateBinary64 _ _) = show instruction
 render_instruction instruction@(CompareBinary64 _ _ _ _) = show instruction

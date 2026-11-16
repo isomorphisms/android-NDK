@@ -608,6 +608,8 @@ lower_foreign_call destination destination_type name arguments state =
               (emit (InvokeMethod (Invoke InvokeDirect method
                        (destination :: registers) Nothing))
                 (emit (NewObject destination method.owner) state))
+            Float32Arithmetic _ =>
+              Left "Checked Float32 arithmetic requires the managed external-value boundary"
 
 private
 lower_comparison :
