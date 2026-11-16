@@ -76,6 +76,10 @@ main = do
   literal <- encoded [Binary64Constant (MkRegister 0) 0x8000000000000000]
   equal "exact const-wide negative zero bytes"
     [0x18, 0x00, 0, 0, 0, 0, 0, 0, 0, 0x80] literal
+  converted <- encoded [SignedIntToBinary64 (MkRegister 6) (MkRegister 8)]
+  equal "signed Int32-to-binary64 format 12x bytes" [0x83, 0x86] converted
+  refuse "Int32-to-binary64 source 4-bit overflow"
+    (encode_instructions [] [] [SignedIntToBinary64 (MkRegister 0) (MkRegister 16)])
   arithmetic <- encoded
     [ Binary64Binary AddBinary64 (MkRegister 0) (MkRegister 2) (MkRegister 4)
     , Binary64Binary SubtractBinary64 (MkRegister 0) (MkRegister 2) (MkRegister 4)
@@ -106,6 +110,19 @@ main = do
   equal "paired incoming and result moves"
     ["move-wide v24, v26", "move-wide v0, v24", "neg-double v0, v0",
      "move-wide v22, v0", "return-wide v22"] (map show placed.instructions)
+  let conversion = MkMethodPlan "signed Int32 to binary64 placement" "conversion" 1
+        [ExistingValue IntegerValue] (ExistingValue DoubleValue) 24
+        [SignedIntToBinary64 (MkRegister 20) (MkRegister 23), ReturnWide (MkRegister 20)]
+  converted_method <- case prepare_method_invocations conversion of
+    Left reason => fail reason
+    Right method => pure method
+  equal "conversion keeps narrow input and paired output moves"
+    ["move v25, v26", "move v0, v25", "int-to-double v0, v0",
+     "move-wide v22, v0", "return-wide v22"] (map show converted_method.instructions)
+  equal "conversion staged frame uses one incoming word" 27 converted_method.register_count
+  let bad_conversion = MkMethodPlan "truncated conversion pair" "bad_conversion" 0 [] VoidValue 2
+        [SignedIntToBinary64 (MkRegister 1) (MkRegister 0), ReturnVoid]
+  refuse "Int32-to-binary64 truncated output pair" (prepare_method_invocations bad_conversion)
   let bad_pair = MkMethodPlan "binary64 truncated pair" "bad_pair" 0 [] VoidValue 2
         [Binary64Constant (MkRegister 1) 0, ReturnVoid]
   refuse "truncated frame pair" (prepare_method_invocations bad_pair)
@@ -125,6 +142,11 @@ main = do
     Left reason => fail reason
     Right bytes => pure bytes
   equal "deterministic finalized encoding" first second
+  case finalize_file_plan (MkFilePlan "LIdric/Int32Binary64Fixture;" [conversion]) of
+    Left reason => fail reason
+    Right converted_plan => case encode_finalized_dex converted_plan of
+      Left reason => fail reason
+      Right bytes => check "staged signed conversion encodes a DEX" (length bytes > 112)
   parsed <- platform_plan "dex:static:Ljava/lang/Double;:parseDouble:(Ljava/lang/String;)D"
     [CFString] CFDouble
   case find_invocation "valueOf" parsed.instructions of

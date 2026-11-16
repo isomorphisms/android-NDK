@@ -36,6 +36,15 @@ Double-to-Text formatting policy, native callback lifetime or JNI
 primitive-array ownership contract is introduced. Those boundaries still
 refuse, as do Float32 descriptors and incompatible source/target types.
 
+The real polynomial producer additionally needs `cast` from its runtime Int32
+exponent to a Double coefficient for power evaluation and differentiation.
+This narrow conversion validates the managed integer with `__idricIntExact`,
+executes signed `int-to-double`, and boxes the Double result. Every signed
+Int32 value is exactly representable in binary64. Other integral-to-Double
+casts remain explicit refusals. Before this repair, `restore_width DoubleType`
+refused the generic cast; it did not qualify a floating value by retaining its
+BigInteger representation.
+
 ## Verification intended
 
 An independent encoder fixture checks exact instruction bytes and register-pair
@@ -63,6 +72,19 @@ controls reject a mismatched Double result, a mismatched argument, Float32,
 arrays, a public Double export and the generic Text-to-Double cast without
 writing a candidate DEX. The plan fixture additionally finalizes the actual
 Double boxing/unboxing bridge and independently checks disjoint `pow` pairs.
+The signed conversion fixture checks independent opcode bytes and paired
+layout, including high-register staging and a truncated-output-pair refusal.
+The source fixture exposes a runtime Int32 argument, observes its canonical
+Double bits, and checks minimum/maximum signed values, negative one, zero and
+16777217. Its compiled-source mutant increments the actual input before the
+cast. The API matrix requires the original runner to accept the positive source
+and reject that mutant. An Int64 source cast remains a negative control.
+The local signed source/repeat emissions are identical, both positive and
+mutated candidates decode independently, and the runner assembles. The decoded
+positive contains checked integer unboxing, `int-to-double` and Double boxing,
+with no Float32 conversion. The actual Int64-to-Double source exits with the
+intended cast refusal and no candidate DEX. Re-emitting the existing arithmetic
+and platform fixtures with the extended driver retains their exact prior bytes.
 
 The compiler replay came from the root-verified artifact ZIP with SHA-256
 `cdbbe9c12beba04c61090acfd86ba6845fcd80bfe8cfe45367a8238f57650cd3`.

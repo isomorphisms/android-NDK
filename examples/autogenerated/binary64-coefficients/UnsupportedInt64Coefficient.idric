@@ -1,0 +1,21 @@
+module UnsupportedInt64Coefficient
+
+import Data.Text
+
+%foreign "dex:static:Ljava/lang/Double;:doubleToLongBits:(D)J"
+coefficient_bits : Double → Int64
+
+%foreign "dex:static:Ljava/lang/Long;:toHexString:(J)Ljava/lang/String;"
+coefficient_hex : Int64 → Text
+
+unsupported_exponent_coefficient : Int64 → Double
+unsupported_exponent_coefficient input = cast input
+
+%export "dex:int64_coefficient_bits"
+export
+int64_coefficient_bits : Int32 → Text
+int64_coefficient_bits input =
+  coefficient_hex (coefficient_bits (unsupported_exponent_coefficient (cast input)))
+
+main : IO ()
+main = pure ()

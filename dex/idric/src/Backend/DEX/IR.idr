@@ -362,6 +362,7 @@ data Instruction
   | ArrayLength Register Register
   | ArrayGetObject Register Register Register
   | IntToLong Register Register
+  | SignedIntToBinary64 Register Register
   | LongConstant Register Int
   | AddLong Register Register Register
   | Binary64Constant Register Integer
@@ -410,6 +411,8 @@ Show Instruction where
     "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
   show (IntToLong destination source) =
     "int-to-long " ++ show destination ++ ", " ++ show source
+  show (SignedIntToBinary64 destination source) =
+    "int-to-double " ++ show destination ++ ", " ++ show source
   show (LongConstant destination value) =
     "const-wide/16 " ++ show destination ++ ", " ++ show value
   show (AddLong destination left right) =

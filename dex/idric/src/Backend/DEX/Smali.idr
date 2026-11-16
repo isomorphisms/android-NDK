@@ -65,6 +65,7 @@ render_instruction (ArrayGetObject destination array index) =
   "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
 render_instruction (IntToLong destination source) =
   "int-to-long " ++ show destination ++ ", " ++ show source
+render_instruction instruction@(SignedIntToBinary64 _ _) = show instruction
 render_instruction (LongConstant destination value) =
   "const-wide/16 " ++ show destination ++ ", " ++ show value
 render_instruction (AddLong destination left right) =

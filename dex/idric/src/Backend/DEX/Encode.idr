@@ -131,6 +131,10 @@ instruction_width (IntToLong destination source) =
   if valid_register 15 destination && valid_register 15 source
     then Right 1
     else Left "DEX int-to-long format 12x requires registers v0..v15"
+instruction_width (SignedIntToBinary64 destination source) =
+  if valid_register 15 destination && valid_register 15 source
+    then Right 1
+    else Left "DEX int-to-double format 12x requires registers v0..v15"
 instruction_width (LongConstant destination value) =
   if not (valid_register 255 destination)
     then Left "DEX const-wide/16 requires a register v0..v255"
@@ -421,6 +425,10 @@ encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(IntToLong destination source) = do
   _ <- instruction_width instruction
   Right (u16le (0x81 + cast destination.number * 256 + cast source.number * 4096))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(SignedIntToBinary64 destination source) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x83 + cast destination.number * 256 + cast source.number * 4096))
 encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(LongConstant destination value) = do
   _ <- instruction_width instruction

@@ -53,5 +53,27 @@ var platform_status = _error.code
 cat "$evidence/platform-art-mutant.txt"
 if (platform_status !== 73) { echo 'FAIL missing platform argument-source mutant rejection' >&2; exit 1 }
 rg -x -F 'FAIL pure platform coefficient observation' "$evidence/platform-art-mutant.txt"
-printf 'checked_binary64_ART\tPASS\ncompiled_source_mutant_rejected\tPASS\npure_platform_coefficients_ART\tPASS\nplatform_source_mutant_rejected\tPASS\nphysical_A1\tNOT_RUN\nphysical_TAB_P10\tNOT_RUN\n' > "$evidence/art-result.tsv"
+"$adb" -s "$serial" push "$evidence/int32-runner.dex" "$remote/int32-runner.dex"
+"$adb" -s "$serial" push "$evidence/int32/candidate.dex" "$remote/int32.dex"
+"$adb" -s "$serial" push "$evidence/int32-mutant/candidate.dex" "$remote/int32-mutant.dex"
+"$adb" -s "$serial" shell chmod 444 "$remote/int32-runner.dex" "$remote/int32.dex" "$remote/int32-mutant.dex"
+"$adb" -s "$serial" pull "$remote/int32-runner.dex" "$evidence/int32-runner.received.dex"
+"$adb" -s "$serial" pull "$remote/int32.dex" "$evidence/int32.received.dex"
+"$adb" -s "$serial" pull "$remote/int32-mutant.dex" "$evidence/int32-mutant.received.dex"
+cmp "$evidence/int32-runner.dex" "$evidence/int32-runner.received.dex"
+cmp "$evidence/int32/candidate.dex" "$evidence/int32.received.dex"
+cmp "$evidence/int32-mutant/candidate.dex" "$evidence/int32-mutant.received.dex"
+"$adb" -s "$serial" shell "CLASSPATH=$remote/int32.dex:$remote/int32-runner.dex app_process /system/bin Int32CoefficientRunner" \
+  > "$evidence/int32-art-positive.txt" 2>&1
+cat "$evidence/int32-art-positive.txt"
+rg -x -F 'PASS checked Int32 coefficients on ART' "$evidence/int32-art-positive.txt"
+try {
+  "$adb" -s "$serial" shell "CLASSPATH=$remote/int32-mutant.dex:$remote/int32-runner.dex app_process /system/bin Int32CoefficientRunner" \
+    > "$evidence/int32-art-mutant.txt" 2>&1
+}
+var int32_status = _error.code
+cat "$evidence/int32-art-mutant.txt"
+if (int32_status !== 73) { echo 'FAIL missing signed Int32 source mutant rejection' >&2; exit 1 }
+rg -x -F 'FAIL checked Int32 coefficient observation' "$evidence/int32-art-mutant.txt"
+printf 'checked_binary64_ART\tPASS\ncompiled_source_mutant_rejected\tPASS\npure_platform_coefficients_ART\tPASS\nplatform_source_mutant_rejected\tPASS\nchecked_Int32_coefficients_ART\tPASS\nInt32_source_mutant_rejected\tPASS\nphysical_A1\tNOT_RUN\nphysical_TAB_P10\tNOT_RUN\n' > "$evidence/art-result.tsv"
 printf '\033[32mPASS\033[0m actual binary64 source and compiled mutation on ART\n'

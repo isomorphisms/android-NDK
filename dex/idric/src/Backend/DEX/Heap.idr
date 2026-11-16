@@ -388,6 +388,15 @@ primitive destination (Cast StringType to) [value] state = do
     -- Managed helper calls have the erased Object ABI. ART must see the
     -- numeric representation checked before any fixed-width BigInteger call.
     , CheckCast destination number_type] ++ restored) state)
+-- The actual polynomial exponent is signed Int32. Validate that managed
+-- representation before using DEX's exact signed int-to-double conversion;
+-- carrying the BigInteger reference through this cast would be invalid.
+primitive destination (Cast Int32Type DoubleType) [value] state =
+  Right (emit (unbox_int (register 0) value ++
+    [SignedIntToBinary64 (register 2) (register 0)] ++
+    box_binary64 destination (register 2)) state)
+primitive destination (Cast from DoubleType) [value] state =
+  Left ("Managed DEX unsupported binary64 cast from " ++ show from)
 primitive destination (Cast from to) [value] state = do
   if from == IntegerType || from == CharType || isJust (integer_width from)
     then Right () else Left ("Managed DEX unsupported numeric cast from " ++ show from)

@@ -28,11 +28,12 @@ setglobal ENV.IDRIS2_LIBS = "$frontend/_/support/c"
 setglobal ENV.CHEZ = "$frontend/_/.tools/bin/scheme"
 setglobal ENV.PATH = "$frontend/_/.tools/bin:" ++ ENV.PATH
 mkdir -p "$evidence/plan" "$evidence/host" "$evidence/positive" "$evidence/repeat" "$evidence/mutant/source" \
-  "$evidence/platform" "$evidence/platform-repeat" "$evidence/platform-mutant/source"
+  "$evidence/platform" "$evidence/platform-repeat" "$evidence/platform-mutant/source" \
+  "$evidence/int32" "$evidence/int32-repeat" "$evidence/int32-mutant/source"
 git -C "$repository" rev-parse HEAD > "$evidence/backend-base.txt"
 git -C "$repository" diff -- dex/idric/src dex/idric/backend.ipkg > "$evidence/backend.patch"
 sha256sum "$example/Binary64Source.idric" "$example/Binary64Operators.idr" "$example/Binary64PlanCheck.idr" \
-  "$example/PlatformCoefficient.idric" > "$evidence/source.sha256"
+  "$example/PlatformCoefficient.idric" "$example/Int32Coefficient.idric" > "$evidence/source.sha256"
 make -C "$backend" driver IDRIC="$compiler"
 
 proc absent_pattern(pattern, path, message) {
@@ -115,6 +116,22 @@ different_files "$example/PlatformCoefficient.idric" "$evidence/platform-mutant/
 emit_source "$evidence/platform-mutant/source" PlatformCoefficient "$evidence/platform-mutant"
 different_files "$evidence/platform/candidate.dex" "$evidence/platform-mutant/candidate.dex"
 java -jar "$smali" assemble "$example/PlatformCoefficientRunner.smali" -o "$evidence/platform-runner.dex"
+printf '\033[36mACTION\033[0m compile runtime signed Int32 exponent coefficient conversion\n'
+emit_source "$example" Int32Coefficient "$evidence/int32"
+emit_source "$example" Int32Coefficient "$evidence/int32-repeat"
+cmp "$evidence/int32/candidate.dex" "$evidence/int32-repeat/candidate.dex"
+var int32_decoded = "$evidence/int32/decoded/Idric/Generated.smali"
+rg -x -F '.method public static int32_coefficient_bits(I)Ljava/lang/String;' "$int32_decoded"
+rg -F 'int-to-double ' "$int32_decoded"
+rg -F 'LIdric/Generated;->__idricIntExact(Ljava/lang/Object;)I' "$int32_decoded"
+rg -F 'Ljava/lang/Double;->valueOf(D)Ljava/lang/Double;' "$int32_decoded"
+absent_pattern 'int-to-float|float-to-double' "$int32_decoded" 'signed Int32 coefficient conversion narrowed to Float32'
+sed 's/exponent_coefficient input = cast input/exponent_coefficient input = cast (input + 1)/' \
+  "$example/Int32Coefficient.idric" > "$evidence/int32-mutant/source/Int32Coefficient.idric"
+different_files "$example/Int32Coefficient.idric" "$evidence/int32-mutant/source/Int32Coefficient.idric"
+emit_source "$evidence/int32-mutant/source" Int32Coefficient "$evidence/int32-mutant"
+different_files "$evidence/int32/candidate.dex" "$evidence/int32-mutant/candidate.dex"
+java -jar "$smali" assemble "$example/Int32CoefficientRunner.smali" -o "$evidence/int32-runner.dex"
 
 proc refuse_source(module, diagnostic) {
   var output = "$evidence/refuse-$module"
@@ -140,7 +157,9 @@ refuse_source UnsupportedFloat 'Unsupported DEX descriptor type'
 refuse_source UnsupportedArray 'DEX array descriptors are outside the checked foreign-call slice'
 refuse_source UnsupportedDoubleExport 'dex rejected source ABI'
 refuse_source UnsupportedTextCast 'Managed DEX unsupported Text numeric target Double'
+refuse_source UnsupportedInt64Coefficient 'Managed DEX unsupported binary64 cast from'
 sha256sum "$evidence/positive/candidate.dex" "$evidence/mutant/candidate.dex" "$evidence/runner.dex" \
-  "$evidence/platform/candidate.dex" "$evidence/platform-mutant/candidate.dex" "$evidence/platform-runner.dex" > "$evidence/candidates.sha256"
-printf 'host_numeric_reference\tPASS\nencoder_layout\tPASS\nchecked_source_Dex\tPASS\nindependent_decode\tPASS\ndeterminism\tPASS\nART\tNOT_RUN\n' > "$evidence/result.tsv"
+  "$evidence/platform/candidate.dex" "$evidence/platform-mutant/candidate.dex" "$evidence/platform-runner.dex" \
+  "$evidence/int32/candidate.dex" "$evidence/int32-mutant/candidate.dex" "$evidence/int32-runner.dex" > "$evidence/candidates.sha256"
+printf 'host_numeric_reference\tPASS\nencoder_layout\tPASS\nchecked_source_Dex\tPASS\nchecked_Int32_source_Dex\tPASS\nindependent_decode\tPASS\ndeterminism\tPASS\nART\tNOT_RUN\n' > "$evidence/result.tsv"
 printf '\033[32mPASS\033[0m binary64 host, encoder, checked source and decoder; ART separate\n'
