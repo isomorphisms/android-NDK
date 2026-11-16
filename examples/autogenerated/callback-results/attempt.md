@@ -96,3 +96,9 @@ rejections.
 
 No final Activity, APK, framework editor, private captured state, renderer or
 physical-device acceptance is inferred from this compiler slice.
+
+The first hosted API34 run at `d2651550...` failed with retained exit 137 and
+only `Killed` in the callback output; its exact first Throwable was not retained.
+See [failure-d265.md](failure-d265.md) for the source/artifact identity, bounded
+conclusion and diagnostic repair. Neither this failure nor its cause is hidden
+by the earlier local emission/host-plan results.
