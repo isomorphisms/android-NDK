@@ -1,10 +1,12 @@
 module Backend.DEX.Capabilities
 
 import Backend.DEX.IR
+import Backend.DEX.ManagedIORef
 import Compiler.ANF
 import Core.CompileExpr
 import Core.Name
 import Core.TT.Primitive
+import Core.TT.Term
 import Data.List
 import Data.String
 
@@ -30,6 +32,10 @@ mutual
   expression_requirements name (Administrative_Normal_Form_Constructor_Value {}) = require "managed-values" name
   expression_requirements name (Administrative_Normal_Form_Partial_Application {}) = require "closures" name
   expression_requirements name (Administrative_Normal_Form_Closure_Application {}) = require "closures" name
+  expression_requirements name (Administrative_Normal_Form_External_Primitive _ Nothing primitive _) =
+    case managed_ioref_operation primitive of
+      Just _ => require "managed-ioref" name
+      Nothing => []
   expression_requirements name (Administrative_Normal_Form_Constructor_Case _ _ alternatives fallback) =
     require "managed-values" name ++ concatMap (constructor_requirements name) alternatives ++
     maybe [] (expression_requirements name) fallback
@@ -59,7 +65,8 @@ mutual
 private
 foreign_requirements : Name -> List String -> List RuntimeRequirement
 foreign_requirements name conventions =
-  if elem "C:idris2_getArgCount, libidris2_support, idris_support.h" conventions ||
+  if elem "dex:capture-runnable" conventions then require "captured-runnable" name
+  else if elem "C:idris2_getArgCount, libidris2_support, idris_support.h" conventions ||
      elem "C:idris2_getArg, libidris2_support, idris_support.h" conventions
     then require "arguments" name
   else if elem "C:idris2_putStr, libidris2_support, idris_support.h" conventions

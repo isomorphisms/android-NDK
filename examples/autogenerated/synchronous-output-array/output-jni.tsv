@@ -1,0 +1,2 @@
+library_property renderoutput.library
+C:render_output,librenderoutput renderOutput (JIIIDDDD[I)I current-thread synchronous borrowed-local nonnull-output publish-output-on-success propagate-exceptions

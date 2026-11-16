@@ -2,6 +2,7 @@ module Backend.DEX.ManagedBoundary
 
 import Backend.DEX.Foreign
 import Backend.DEX.IR
+import Backend.DEX.ManagedRunnable
 import Data.List
 
 %default covering
@@ -181,6 +182,8 @@ managed_export_bridge effect exported checked arguments result =
 -- has independently checked that every opaque source domain is external.
 public export
 managed_foreign_bridge : String -> DEXForeign -> Either String MethodPlan
+managed_foreign_bridge method (DeclareDEXForeign PrimitiveIOForeign ManagedRunnableCapture _ _) =
+  Right (managed_runnable_factory method)
 managed_foreign_bridge method foreign = do
   let arguments = foreign_target_arguments foreign
   let count : Int = cast (length arguments) + if foreign.effect == PrimitiveIOForeign then 1 else 0
@@ -200,6 +203,7 @@ managed_foreign_bridge method foreign = do
     Float32Arithmetic operation => case registers of
       [left, right] => Right [Binary32Binary operation (MkRegister 0) left right]
       _ => Left "Managed checked Float32 arithmetic requires exactly two arguments"
+    ManagedRunnableCapture => Left "Captured Runnable requires the checked effectful factory"
   completed <- to_managed (foreign_target_result foreign) (MkRegister 0) (MkRegister 16)
   Right (MkMethodPlan "checked managed framework declaration" method count
     (replicate (cast count) object_value) object_value (64 + count)

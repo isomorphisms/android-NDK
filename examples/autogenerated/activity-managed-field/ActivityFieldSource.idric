@@ -1,0 +1,78 @@
+module ActivityFieldSource
+
+import Data.IORef
+import Data.Text
+
+data ActivityReference : Type where [external]
+data ViewReference : Type where [external]
+data AppState = Active Text (List Text) | Closed
+
+%extern
+get_state : ActivityReference → PrimIO (IORef AppState)
+
+%extern
+set_state : ActivityReference → IORef AppState → PrimIO ()
+
+%foreign "dex:virtual:Landroid/app/Activity;:getTaskId:()I"
+activity_identity : ActivityReference → PrimIO Int32
+
+%foreign "dex:virtual:Landroid/view/View;:getId:()I"
+view_identity : ViewReference → PrimIO Int32
+
+%cg dex extends Landroid/app/Activity;
+%cg dex managed-field LIdric/Generated; state ActivityFieldSource.get_state ActivityFieldSource.set_state
+%cg dex override onCreate (Landroid/os/Bundle;)V create_state
+%cg dex override onResume ()V resume_state
+%cg dex override onDestroy ()V destroy_state
+%cg dex callback receiver Landroid/view/View$OnLongClickListener; onLongClick (Landroid/view/View;)Z change_state
+
+%export "dex:initialize_state"
+initialize_state : ActivityReference → Text → IO ()
+initialize_state activity initial = do
+  ignored ← primIO (activity_identity activity)
+  cell ← newIORef (Active initial [initial])
+  primIO (set_state activity cell)
+
+%export "dex:create_state"
+create_state : ActivityReference → IO ()
+create_state activity = initialize_state activity "created"
+
+%export "dex:read_state"
+read_state : ActivityReference → IO Text
+read_state activity = do
+  cell ← primIO (get_state activity)
+  state ← readIORef cell
+  case state of
+    Active value (_ :: _) ⇒ pure value
+    _ ⇒ pure "closed"
+
+%export "dex:change_state"
+change_state : ActivityReference → ViewReference → IO Bool
+change_state activity view = do
+  identity ← primIO (view_identity view)
+  cell ← primIO (get_state activity)
+  state ← readIORef cell
+  case state of
+    Active value history ⇒
+      if identity ≟ 101
+        then do writeIORef cell (Active (value ++ ":click") (value :: history)); pure True
+        else pure False
+    _ ⇒ pure False
+
+%export "dex:resume_state"
+resume_state : ActivityReference → IO ()
+resume_state activity = do
+  cell ← primIO (get_state activity)
+  state ← readIORef cell
+  case state of
+    Active value history ⇒ writeIORef cell (Active (value ++ ":resume") history)
+    Closed ⇒ pure ()
+
+%export "dex:destroy_state"
+destroy_state : ActivityReference → IO ()
+destroy_state activity = do
+  cell ← primIO (get_state activity)
+  writeIORef cell Closed
+
+main : IO ()
+main = pure ()

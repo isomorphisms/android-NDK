@@ -102,3 +102,15 @@ only `Killed` in the callback output; its exact first Throwable was not retained
 See [failure-d265.md](failure-d265.md) for the source/artifact identity, bounded
 conclusion and diagnostic repair. Neither this failure nor its cause is hidden
 by the earlier local emission/host-plan results.
+
+The diagnostic rerun at `d9819ca0656c0f4ea4b7a520c423b32eba248549`
+retained exit92 and the same first Throwable on API29 and API34:
+`View.performLongClick` falls through to `showContextMenu` when the checked
+handler correctly returns false, but the observer's Button had no parent.
+The resulting null `ViewParent` exception is a fixture defect. The independent
+observer now attaches the real Button to a FrameLayout whose context-menu
+methods return false. It still registers and dispatches the actual generated
+listeners through the framework, and the unchanged positive/mutation checks
+still require their actual Boolean/reference results. No candidate code or
+callback result is replaced by this observer repair. Repaired ART execution
+remains pending until the exact new head runs.

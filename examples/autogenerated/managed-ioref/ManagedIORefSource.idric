@@ -1,0 +1,31 @@
+module ManagedIORefSource
+
+import Data.IORef
+import Data.Text
+import System
+
+data ProbeState = ProbeOpen Text (List Text) | ProbeClosed
+
+%export "dex:ioref_roundtrip"
+ioref_roundtrip : Text → IO Text
+ioref_roundtrip supplied = do
+  first ← newIORef (ProbeOpen supplied [])
+  second ← newIORef ProbeClosed
+  let alias = first
+  initial ← readIORef alias
+  writeIORef first ProbeClosed
+  intermediate ← readIORef alias
+  writeIORef first (ProbeOpen ("updated:" ++ supplied) [supplied])
+  observed ← readIORef alias
+  independent ← readIORef second
+  case (initial, intermediate, observed, independent) of
+    (ProbeOpen initial_value [], ProbeClosed, ProbeOpen value [original], ProbeClosed) ⇒
+      if initial_value ≟ supplied && original ≟ supplied then pure value else pure "wrong payload"
+    _ ⇒ pure "wrong cell or constructor"
+
+main : IO ()
+main = do
+  observed ← ioref_roundtrip "λ😀"
+  if observed ≟ "updated:λ😀"
+    then putStrLn "PASS managed IORef host semantics"
+    else do putStrLn "FAIL managed IORef host semantics"; putStrLn observed; exitFailure

@@ -173,6 +173,12 @@ instruction_width (StaticGetObject destination field) =
 instruction_width (StaticPutObject source field) =
   if valid_register 255 source then Right 2
     else Left "DEX sput-object format 21c requires register v0..v255"
+instruction_width (InstanceGetObject destination receiver _) =
+  if valid_register 15 destination && valid_register 15 receiver then Right 2
+    else Left "DEX iget-object format 22c requires registers v0..v15"
+instruction_width (InstancePutObject source receiver _) =
+  if valid_register 15 source && valid_register 15 receiver then Right 2
+    else Left "DEX iput-object format 22c requires registers v0..v15"
 instruction_width (NullReference destination) =
   instruction_width (IntegerConstant destination 0)
 instruction_width (CheckCast register _) =
@@ -484,6 +490,20 @@ encode_instruction strings descriptors method_ids field_ids labels address
   index <- lookup_index "sput-object field" field field_ids
   if index > 65535 then Left "DEX sput-object field-id exceeds 65535"
     else Right (u16le (0x69 + cast source.number * 256) ++ u16le (cast index))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(InstanceGetObject destination receiver field) = do
+  _ <- instruction_width instruction
+  index <- lookup_index "iget-object field" field field_ids
+  if index > 65535 then Left "DEX iget-object field-id exceeds 65535"
+    else Right (u16le (0x54 + cast destination.number * 256 + cast receiver.number * 4096) ++
+      u16le (cast index))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(InstancePutObject source receiver field) = do
+  _ <- instruction_width instruction
+  index <- lookup_index "iput-object field" field field_ids
+  if index > 65535 then Left "DEX iput-object field-id exceeds 65535"
+    else Right (u16le (0x5b + cast source.number * 256 + cast receiver.number * 4096) ++
+      u16le (cast index))
 encode_instruction strings descriptors method_ids field_ids labels address (NullReference destination) =
   encode_instruction strings descriptors method_ids field_ids labels address (IntegerConstant destination 0)
 encode_instruction strings descriptors method_ids field_ids labels address
@@ -845,7 +865,21 @@ private
 instruction_field_references : Instruction -> List FieldReference
 instruction_field_references (StaticGetObject _ field) = [field]
 instruction_field_references (StaticPutObject _ field) = [field]
+instruction_field_references (InstanceGetObject _ _ field) = [field]
+instruction_field_references (InstancePutObject _ _ field) = [field]
 instruction_field_references _ = []
+
+private
+static_fields : Instruction -> List FieldReference
+static_fields (StaticGetObject _ field) = [field]
+static_fields (StaticPutObject _ field) = [field]
+static_fields _ = []
+
+private
+instance_fields : Instruction -> List FieldReference
+instance_fields (InstanceGetObject _ _ field) = [field]
+instance_fields (InstancePutObject _ _ field) = [field]
+instance_fields _ = []
 
 private
 declared_field_reference : String -> FieldPlan -> FieldReference
@@ -1126,7 +1160,7 @@ class_data plan methods field_ids = do
       Right (index, field.access_flags)) plan.fields
   let ordered_fields = sortBy (\left, right => compare (fst left) (fst right)) indexed
   let static_fields = filter (\field => elem (snd field) [9, 10]) ordered_fields
-  let instance_fields = filter (\field => elem (snd field) [1, 2]) ordered_fields
+  let instance_fields = filter (\field => elem (snd field) [1, 2, 0x12]) ordered_fields
   let direct = filter (\method => not (virtual_method method.plan.mode)) methods
   let virtual = filter (\method => virtual_method method.plan.mode) methods
   Right (uleb128 (cast (length static_fields)) ++ uleb128 (cast (length instance_fields)) ++
@@ -1272,12 +1306,28 @@ private
 validate_field_instruction : Instruction -> Either String ()
 validate_field_instruction (StaticGetObject _ field) =
   if object_field_value field.value_type && valid_field_name field.name
-    then validate_value_type field.value_type
+    then do
+      validate_class_descriptor field.owner.descriptor
+      validate_value_type field.value_type
     else Left "DEX sget-object requires a named reference-typed field"
 validate_field_instruction (StaticPutObject _ field) =
   if object_field_value field.value_type && valid_field_name field.name
-    then validate_value_type field.value_type
+    then do
+      validate_class_descriptor field.owner.descriptor
+      validate_value_type field.value_type
     else Left "DEX sput-object requires a named reference-typed field"
+validate_field_instruction (InstanceGetObject _ _ field) =
+  if object_field_value field.value_type && valid_field_name field.name
+    then do
+      validate_class_descriptor field.owner.descriptor
+      validate_value_type field.value_type
+    else Left "DEX iget-object requires a named reference-typed field"
+validate_field_instruction (InstancePutObject _ _ field) =
+  if object_field_value field.value_type && valid_field_name field.name
+    then do
+      validate_class_descriptor field.owner.descriptor
+      validate_value_type field.value_type
+    else Left "DEX iput-object requires a named reference-typed field"
 validate_field_instruction _ = Right ()
 
 private
@@ -1289,7 +1339,7 @@ validate_declared_fields plan = do
   _ <- traverse
     (\field =>
       if valid_field_name field.name && object_field_value field.value_type &&
-         elem field.access_flags [1, 2, 9, 10]
+         elem field.access_flags [1, 2, 9, 10, 0x12]
         then validate_value_type field.value_type
         else Left "DEX field declaration must be public/private static or instance reference")
     plan.fields
@@ -1354,7 +1404,7 @@ layout_class_data current (plan :: rest) methods fields = do
     layout_class_data (current + cast (length bytes)) rest methods fields
   Right (bytes ++ other, (plan.class_descriptor, current) :: offsets, finish)
 
-private
+export
 encode_finalized_classes : List FinalizedFilePlan -> Either String (List Int)
 encode_finalized_classes frozen = do
   if null frozen then Left "A DEX file needs at least one class" else Right ()
@@ -1375,12 +1425,20 @@ encode_finalized_classes frozen = do
   if length field_ids > 65536
     then Left "DEX field_id count exceeds the 16-bit instruction index range"
     else Right ()
-  let owned_fields = concatMap
+  let owned_static_fields = concatMap
         (\plan => map (declared_field_reference plan.class_descriptor)
           (filter (\field => elem field.access_flags [9, 10]) plan.fields)) plans
-  let referenced_fields = concatMap (concatMap instruction_field_references . instructions) methods
-  if any (\field => elem field.owner.descriptor classes && not (elem field owned_fields)) referenced_fields
+  let owned_instance_fields = concatMap
+        (\plan => map (declared_field_reference plan.class_descriptor)
+          (filter (\field => elem field.access_flags [1, 2, 0x12]) plan.fields)) plans
+  let all_instructions = concatMap instructions methods
+  let referenced_static_fields = concatMap static_fields all_instructions
+  let referenced_instance_fields = concatMap instance_fields all_instructions
+  if any (\field => elem field.owner.descriptor classes && not (elem field owned_static_fields)) referenced_static_fields
     then Left "DEX generated class reads or writes an undeclared static field"
+    else Right ()
+  if any (\field => elem field.owner.descriptor classes && not (elem field owned_instance_fields)) referenced_instance_fields
+    then Left "DEX generated class reads or writes an undeclared instance field"
     else Right ()
   let method_ids = sort_method_references
         (concatMap (\plan => all_method_references plan.class_descriptor plan.methods) plans)

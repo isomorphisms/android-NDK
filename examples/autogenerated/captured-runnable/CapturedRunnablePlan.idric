@@ -1,0 +1,108 @@
+module CapturedRunnablePlan
+
+import Backend.DEX.Encode
+import Backend.DEX.Foreign
+import Backend.DEX.IR
+import Backend.DEX.ManagedRunnable
+import Backend.DEX.Placement
+import Backend.DEX.Smali
+import Core.CompileExpr
+import Core.Name
+import Data.List
+import Data.Text
+import System
+
+check : Text → Bool → IO ()
+check label True = pure ()
+check label False = do
+  putStrLn ("FAIL " ++ label)
+  exitFailure
+
+refuses : Text → Either Text value → IO ()
+refuses label (Left _) = pure ()
+refuses label (Right _) = check label False
+
+accepts : Text → Either Text value → IO value
+accepts label (Left reason) = do
+  putStrLn ("FAIL " ++ label ++ ": " ++ reason)
+  exitFailure
+accepts label (Right value) = pure value
+
+object_value : FrameworkValueType
+object_value = ExistingValue ObjectValue
+
+action_type : CFType
+action_type = CFUser (NS (mkNamespace "PrimIO") (UN (Basic "IO"))) [CFUnit]
+
+runnable_domain : CFType
+runnable_domain = CFUser (UN (Basic "RunnableReference")) []
+
+capture : List CFType → CFType → Either Text DEXForeign
+capture = parse_dex_foreign "dex:capture-runnable"
+
+owner : TypeReference
+owner = MkTypeReference "LIdric/FieldPlacement;"
+
+saved : FieldReference
+saved = MkFieldReference owner "saved" object_value
+
+method : List Instruction → MethodPlan
+method body = MkMethodPlan "instance reference placement qualification" "roundtrip"
+  2 [object_value, object_value] object_value 402 body
+
+class_plan : Integer → List Instruction → FilePlan
+class_plan flags body = MkFieldClassFilePlan owner.descriptor [method body]
+  [MkFieldPlan "saved" object_value flags] [] (MkTypeReference "Ljava/lang/Object;") 0x11
+
+high_body : List Instruction
+high_body =
+  [ InstancePutObject (MkRegister 400) (MkRegister 401) saved
+  , InstanceGetObject (MkRegister 401) (MkRegister 401) saved
+  , ReturnObject (MkRegister 401)
+  ]
+
+-- The imported bootstrap encoder is covering; this host qualification invokes it.
+covering
+main : IO ()
+main = do
+  _ ← accepts "exact IO Unit factory" (capture [action_type, CFWorld] (CFIORes runnable_domain))
+  refuses "pure factory" (capture [action_type] runnable_domain)
+  refuses "missing World" (capture [action_type] (CFIORes runnable_domain))
+  refuses "Text capture" (capture [CFString, CFWorld] (CFIORes runnable_domain))
+  refuses "arbitrary function" (capture [CFFun CFUnit CFUnit, CFWorld] (CFIORes runnable_domain))
+  refuses "primitive IO closure" (capture [CFFun CFWorld (CFIORes CFUnit), CFWorld] (CFIORes runnable_domain))
+  refuses "wrong IO result" (capture [CFUser (NS (mkNamespace "PrimIO") (UN (Basic "IO"))) [CFString], CFWorld] (CFIORes runnable_domain))
+  refuses "another IO owner" (capture [CFUser (UN (Basic "IO")) [CFUnit], CFWorld] (CFIORes runnable_domain))
+  refuses "scalar Runnable result" (capture [action_type, CFWorld] (CFIORes CFString))
+  refuses "extra capture argument" (capture [action_type, CFString, CFWorld] (CFIORes runnable_domain))
+  placed ← accepts "place distinct high field operands" (prepare_method_invocations (method high_body))
+  let instructions = unlines (map show placed.instructions)
+  check "put preserves distinct high source and receiver" $
+    isInfixOf "move-object v0, v402" instructions && isInfixOf "move-object v1, v403" instructions &&
+    isInfixOf "iput-object v0, v1," instructions
+  check "get retains receiver before overwriting alias destination" $
+    isInfixOf "move-object v0, v403" instructions && isInfixOf "iget-object v1, v0," instructions &&
+    isInfixOf "move-object v403, v1" instructions
+  _ ← accepts "valid high field class" (encode_dex (class_plan 2 high_body))
+  _ ← accepts "aliased put fields" (encode_dex (class_plan 2
+    [InstancePutObject (MkRegister 400) (MkRegister 400) saved, ReturnObject (MkRegister 400)]))
+  refuses "static instruction on instance field" (encode_dex (class_plan 2
+    [StaticGetObject (MkRegister 400) saved, ReturnObject (MkRegister 400)]))
+  refuses "instance instruction on static field" (encode_dex (class_plan 10 high_body))
+  refuses "undeclared instance field" (encode_dex ({ fields := [] } (class_plan 2 high_body)))
+  refuses "primitive object field" (encode_dex ({ fields := [MkFieldPlan "saved" (ExistingValue IntegerValue) 2] } (class_plan 2 high_body)))
+  refuses "negative receiver" (encode_dex (class_plan 2
+    [InstanceGetObject (MkRegister 400) (MkRegister (-1)) saved, ReturnObject (MkRegister 400)]))
+  refuses "outside frame receiver" (encode_dex (class_plan 2
+    [InstanceGetObject (MkRegister 400) (MkRegister 402) saved, ReturnObject (MkRegister 400)]))
+  refuses "invalid field owner" (encode_dex (class_plan 2
+    [InstanceGetObject (MkRegister 400) (MkRegister 401)
+      (MkFieldReference (MkTypeReference "not-a-class") "saved" object_value), ReturnObject (MkRegister 400)]))
+  first ← accepts "shared finalized multi-class writer" (encode_dex_classes [class_plan 2 high_body, managed_runnable_class])
+  second ← accepts "class-order invariant" (encode_dex_classes [managed_runnable_class, class_plan 2 high_body])
+  check "deterministic multi-class identifiers" (first ≟ second)
+  finalized ← accepts "private final closure field" (finalize_file_plan managed_runnable_class)
+  let rendered = render_finalized_smali finalized
+  check "final captured instance reference" (isInfixOf ".field private final __idric_action:Ljava/lang/Object;" rendered)
+  check "actual closure application" (isInfixOf "LIdric/Generated;->__idricApply(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;" rendered)
+  putStrLn "PASS checked Runnable metadata, instance object placement, refusal and shared writer"

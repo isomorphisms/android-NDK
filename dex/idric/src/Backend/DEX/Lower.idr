@@ -610,6 +610,8 @@ lower_foreign_call destination destination_type name arguments state =
                 (emit (NewObject destination method.owner) state))
             Float32Arithmetic _ =>
               Left "Checked Float32 arithmetic requires the managed external-value boundary"
+            ManagedRunnableCapture =>
+              Left "Captured Runnable requires the checked managed closure boundary"
 
 private
 lower_comparison :

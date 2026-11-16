@@ -1,0 +1,13 @@
+module LookalikeExtern
+
+-- This spelling is deliberately in the wrong namespace and must never gain
+-- the private Data.IORef primitive's implementation.
+%extern
+prim__newIORef : Text → PrimIO Text
+
+%export "dex:lookalike_cell"
+lookalike_cell : Text → IO Text
+lookalike_cell value = primIO (prim__newIORef value)
+
+main : IO ()
+main = pure ()

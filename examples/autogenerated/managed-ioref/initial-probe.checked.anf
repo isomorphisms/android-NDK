@@ -1,0 +1,7 @@
+directives pending; checked source definitions:
+export ManagedIORefSource.ioref_roundtrip as ioref_roundtrip
+[0, 1]: %let v2 = (%let v6 = (%let v4 = ({csegen:13}()) in (%let v5 = (%let v3 = (%con _builtin.NIL()) in (%con _builtin.CONS(v0, v3))) in (Data.IORef.newIORef(v4, v5)))) in (v6 @ (v1))) in (%let v7 = (%let v10 = (%let v8 = ({csegen:13}()) in (%let v9 = (%con _builtin.NIL()) in (Data.IORef.newIORef(v8, v9)))) in (v10 @ (v1))) in (%let v11 = (%let v16 = (%let v14 = (%let v12 = ("updated:") in (%op ++(v12, v0))) in (%let v15 = (%let v13 = (%con _builtin.NIL()) in (%con _builtin.CONS(v0, v13))) in (%con _builtin.CONS(v14, v15)))) in (%extprim Data.IORef.prim__writeIORef([__], v2, v16, v1))) in (%let v17 = (%extprim Data.IORef.prim__readIORef([__], v2, v1)) in (%let v18 = (%extprim Data.IORef.prim__readIORef([__], v7, v1)) in (%let v20 = (%let v19 = (%con _builtin.CONS(v17, v18)) in (ManagedIORefSource.case block in ioref_roundtrip(v0, v2, v7, v2, v17, v18, v19))) in (v20 @ (v1)))))))
+
+export Prelude.EqOrd.== as _checked_16
+[0, 1]: %let v2 = (%op ==String(v0, v1)) in (%case v2 of { %constalt(0) => 0 Just 1 })
+

@@ -79,6 +79,8 @@ render_instruction (StaticGetObject destination field) =
   "sget-object " ++ show destination ++ ", " ++ show field
 render_instruction (StaticPutObject source field) =
   "sput-object " ++ show source ++ ", " ++ show field
+render_instruction instruction@(InstanceGetObject _ _ _) = show instruction
+render_instruction instruction@(InstancePutObject _ _ _) = show instruction
 render_instruction (NullReference destination) =
   render_constant destination 0
 render_instruction (TextConstant destination value) =
@@ -191,8 +193,9 @@ render_finalized_smali finalized =
     , ""
     ] ++ unlines (map (\implemented => ".implements " ++ show implemented) plan.interfaces) ++
     concat (map (\field =>
-      ".field " ++ (if elem field.access_flags [2, 10] then "private" else "public") ++
+      ".field " ++ (if elem field.access_flags [2, 10, 0x12] then "private" else "public") ++
       (if elem field.access_flags [9, 10] then " static " else " ") ++
+      (if field.access_flags == 0x12 then "final " else "") ++
       field.name ++ ":" ++ framework_descriptor field.value_type ++ "\n") plan.fields) ++
     concat (map render_method plan.methods)
 

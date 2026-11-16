@@ -83,6 +83,8 @@ instruction_registers (CompareBinary64 _ destination left right) =
   Right [destination, left, next_register left, right, next_register right]
 instruction_registers (StaticGetObject destination field) = Right [destination]
 instruction_registers (StaticPutObject source field) = Right [source]
+instruction_registers (InstanceGetObject destination receiver _) = Right [destination, receiver]
+instruction_registers (InstancePutObject source receiver _) = Right [source, receiver]
 instruction_registers (NullReference destination) = Right [destination]
 instruction_registers (TextConstant destination _) = Right [destination]
 instruction_registers (NewObject destination _) = Right [destination]
@@ -179,6 +181,10 @@ instruction_staging (StaticGetObject destination field) =
   Right (destination.number > 255, 0)
 instruction_staging (StaticPutObject source field) =
   Right (source.number > 255, 0)
+instruction_staging (InstanceGetObject destination receiver _) =
+  Right (destination.number > 15 || receiver.number > 15, 0)
+instruction_staging (InstancePutObject source receiver _) =
+  Right (source.number > 15 || receiver.number > 15, 0)
 instruction_staging _ = Right (False, 0)
 
 private
@@ -385,6 +391,20 @@ place_instruction scratch_start (StaticPutObject source field) =
   if low_byte_register input
     then Right [StaticPutObject input field]
     else Right [MoveObject scratch_zero input, StaticPutObject scratch_zero field]
+place_instruction scratch_start (InstanceGetObject destination receiver field) =
+  let target = shift_register destination
+      object = shift_register receiver in
+  if target.number <= 15 && object.number <= 15
+    then Right [InstanceGetObject target object field]
+    else Right [MoveObject scratch_zero object,
+      InstanceGetObject scratch_one scratch_zero field, MoveObject target scratch_one]
+place_instruction scratch_start (InstancePutObject source receiver field) =
+  let input = shift_register source
+      object = shift_register receiver in
+  if input.number <= 15 && object.number <= 15
+    then Right [InstancePutObject input object field]
+    else Right [MoveObject scratch_zero input, MoveObject scratch_one object,
+      InstancePutObject scratch_zero scratch_one field]
 place_instruction scratch_start (IntToLong destination source) =
   let target = shift_register destination
       input_register = shift_register source

@@ -1,0 +1,10 @@
+module WrongAction
+import Data.Text
+data RunnableReference : Type where [external]
+%foreign "dex:capture-runnable"
+capture : Text → PrimIO RunnableReference
+%export "dex:bad_capture"
+bad_capture : Text → IO RunnableReference
+bad_capture value = primIO (capture value)
+main : IO ()
+main = pure ()

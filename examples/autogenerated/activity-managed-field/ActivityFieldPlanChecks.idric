@@ -1,0 +1,90 @@
+module ActivityFieldPlanChecks
+
+import Backend.DEX.Encode
+import Backend.DEX.IR
+import Backend.DEX.ManagedActivityField
+import Core.TT
+import Algebra
+import Data.List
+import System
+
+%default covering
+
+fail : Text → IO a
+fail message = do putStrLn ("FAIL checked Activity field plans: " ++ message); exitFailure
+
+check : Text → Bool → IO ()
+check _ True = pure ()
+check message False = fail message
+
+refuse : Text → Either Text a → IO ()
+refuse _ (Left _) = pure ()
+refuse message (Right _) = fail (message ++ " accepted")
+
+type_name : Text → Term variables
+type_name spelling = Ref emptyFC (TyCon 0) (UN (Basic spelling))
+
+named_type : Text → Text → Term variables
+named_type space spelling = Ref emptyFC (TyCon 0) (NS (mkNamespace space) (UN (Basic spelling)))
+
+many : RigCount
+many = timesNeutral |+| timesNeutral
+
+getter_type : RigCount → ClosedTerm
+getter_type world_count = Bind emptyFC (UN (Basic "activity"))
+  (Pi emptyFC many Explicit (type_name "ActivityReference"))
+  (Bind emptyFC (UN (Basic "world")) (Pi emptyFC world_count Explicit (PrimVal emptyFC (PrT WorldType)))
+    (App emptyFC (named_type "PrimIO" "IORes")
+      (App emptyFC (named_type "Data.IORef" "IORef") (type_name "AppState"))))
+
+setter_type : ClosedTerm
+setter_type = Bind emptyFC (UN (Basic "activity"))
+  (Pi emptyFC many Explicit (type_name "ActivityReference"))
+  (Bind emptyFC (UN (Basic "cell"))
+    (Pi emptyFC many Explicit (App emptyFC (named_type "Data.IORef" "IORef") (type_name "AppState")))
+    (Bind emptyFC (UN (Basic "world"))
+      (Pi emptyFC timesNeutral Explicit (PrimVal emptyFC (PrT WorldType)))
+      (App emptyFC (named_type "PrimIO" "IORes") (named_type "Builtin" "Unit"))))
+
+dependent_getter : ClosedTerm
+dependent_getter = Bind emptyFC (UN (Basic "activity"))
+  (Pi emptyFC many Explicit (type_name "ActivityReference"))
+  (Bind emptyFC (UN (Basic "world"))
+    (Pi emptyFC timesNeutral Explicit (PrimVal emptyFC (PrT WorldType)))
+    (App emptyFC (named_type "PrimIO" "IORes")
+      (App emptyFC (named_type "Data.IORef" "IORef")
+        (App emptyFC (type_name "IndexedState") (Local emptyFC Nothing 1 (Later First))))))
+
+main : IO ()
+main = do
+  Right (Just field) ← pure (parse_activity_field
+    "managed-field LIdric/Generated; state Example.get_state Example.set_state")
+    | Left message => fail message
+    | Right Nothing => fail "missing parsed field"
+  Right (receiver, payload) ← pure (activity_field_getter_type (getter_type timesNeutral))
+    | Left message => fail message
+  Right (write_receiver, write_payload) ← pure (activity_field_setter_type setter_type)
+    | Left message => fail message
+  check "matching closed source shape" (receiver == write_receiver && show payload == show write_payload)
+  refuse "nonlinear World" (activity_field_getter_type (getter_type many))
+  refuse "receiver-dependent payload" (activity_field_getter_type dependent_getter)
+  refuse "non-IORef getter" (activity_field_getter_type (type_name "AppState"))
+  refuse "wrong declaring class" (parse_activity_field
+    "managed-field Landroid/app/Activity; state Example.get_state Example.set_state")
+  refuse "unqualified endpoint" (parse_activity_field
+    "managed-field LIdric/Generated; state get_state Example.set_state")
+  refuse "same endpoint" (parse_activity_field
+    "managed-field LIdric/Generated; state Example.get_state Example.get_state")
+  let fields = activity_field_declarations [field]
+  check "private instance reference storage" (map access_flags fields == [2])
+  let methods = activity_field_methods [field]
+  let plan = { fields := fields } (MkFilePlan "LIdric/Generated;" methods)
+  Right finalized ← pure (finalize_file_plan plan) | Left message => fail message
+  Right bytes ← pure (encode_finalized_dex finalized) | Left message => fail message
+  check "shared finalized writer emits accessors" (length bytes > 112)
+  let static_mutation = MkMethodPlan "wrong static access" "wrong" 0 [] VoidValue 1
+        [ StaticGetObject (MkRegister 0) (MkFieldReference (MkTypeReference "LIdric/Generated;")
+            "state" (ReferenceValue (MkTypeReference "Ljava/util/ArrayList;")))
+        , ReturnVoid ]
+  refuse "static access to private instance field" (encode_dex ({ methods := static_mutation :: methods } plan))
+  putStrLn "PASS checked Activity field plans and source-type refusals"

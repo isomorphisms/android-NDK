@@ -4,6 +4,7 @@ import Backend.DEX.IR
 import Backend.DEX.Binary64
 import Backend.DEX.NativeContract
 import Backend.DEX.ValueLayout
+import Backend.DEX.ManagedIORef
 import Compiler.ANF
 import Core.CompileExpr
 import Core.Name
@@ -533,6 +534,24 @@ mutual
     Administrative_Normal_Form_Primitive_Operation _ Nothing operation arguments => do
       inputs <- traverse (\value => argument value state) arguments
       primitive destination operation inputs state
+    Administrative_Normal_Form_External_Primitive _ Nothing name arguments => do
+      (operation, values) <- checked_ioref_arguments name arguments
+      inputs <- traverse (\value => argument value state) values
+      case (operation, inputs) of
+        (NewCell, [value, world]) => do
+          instructions <- make_node destination managed_ioref_layout [value]
+          Right (emit instructions state)
+        (ReadCell, [cell, world]) =>
+          Right (emit (node_get destination cell 1) state)
+        (WriteCell, [cell, value, world]) => Right (emit
+          [ MoveObject (register 5) cell
+          , CheckCast (register 5) node_type
+          , IntegerConstant (register 6) 1
+          , call InvokeVirtual node_type "set" [integer_value, object_value]
+              object_value [register 5, register 6, value] Nothing
+          , NullReference destination
+          ] state)
+        _ => Left "Managed DEX IORef arguments disagree with checked primitive"
     Administrative_Normal_Form_Binding _ variable value body => do
       if in_tail && returns_bound_variable variable body
         then lower True destination value state
@@ -1111,6 +1130,7 @@ private
 check_native_string : NativeBoundaryContract -> Register -> String -> List Instruction
 check_native_string LegacyUnqualifiedNativeBoundary value description = []
 check_native_string SynchronousCopiedInputArrayNativeBoundary value description = []
+check_native_string SynchronousOutputIntArrayNativeBoundary value description = []
 check_native_string SynchronousBorrowedNonNullNativeBoundary value description =
   [ TextConstant (register 1) description
   , call InvokeStatic (MkTypeReference "Ljava/util/Objects;") "requireNonNull"
@@ -1135,6 +1155,22 @@ native_argument SynchronousCopiedInputArrayNativeBoundary CFInt32 (ExistingValue
   Right (unbox_int destination source)
 native_argument SynchronousCopiedInputArrayNativeBoundary CFInt64 LongValue source destination = Right
   [call InvokeStatic generated_type "__idricLongExact" [object_value] LongValue [source] (Just destination)]
+native_argument SynchronousOutputIntArrayNativeBoundary CFInt32 (ExistingValue IntegerValue) source destination =
+  Right (unbox_int destination source)
+native_argument SynchronousOutputIntArrayNativeBoundary CFInt64 LongValue source destination = Right
+  [call InvokeStatic generated_type "__idricLongExact" [object_value] LongValue [source] (Just destination)]
+native_argument SynchronousOutputIntArrayNativeBoundary CFDouble (ExistingValue DoubleValue) source destination =
+  Right (unbox_binary64 destination source)
+native_argument SynchronousOutputIntArrayNativeBoundary (CFUser _ []) (ReferenceValue descriptor) source destination =
+  if descriptor.descriptor == "[I" then Right
+    [ MoveObject destination source
+    , CheckCast destination descriptor
+    , TextConstant (register 1) "JNI synchronous output-array contract rejects null output array"
+    , call InvokeStatic (MkTypeReference "Ljava/util/Objects;") "requireNonNull"
+        [object_value, text_value] object_value [destination, register 1] (Just destination)
+    , CheckCast destination descriptor
+    ]
+  else Left "Managed JNI output reference must be [I"
 native_argument SynchronousCopiedInputArrayNativeBoundary (CFUser _ []) target@(ReferenceValue descriptor) source destination =
   if copied_input_array target then Right
     [ MoveObject destination source
@@ -1154,7 +1190,9 @@ native_arguments : NativeBoundaryContract -> List CFType -> List FrameworkValueT
 native_arguments contract [] [] source target = Right ([], [])
 native_arguments contract (source_type :: sources) (target_type :: targets) source target = do
   current <- native_argument contract source_type target_type (register source) (register target)
-  let width : Int = if target_type == LongValue then 2 else 1
+  let width : Int = case register_width target_type of
+        Just RegisterPair => 2
+        _ => 1
   (more, registers) <- native_arguments contract sources targets (source + 1) (target + width)
   Right (current ++ more, register target :: registers)
 native_arguments _ _ _ _ _ = Left "Managed JNI argument count differs from checked source declaration"
@@ -1173,13 +1211,16 @@ heap_foreign_linked services method definition@(Make_Administrative_Normal_Form_
       source_result <- the (Either String CFType) $ case result of
         CFIORes value => Right value
         _ => Left "Managed JNI requires a checked PrimIO result"
-      let native_words : Int = sum (map (\type => if type == LongValue then 2 else 1) service.argument_types)
+      let native_words : Int = sum (map (\type => case register_width type of
+            Just RegisterPair => 2
+            _ => 1) service.argument_types)
       let parameter_start : Int = max 64 (24 + native_words)
       (prepared, registers) <- native_arguments (native_contract service) ordinary service.argument_types parameter_start 24
       completed <- the (Either String (List Instruction)) $ case (source_result, service.result_type) of
         (CFInt, ExistingValue IntegerValue) => Right (box_int (register 16) (register 0))
         (CFInt32, ExistingValue IntegerValue) =>
-          if service.boundary_contract == SynchronousBorrowedNonNullNativeBoundary
+          if service.boundary_contract == SynchronousBorrowedNonNullNativeBoundary ||
+             service.boundary_contract == SynchronousOutputIntArrayNativeBoundary
             then Right (box_int (register 16) (register 0))
             else Left "Managed JNI typed Int32 result requires the explicit synchronous scalar contract"
         (CFInt, LongValue) => Right

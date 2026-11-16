@@ -1,0 +1,29 @@
+module DependentFieldRefusal
+
+import Data.IORef
+
+data ActivityReference : Type where [external]
+data IndexedState : ActivityReference → Type where
+  StateFor : (activity : ActivityReference) → IndexedState activity
+
+%extern
+get_state : (activity : ActivityReference) → PrimIO (IORef (IndexedState activity))
+
+%extern
+set_state : (activity : ActivityReference) → IORef (IndexedState activity) → PrimIO ()
+
+%foreign "dex:virtual:Landroid/app/Activity;:getTaskId:()I"
+activity_identity : ActivityReference → PrimIO Int32
+
+%cg dex extends Landroid/app/Activity;
+%cg dex managed-field LIdric/Generated; state DependentFieldRefusal.get_state DependentFieldRefusal.set_state
+
+%export "dex:dependent_field"
+dependent_field : ActivityReference → IO ()
+dependent_field activity = do
+  ignored ← primIO (activity_identity activity)
+  cell ← primIO (get_state activity)
+  primIO (set_state activity cell)
+
+main : IO ()
+main = pure ()

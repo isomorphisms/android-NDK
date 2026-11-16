@@ -1,0 +1,107 @@
+module IORefPlanChecks
+
+-- Checked-ANF compatibility fixture; ordinary .idr compiler APIs retain their
+-- bootstrap spelling. Application probes use ordinary Idriç source below.
+import Backend.DEX.Capabilities
+import Backend.DEX.Encode
+import Backend.DEX.Heap
+import Backend.DEX.IR
+import Backend.DEX.ManagedIORef
+import Backend.DEX.ValueLayout
+import Compiler.ANF
+import Core.FC
+import Core.Name
+import Core.Name.Namespace
+import Core.TT.Term
+import Data.List
+import System
+
+%default covering
+
+fail : Text → IO a
+fail reason = do putStrLn ("FAIL managed IORef plans: " ++ reason); exitFailure
+
+check : Text → Bool → IO ()
+check _ True = pure ()
+check label False = fail label
+
+refuse : Text → Either Text a → IO ()
+refuse _ (Left _) = pure ()
+refuse label (Right _) = fail (label ++ " accepted")
+
+primitive_name : Text → Name
+primitive_name spelling = NS (mkNamespace "Data.IORef") (UN (Basic spelling))
+
+variable : Int → Administrative_Normal_Form_Variable
+variable = Administrative_Normal_Form_Local_Variable
+
+erased : Administrative_Normal_Form_Variable
+erased = Administrative_Normal_Form_Erased_Variable
+
+definition : Name → List Administrative_Normal_Form_Variable → Administrative_Normal_Form_Definition
+definition name arguments = Make_Administrative_Normal_Form_Function [0, 1, 2]
+  (Administrative_Normal_Form_External_Primitive emptyFC Nothing name arguments)
+
+plan : Text → List Administrative_Normal_Form_Variable → IO MethodPlan
+plan spelling arguments = case heap_method [] (UN (Basic "probe")) "probe"
+  (definition (primitive_name spelling) arguments) of
+    Left reason => fail reason
+    Right result => pure result
+
+invocations : Text → MethodPlan → List InvocationPlan
+invocations target method = mapMaybe (\instruction => case instruction of
+  InvokeMethod invocation => if invocation.method.name == target then Just invocation else Nothing
+  _ => Nothing) method.instructions
+
+main : IO ()
+main = do
+  check "one private payload slot" (managed_node_slots managed_ioref_layout == 2 &&
+    managed_field_slots managed_ioref_layout == [1])
+  refuse "wrong cell payload count" (checked_node_fields managed_ioref_layout [0, 1])
+  fresh ← plan "prim__newIORef" [erased, variable 0, variable 1]
+  read ← plan "prim__readIORef" [erased, variable 0, variable 1]
+  write ← plan "prim__writeIORef" [erased, variable 0, variable 1, variable 2]
+  check "new cell holds tag and source payload" (length (invocations "add" fresh) == 2)
+  check "read cell gets payload slot one" (any (\instruction => case instruction of
+    IntegerConstant (MkRegister 6) 1 => True
+    _ => False) read.instructions)
+  case invocations "get" read of
+    [invocation] => check "read preserves reference result" (invocation.result_register == Just (MkRegister 16))
+    _ => fail "read did not perform exactly one slot read"
+  case invocations "set" write of
+    [invocation] => check "write performs one reference replacement and ignores previous value"
+      (invocation.method.owner == managed_node_type &&
+       invocation.method.argument_types == [ExistingValue IntegerValue, ExistingValue ObjectValue] &&
+       invocation.result_register == Nothing)
+    _ => fail "write did not perform exactly one slot replacement"
+  check "write returns erased unit" (any (\instruction => case instruction of
+    NullReference (MkRegister 16) => True
+    _ => False) write.instructions)
+  for_ [fresh, read, write] (\method => case finalize_file_plan
+    (MkFilePlan "LIdric/CellPlan;" [method]) of
+      Left reason => fail reason
+      Right finalized => case encode_finalized_dex finalized of
+        Left reason => fail reason
+        Right bytes => check "cell method encodes" (length bytes > 112))
+  for_ ["prim__newIORef", "prim__readIORef", "prim__writeIORef"] (\spelling => do
+    refuse "missing erased type and World" (checked_ioref_arguments (primitive_name spelling) [variable 0])
+    refuse "missing World" (checked_ioref_arguments (primitive_name spelling) [erased, variable 0])
+    refuse "non-erased type argument" (checked_ioref_arguments (primitive_name spelling)
+      [variable 0, variable 1, variable 2])
+    refuse "excess arguments" (checked_ioref_arguments (primitive_name spelling)
+      [erased, variable 0, variable 1, variable 2, variable 2]))
+  refuse "same spelling in wrong namespace" (checked_ioref_arguments
+    (NS (mkNamespace "Application") (UN (Basic "prim__newIORef"))) [erased, variable 0, variable 1])
+  refuse "unknown extern" (heap_method [] (UN (Basic "probe")) "probe"
+    (definition (primitive_name "prim__modifyIORef") [erased, variable 0, variable 1]))
+  refuse "non-erased write type argument" (checked_ioref_arguments (primitive_name "prim__writeIORef")
+    [variable 0, variable 1, variable 2, variable 2])
+  refuse "delayed external primitive" (heap_method [] (UN (Basic "probe")) "probe"
+    (Make_Administrative_Normal_Form_Function [0, 1]
+      (Administrative_Normal_Form_External_Primitive emptyFC (Just LLazy)
+        (primitive_name "prim__newIORef") [erased, variable 0, variable 1])))
+  let requirements = checked_runtime_requirements
+        [(UN (Basic "probe"), definition (primitive_name "prim__newIORef") [erased, variable 0, variable 1])]
+  check "source requirement receipt names managed IORef" (any (\requirement =>
+    requirement.facility == "managed-ioref") requirements)
+  putStrLn "PASS managed IORef checked plans and refusals"

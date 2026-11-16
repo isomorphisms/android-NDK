@@ -1,8 +1,29 @@
 .class public LCallbackResultRunner;
-.super Ljava/lang/Object;
+.super Landroid/widget/FrameLayout;
 
 # Independent observer: real View listener dispatch and receiver-local framework
 # Intent values. No checked callback implementation lives in this observer.
+# A false listener result asks the real Button to show its context menu. Give
+# that Button a parent which declines the menu; an unattached View throws before
+# the observer can inspect the actual false result.
+.method private constructor <init>(Landroid/content/Context;)V
+    .registers 2
+    invoke-direct {p0, p1}, Landroid/widget/FrameLayout;-><init>(Landroid/content/Context;)V
+    return-void
+.end method
+
+.method public showContextMenuForChild(Landroid/view/View;)Z
+    .registers 3
+    const/4 v0, 0
+    return v0
+.end method
+
+.method public showContextMenuForChild(Landroid/view/View;FF)Z
+    .registers 5
+    const/4 v0, 0
+    return v0
+.end method
+
 .method public static main([Ljava/lang/String;)V
     .registers 3
   :observation_start
@@ -41,6 +62,11 @@
     invoke-static {v13}, LCallbackResultRunner;->stage(Ljava/lang/String;)V
     new-instance v2, Landroid/widget/Button;
     invoke-direct {v2, v1}, Landroid/widget/Button;-><init>(Landroid/content/Context;)V
+    const-string v13, "CallbackResultRunner: attach Button to context-menu host"
+    invoke-static {v13}, LCallbackResultRunner;->stage(Ljava/lang/String;)V
+    new-instance v5, LCallbackResultRunner;
+    invoke-direct {v5, v1}, LCallbackResultRunner;-><init>(Landroid/content/Context;)V
+    invoke-virtual {v5, v2}, Landroid/widget/FrameLayout;->addView(Landroid/view/View;)V
     const/16 v6, 101
     invoke-virtual {v2, v6}, Landroid/view/View;->setId(I)V
     const-string v13, "CallbackResultRunner: construct distinct Activity receivers"

@@ -383,6 +383,8 @@ data Instruction
   | CompareBinary64 Binary64NaNBias Register Register Register
   | StaticGetObject Register FieldReference
   | StaticPutObject Register FieldReference
+  | InstanceGetObject Register Register FieldReference
+  | InstancePutObject Register Register FieldReference
   | NullReference Register
   | TextConstant Register String
   | NewObject Register TypeReference
@@ -444,6 +446,10 @@ Show Instruction where
     "sget-object " ++ show destination ++ ", " ++ show field
   show (StaticPutObject source field) =
     "sput-object " ++ show source ++ ", " ++ show field
+  show (InstanceGetObject destination receiver field) =
+    "iget-object " ++ show destination ++ ", " ++ show receiver ++ ", " ++ show field
+  show (InstancePutObject source receiver field) =
+    "iput-object " ++ show source ++ ", " ++ show receiver ++ ", " ++ show field
   show (NullReference destination) = "const-null " ++ show destination
   show (TextConstant destination value) =
     "const-string " ++ show destination ++ ", " ++ show value

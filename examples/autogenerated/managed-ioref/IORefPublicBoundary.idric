@@ -1,0 +1,13 @@
+module IORefPublicBoundary
+
+import Data.IORef
+import Data.Text
+
+-- Deliberately unsupported: an internal polymorphic managed cell must not be
+-- advertised as a Java/Object parameter to bypass checked callback ownership.
+%export "dex:read_probe_state"
+read_probe_state : IORef Text → IO Text
+read_probe_state reference = readIORef reference
+
+main : IO ()
+main = pure ()

@@ -26,6 +26,7 @@ data ForeignOperation
   | CheckedReferenceCast TypeReference TypeReference
   | ObjectConstruction MethodReference
   | Float32Arithmetic Binary32Operation
+  | ManagedRunnableCapture
 
 public export
 record DEXForeign where
@@ -284,6 +285,7 @@ foreign_target_arguments foreign = case foreign.operation of
   CheckedReferenceCast source target => [reference_type (unpack source.descriptor)]
   ObjectConstruction method => method.argument_types
   Float32Arithmetic _ => [ExistingValue FloatValue, ExistingValue FloatValue]
+  ManagedRunnableCapture => [ExistingValue ObjectValue]
 
 public export
 foreign_target_result : DEXForeign -> FrameworkValueType
@@ -292,6 +294,7 @@ foreign_target_result foreign = case foreign.operation of
   CheckedReferenceCast source target => reference_type (unpack target.descriptor)
   ObjectConstruction method => ReferenceValue method.owner
   Float32Arithmetic _ => ExistingValue FloatValue
+  ManagedRunnableCapture => ReferenceValue (MkTypeReference "Ljava/lang/Runnable;")
 
 ||| Preserve the consolidated constructor views while retaining one explicit
 ||| ObjectConstruction operation in the canonical checked representation.
@@ -316,6 +319,7 @@ describe_foreign foreign = case foreign.operation of
   CheckedReferenceCast source target => "checked cast " ++ show source ++ " to " ++ show target
   ObjectConstruction method => "construction " ++ show method
   Float32Arithmetic operation => "checked Float32 " ++ show operation
+  ManagedRunnableCapture => "checked captured IO Unit Runnable factory"
 
 private
 float32_operation : String -> Either String Binary32Operation
@@ -406,6 +410,23 @@ parse_standard_foreign body source_arguments source_result =
         then DeclareDEXForeign effect (ObjectConstruction method) ordinary_arguments ordinary_result
         else MkDEXForeign effect kind method ordinary_arguments ordinary_result)
 
+private
+parse_runnable_foreign : List CFType -> CFType -> Either String DEXForeign
+parse_runnable_foreign source_arguments source_result = do
+  (effect, arguments, result) <- normalise_signature source_arguments source_result
+  if effect /= PrimitiveIOForeign
+    then Left "DEX captured Runnable factory must return PrimIO"
+    else Right ()
+  case arguments of
+    [CFUser name [CFUnit]] =>
+      if name == NS (mkNamespace "PrimIO") (UN (Basic "IO"))
+        then Right ()
+        else Left "DEX captured Runnable requires exactly one checked IO Unit action"
+    _ => Left "DEX captured Runnable requires exactly one checked IO Unit action"
+  case result of
+    CFUser _ [] => Right (DeclareDEXForeign effect ManagedRunnableCapture arguments result)
+    _ => Left "DEX captured Runnable requires a concrete external Runnable result domain"
+
 ||| Parse and type-check one backend-specific calling convention:
 |||
 ||| dex:<static|virtual|interface>:<owner-descriptor>:<name>:<method-descriptor>
@@ -421,9 +442,11 @@ parse_dex_foreign convention source_arguments source_result = do
     case drop_prefix (unpack "dex:") (unpack convention) of
       Nothing => Left "Foreign convention is not for the dex backend"
       Just value => Right value
-  case drop_prefix (unpack "float32:") body of
-    Just operation => parse_float32_foreign (pack operation) source_arguments source_result
-    Nothing => parse_standard_foreign body source_arguments source_result
+  if body == unpack "capture-runnable"
+    then parse_runnable_foreign source_arguments source_result
+    else case drop_prefix (unpack "float32:") body of
+      Just operation => parse_float32_foreign (pack operation) source_arguments source_result
+      Nothing => parse_standard_foreign body source_arguments source_result
 
 private
 reference_constraint :
@@ -462,8 +485,10 @@ public export
 foreign_reference_constraints :
   DEXForeign -> Either String (List (Name, TypeReference))
 foreign_reference_constraints foreign = do
-  arguments <- argument_constraints foreign.source_argument_types
-    (foreign_target_arguments foreign)
+  arguments <- case foreign.operation of
+    -- The private checked IO value never acquires a foreign Object domain.
+    ManagedRunnableCapture => Right []
+    _ => argument_constraints foreign.source_argument_types (foreign_target_arguments foreign)
   result <- reference_constraint foreign.source_result_type (foreign_target_result foreign)
   Right (arguments ++ result)
 

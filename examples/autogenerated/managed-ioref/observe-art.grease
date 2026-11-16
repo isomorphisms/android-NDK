@@ -1,0 +1,39 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+if (len(ARGV) !== 3) { echo 'usage: grease observe-art.grease ADB SERIAL EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var evidence = ARGV[2]
+if (adb[0] !== '/' or evidence[0] !== '/') { echo 'FAIL absolute paths required' >&2; exit 2 }
+if test -e "$evidence/art" { echo 'FAIL refusing reused managed IORef ART evidence' >&2; exit 1 }
+mkdir -p "$evidence/art"
+"$adb" -s "$serial" emu avd name > "$evidence/art/emulator.txt"
+"$adb" -s "$serial" shell getprop ro.build.version.sdk > "$evidence/art/sdk.txt"
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi > "$evidence/art/abi.txt"
+for candidate in positive payload-mutant alias-mutant write-mutant intermediate-mutant {
+  var remote = "/data/local/tmp/idric-managed-ioref-$candidate"
+  "$adb" -s "$serial" shell mkdir -p "$remote"
+  "$adb" -s "$serial" push "$evidence/$candidate/candidate.dex" "$remote/candidate.dex"
+  "$adb" -s "$serial" push "$evidence/runner.dex" "$remote/runner.dex"
+  "$adb" -s "$serial" shell chmod 444 "$remote/candidate.dex" "$remote/runner.dex"
+  "$adb" -s "$serial" pull "$remote/candidate.dex" "$evidence/art/$candidate-received.dex"
+  "$adb" -s "$serial" pull "$remote/runner.dex" "$evidence/art/$candidate-runner-received.dex"
+  cmp "$evidence/$candidate/candidate.dex" "$evidence/art/$candidate-received.dex"
+  cmp "$evidence/runner.dex" "$evidence/art/$candidate-runner-received.dex"
+  try {
+    "$adb" -s "$serial" shell "CLASSPATH=$remote/candidate.dex:$remote/runner.dex app_process /system/bin ManagedIORefRunner" \
+      > "$evidence/art/$candidate.txt" 2>&1
+  }
+  var status = _error.code
+  printf '%s\n' "$status" > "$evidence/art/$candidate.exit"
+  cat "$evidence/art/$candidate.txt"
+  if (candidate === 'positive') {
+    if (status !== 0) { echo 'FAIL actual managed IORef ART execution' >&2; exit 1 }
+    rg -x -F 'PASS managed IORef ADT list Text aliases and independent cells' "$evidence/art/$candidate.txt"
+  } else {
+    if (status !== 92) { echo 'FAIL missing designated managed IORef source mutation rejection' >&2; exit 1 }
+    rg -x -F 'FAIL managed IORef ADT list Text aliases and independent cells' "$evidence/art/$candidate.txt"
+  }
+}
+printf 'managed_IORef_ART\tPASS\nADT_list_Text_aliases\tPASS\nindependent_cells\tPASS\ncompiled_source_mutants_rejected\tPASS\ncallback_capture\tNOT_IMPLEMENTED\nAPK\tNOT_RUN\nphysical_device\tNOT_RUN\n' > "$evidence/art/result.tsv"
+printf '\033[32mPASS\033[0m managed IORef ADT/list/Text payloads, aliases and independent cells on ART\n'
