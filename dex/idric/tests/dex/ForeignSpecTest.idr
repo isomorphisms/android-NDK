@@ -143,8 +143,17 @@ main = do
   expect_left "nested arrays remain outside the checked slice"
     (parse_dex_foreign "dex:static:Lexample/Foo;:take:([[I)V"
       [CFUser (UN (Basic "Array")) []] CFUnit)
-  expect_left "object arrays remain outside the checked slice"
-    (parse_dex_foreign "dex:static:Lexample/Foo;:take:([Ljava/lang/Object;)V"
+  case parse_dex_foreign "dex:static:Lexample/Foo;:take:([Ljava/lang/Object;)V"
+    [CFUser (UN (Basic "FormatArguments")) []] CFUnit of
+    Left explanation => fail explanation
+    Right foreign => expect "opaque SDK Object array retains its exact descriptor"
+      (foreign_target_arguments foreign ==
+        [ReferenceValue (MkTypeReference "[Ljava/lang/Object;")])
+  expect_left "other reference arrays remain outside the checked slice"
+    (parse_dex_foreign "dex:static:Lexample/Foo;:take:([Ljava/lang/String;)V"
+      [CFUser (UN (Basic "Array")) []] CFUnit)
+  expect_left "nested Object arrays remain outside the checked slice"
+    (parse_dex_foreign "dex:static:Lexample/Foo;:take:([[Ljava/lang/Object;)V"
       [CFUser (UN (Basic "Array")) []] CFUnit)
 
   expect_left "declaring owner must be a class descriptor"

@@ -102,6 +102,17 @@ only these candidate bytes. It preserves the existing API29/API34 framework
 suite boundaries. Each observer checks exact API, emulator and ABI, compares
 pushed/pulled bytes, and captures bounded before/after logcat even on failure.
 
+The first hosted API23 observation did not execute its candidate: API23 adbd
+refused the observer's `shell -T` transport with `device only supports
+allocating a pty`. Its API29 and API34 observations did execute successfully.
+The observer now forces the API23 PTY transport, normalizes CR line endings,
+and requires exactly one explicit remote process-exit marker in addition to
+the expected semantic assertion. Transport failure, a missing/duplicate exit
+marker, an unexpected remote exit, timeout or process death remains failure;
+before/after logs are retained. API29/API34 keep the shell-v2 exit protocol.
+Parsing that revised Grease helper passes locally; actual API23 execution
+remains pending a new hosted run.
+
 Fallback: none. ART/device/whole-Activity acceptance remain NOT_RUN until
 separately executed against exact emitted bytes.
 
