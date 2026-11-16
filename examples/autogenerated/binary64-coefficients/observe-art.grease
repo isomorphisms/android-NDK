@@ -1,0 +1,57 @@
+#!/usr/bin/env grease
+if (len(ARGV) !== 3) { echo 'usage: grease observe-art.grease ADB SERIAL EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var evidence = ARGV[2]
+if (adb[0] !== '/' or evidence[0] !== '/') { echo 'FAIL absolute paths required' >&2; exit 2 }
+var remote = '/data/local/tmp/idric-binary64-source'
+"$adb" -s "$serial" shell rm -rf "$remote"
+"$adb" -s "$serial" shell mkdir "$remote"
+"$adb" -s "$serial" push "$evidence/runner.dex" "$remote/runner.dex"
+"$adb" -s "$serial" push "$evidence/positive/candidate.dex" "$remote/positive.dex"
+"$adb" -s "$serial" push "$evidence/mutant/candidate.dex" "$remote/mutant.dex"
+"$adb" -s "$serial" shell chmod 444 "$remote/runner.dex" "$remote/positive.dex" "$remote/mutant.dex"
+"$adb" -s "$serial" pull "$remote/runner.dex" "$evidence/runner.received.dex"
+"$adb" -s "$serial" pull "$remote/positive.dex" "$evidence/positive.received.dex"
+"$adb" -s "$serial" pull "$remote/mutant.dex" "$evidence/mutant.received.dex"
+cmp "$evidence/runner.dex" "$evidence/runner.received.dex"
+cmp "$evidence/positive/candidate.dex" "$evidence/positive.received.dex"
+cmp "$evidence/mutant/candidate.dex" "$evidence/mutant.received.dex"
+"$adb" -s "$serial" shell "CLASSPATH=$remote/positive.dex:$remote/runner.dex app_process /system/bin Binary64Runner" \
+  > "$evidence/art-positive.txt" 2>&1
+cat "$evidence/art-positive.txt"
+rg -x -F 'PASS checked binary64 source on ART' "$evidence/art-positive.txt"
+try {
+  "$adb" -s "$serial" shell "CLASSPATH=$remote/mutant.dex:$remote/runner.dex app_process /system/bin Binary64Runner" \
+    > "$evidence/art-mutant.txt" 2>&1
+}
+var status = _error.code
+cat "$evidence/art-mutant.txt"
+if (status !== 73) { echo 'FAIL missing numeric mutant rejection' >&2; exit 1 }
+rg -x -F 'FAIL binary64 source observation' "$evidence/art-mutant.txt"
+"$adb" -s "$serial" shell getprop ro.build.version.sdk > "$evidence/art-sdk.txt"
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi > "$evidence/art-abi.txt"
+"$adb" -s "$serial" push "$evidence/platform-runner.dex" "$remote/platform-runner.dex"
+"$adb" -s "$serial" push "$evidence/platform/candidate.dex" "$remote/platform.dex"
+"$adb" -s "$serial" push "$evidence/platform-mutant/candidate.dex" "$remote/platform-mutant.dex"
+"$adb" -s "$serial" shell chmod 444 "$remote/platform-runner.dex" "$remote/platform.dex" "$remote/platform-mutant.dex"
+"$adb" -s "$serial" pull "$remote/platform-runner.dex" "$evidence/platform-runner.received.dex"
+"$adb" -s "$serial" pull "$remote/platform.dex" "$evidence/platform.received.dex"
+"$adb" -s "$serial" pull "$remote/platform-mutant.dex" "$evidence/platform-mutant.received.dex"
+cmp "$evidence/platform-runner.dex" "$evidence/platform-runner.received.dex"
+cmp "$evidence/platform/candidate.dex" "$evidence/platform.received.dex"
+cmp "$evidence/platform-mutant/candidate.dex" "$evidence/platform-mutant.received.dex"
+"$adb" -s "$serial" shell "CLASSPATH=$remote/platform.dex:$remote/platform-runner.dex app_process /system/bin PlatformCoefficientRunner" \
+  > "$evidence/platform-art-positive.txt" 2>&1
+cat "$evidence/platform-art-positive.txt"
+rg -x -F 'PASS pure checked platform coefficients on ART' "$evidence/platform-art-positive.txt"
+try {
+  "$adb" -s "$serial" shell "CLASSPATH=$remote/platform-mutant.dex:$remote/platform-runner.dex app_process /system/bin PlatformCoefficientRunner" \
+    > "$evidence/platform-art-mutant.txt" 2>&1
+}
+var platform_status = _error.code
+cat "$evidence/platform-art-mutant.txt"
+if (platform_status !== 73) { echo 'FAIL missing platform argument-source mutant rejection' >&2; exit 1 }
+rg -x -F 'FAIL pure platform coefficient observation' "$evidence/platform-art-mutant.txt"
+printf 'checked_binary64_ART\tPASS\ncompiled_source_mutant_rejected\tPASS\npure_platform_coefficients_ART\tPASS\nplatform_source_mutant_rejected\tPASS\nphysical_A1\tNOT_RUN\nphysical_TAB_P10\tNOT_RUN\n' > "$evidence/art-result.tsv"
+printf '\033[32mPASS\033[0m actual binary64 source and compiled mutation on ART\n'

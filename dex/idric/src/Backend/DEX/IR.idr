@@ -312,6 +312,27 @@ Show IntegerBinaryOperation where
   show MultiplyInteger = "mul-int"
 
 public export
+data Binary64Operation
+  = AddBinary64 | SubtractBinary64 | MultiplyBinary64 | DivideBinary64
+
+public export
+Show Binary64Operation where
+  show AddBinary64 = "add-double"
+  show SubtractBinary64 = "sub-double"
+  show MultiplyBinary64 = "mul-double"
+  show DivideBinary64 = "div-double"
+
+||| NaN is unordered. Comparisons select the bias that makes the source's
+||| ordered predicate false, rather than using Double.compareTo's total order.
+public export
+data Binary64NaNBias = NaNLow | NaNHigh
+
+public export
+Show Binary64NaNBias where
+  show NaNLow = "cmpl-double"
+  show NaNHigh = "cmpg-double"
+
+public export
 data IntegerCondition
   = EqualInteger
   | NotEqualInteger
@@ -343,6 +364,10 @@ data Instruction
   | IntToLong Register Register
   | LongConstant Register Int
   | AddLong Register Register Register
+  | Binary64Constant Register Integer
+  | Binary64Binary Binary64Operation Register Register Register
+  | NegateBinary64 Register Register
+  | CompareBinary64 Binary64NaNBias Register Register Register
   | StaticGetObject Register FieldReference
   | StaticPutObject Register FieldReference
   | NullReference Register
@@ -389,6 +414,15 @@ Show Instruction where
     "const-wide/16 " ++ show destination ++ ", " ++ show value
   show (AddLong destination left right) =
     "add-long " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
+  show (Binary64Constant destination bits) =
+    "const-wide " ++ show destination ++ ", " ++
+    show (if bits >= 9223372036854775808 then bits - 18446744073709551616 else bits) ++ "L"
+  show (Binary64Binary operation destination left right) =
+    show operation ++ " " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
+  show (NegateBinary64 destination source) =
+    "neg-double " ++ show destination ++ ", " ++ show source
+  show (CompareBinary64 bias destination left right) =
+    show bias ++ " " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
   show (StaticGetObject destination field) =
     "sget-object " ++ show destination ++ ", " ++ show field
   show (StaticPutObject source field) =

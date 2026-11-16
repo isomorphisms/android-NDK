@@ -1,0 +1,9 @@
+module UnsupportedArray
+import Data.Text
+%foreign "dex:static:Lexample/ArrayProvider;:coefficients:(Ljava/lang/String;)[D"
+wrong_coefficient : Text → Double
+%export "dex:unsupported_array"
+unsupported_array : Text → Int32
+unsupported_array source = if wrong_coefficient source > 0.0 then 1 else 0
+main : IO ()
+main = pure ()

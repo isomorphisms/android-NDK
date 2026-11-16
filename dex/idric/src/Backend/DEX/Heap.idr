@@ -1,6 +1,7 @@
 module Backend.DEX.Heap
 
 import Backend.DEX.IR
+import Backend.DEX.Binary64
 import Backend.DEX.NativeContract
 import Backend.DEX.ValueLayout
 import Compiler.ANF
@@ -34,6 +35,14 @@ node_type = managed_node_type
 private
 number_type : TypeReference
 number_type = MkTypeReference "Ljava/math/BigInteger;"
+
+private
+binary64_type : TypeReference
+binary64_type = MkTypeReference "Ljava/lang/Double;"
+
+private
+binary64_value : FrameworkValueType
+binary64_value = ExistingValue DoubleValue
 
 private
 generated_type : TypeReference
@@ -109,6 +118,21 @@ number_literal destination digits =
   ]
 
 private
+box_binary64 : Register -> Register -> List Instruction
+box_binary64 destination source =
+  [call InvokeStatic binary64_type "valueOf" [binary64_value]
+    (ReferenceValue binary64_type) [source] (Just destination)]
+
+private
+unbox_binary64 : Register -> Register -> List Instruction
+unbox_binary64 destination source =
+  [ MoveObject (register 8) source
+  , CheckCast (register 8) binary64_type
+  , call InvokeVirtual binary64_type "doubleValue" [] binary64_value
+      [register 8] (Just destination)
+  ]
+
+private
 box_int : Register -> Register -> List Instruction
 box_int destination source =
   [ IntToLong (register 2) source
@@ -165,6 +189,9 @@ literal destination (B8 value) = Right (number_literal destination (show value))
 literal destination (B16 value) = Right (number_literal destination (show value))
 literal destination (B32 value) = Right (number_literal destination (show value))
 literal destination (B64 value) = Right (number_literal destination (show value))
+literal destination (Db value) = do
+  bits <- binary64_literal_bits value
+  Right (Binary64Constant (register 2) bits :: box_binary64 destination (register 2))
 literal destination WorldVal = Right [NullReference destination]
 literal destination constant = Left ("Managed DEX unsupported literal " ++ show constant)
 
@@ -236,8 +263,52 @@ comparison (GT type) = Just (GreaterThanInteger, type)
 comparison _ = Nothing
 
 private
+binary64_arithmetic : Binary64Operation -> Register -> Register -> Register ->
+                      HeapState -> Either String HeapState
+binary64_arithmetic operation destination left right state =
+  Right (emit (unbox_binary64 (register 2) left ++
+    unbox_binary64 (register 4) right ++
+    [Binary64Binary operation (register 2) (register 2) (register 4)] ++
+    box_binary64 destination (register 2)) state)
+
+private
+binary64_comparison : IntegerCondition -> Binary64NaNBias -> Register -> Register -> Register ->
+                      HeapState -> Either String HeapState
+binary64_comparison condition bias destination left right state =
+  let (yes, after_yes) = fresh_label state
+      (done, after_done) = fresh_label after_yes in
+  Right (emit (unbox_binary64 (register 2) left ++
+    unbox_binary64 (register 4) right ++
+    [ CompareBinary64 bias (register 0) (register 2) (register 4)
+    , IntegerConstant (register 1) 0
+    , IntegerBranch condition (register 0) (register 1) yes
+    ] ++ number_literal destination "0" ++ [Goto done, Mark yes] ++
+    number_literal destination "1" ++ [Mark done]) after_done)
+
+private
 primitive : Register -> PrimFn arity -> Vect arity Register -> HeapState -> Either String HeapState
 primitive destination BelieveMe [_, _, value] state = Right (emit [MoveObject destination value] state)
+primitive destination (Add DoubleType) [left, right] state =
+  binary64_arithmetic AddBinary64 destination left right state
+primitive destination (Sub DoubleType) [left, right] state =
+  binary64_arithmetic SubtractBinary64 destination left right state
+primitive destination (Mul DoubleType) [left, right] state =
+  binary64_arithmetic MultiplyBinary64 destination left right state
+primitive destination (Div DoubleType) [left, right] state =
+  binary64_arithmetic DivideBinary64 destination left right state
+primitive destination (Neg DoubleType) [value] state =
+  Right (emit (unbox_binary64 (register 2) value ++
+    [NegateBinary64 (register 2) (register 2)] ++ box_binary64 destination (register 2)) state)
+primitive destination (LT DoubleType) [left, right] state =
+  binary64_comparison LessThanInteger NaNHigh destination left right state
+primitive destination (LTE DoubleType) [left, right] state =
+  binary64_comparison LessEqualInteger NaNHigh destination left right state
+primitive destination (EQ DoubleType) [left, right] state =
+  binary64_comparison EqualInteger NaNLow destination left right state
+primitive destination (GTE DoubleType) [left, right] state =
+  binary64_comparison GreaterEqualInteger NaNLow destination left right state
+primitive destination (GT DoubleType) [left, right] state =
+  binary64_comparison GreaterThanInteger NaNLow destination left right state
 primitive destination Crash [_, message] state = Right (emit
   [NullReference (register 0), MoveObject (register 1) message
   , CheckCast (register 1) (MkTypeReference "Ljava/lang/String;")

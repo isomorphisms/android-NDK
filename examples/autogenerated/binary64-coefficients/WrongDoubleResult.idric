@@ -1,0 +1,9 @@
+module WrongDoubleResult
+import Data.Text
+%foreign "dex:static:Ljava/lang/Double;:parseDouble:(Ljava/lang/String;)J"
+wrong_coefficient : Text → Double
+%export "dex:wrong_double_result"
+wrong_double_result : Text → Int32
+wrong_double_result source = if wrong_coefficient source > 0.0 then 1 else 0
+main : IO ()
+main = pure ()

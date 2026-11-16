@@ -47,6 +47,10 @@ u32le value =
      ]
 
 private
+u64le : Integer -> List Int
+u64le value = u32le value ++ u32le (value `div` 4294967296)
+
+private
 uleb128 : Integer -> List Int
 uleb128 value =
   if value < 0
@@ -137,6 +141,24 @@ instruction_width (AddLong destination left right) =
   if valid_register 255 destination && valid_register 255 left && valid_register 255 right
     then Right 2
     else Left "DEX add-long format 23x requires registers v0..v255"
+instruction_width (Binary64Constant destination bits) =
+  if not (valid_register 255 destination)
+    then Left "DEX const-wide requires a register pair beginning in v0..v255"
+    else if bits < 0 || bits >= 18446744073709551616
+      then Left "DEX binary64 constant requires exactly 64 representation bits"
+      else Right 5
+instruction_width (Binary64Binary _ destination left right) =
+  if valid_register 255 destination && valid_register 255 left && valid_register 255 right
+    then Right 2
+    else Left "DEX binary64 format 23x requires register pairs beginning in v0..v255"
+instruction_width (NegateBinary64 destination source) =
+  if valid_register 15 destination && valid_register 15 source
+    then Right 1
+    else Left "DEX neg-double format 12x requires register pairs beginning in v0..v15"
+instruction_width (CompareBinary64 _ destination left right) =
+  if valid_register 255 destination && valid_register 255 left && valid_register 255 right
+    then Right 2
+    else Left "DEX binary64 comparison format 23x requires registers v0..v255"
 instruction_width (StaticGetObject destination field) =
   if valid_register 255 destination then Right 2
     else Left "DEX sget-object format 21c requires register v0..v255"
@@ -315,6 +337,18 @@ binary_opcode SubtractInteger = 0x91
 binary_opcode MultiplyInteger = 0x92
 
 private
+binary64_opcode : Binary64Operation -> Integer
+binary64_opcode AddBinary64 = 0xab
+binary64_opcode SubtractBinary64 = 0xac
+binary64_opcode MultiplyBinary64 = 0xad
+binary64_opcode DivideBinary64 = 0xae
+
+private
+binary64_compare_opcode : Binary64NaNBias -> Integer
+binary64_compare_opcode NaNLow = 0x2f
+binary64_compare_opcode NaNHigh = 0x30
+
+private
 branch_opcode : IntegerCondition -> Integer
 branch_opcode EqualInteger = 0x32
 branch_opcode NotEqualInteger = 0x33
@@ -395,6 +429,24 @@ encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(AddLong destination left right) = do
   _ <- instruction_width instruction
   Right (u16le (0x9b + cast destination.number * 256) ++
+         u16le (cast left.number + cast right.number * 256))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(Binary64Constant destination bits) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x18 + cast destination.number * 256) ++ u64le bits)
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(Binary64Binary operation destination left right) = do
+  _ <- instruction_width instruction
+  Right (u16le (binary64_opcode operation + cast destination.number * 256) ++
+         u16le (cast left.number + cast right.number * 256))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(NegateBinary64 destination source) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x80 + cast destination.number * 256 + cast source.number * 4096))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(CompareBinary64 bias destination left right) = do
+  _ <- instruction_width instruction
+  Right (u16le (binary64_compare_opcode bias + cast destination.number * 256) ++
          u16le (cast left.number + cast right.number * 256))
 encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(StaticGetObject destination field) = do

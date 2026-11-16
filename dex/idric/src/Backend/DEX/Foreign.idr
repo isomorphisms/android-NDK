@@ -138,6 +138,8 @@ parse_type allow_void ('Z' :: rest) =
   Right (ExistingValue BooleanValue, rest)
 parse_type allow_void ('J' :: rest) =
   Right (LongValue, rest)
+parse_type allow_void ('D' :: rest) =
+  Right (ExistingValue DoubleValue, rest)
 parse_type True ('V' :: rest) =
   Right (VoidValue, rest)
 parse_type False ('V' :: rest) =
@@ -224,6 +226,7 @@ source_matches_target : CFType -> FrameworkValueType -> Bool
 source_matches_target CFInt32 (ExistingValue IntegerValue) = True
 source_matches_target CFInt32 (ExistingValue BooleanValue) = True
 source_matches_target CFInt64 LongValue = True
+source_matches_target CFDouble (ExistingValue DoubleValue) = True
 source_matches_target CFString (ExistingValue TextValue) = True
 source_matches_target CFString (ReferenceValue reference) =
   reference.descriptor == "Ljava/lang/CharSequence;"
