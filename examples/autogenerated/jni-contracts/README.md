@@ -42,6 +42,19 @@ policies are deliberately refused by this contract. A future implementation
 must provide an explicit ownership/release model before admitting them. A
 numeric parameter is not automatically a verified native handle.
 
+Within this explicit synchronous scalar contract, checked source `Int32` maps
+exactly to `I` and `Int64` to `J`, for arguments and results. This lets source
+code pass a native-owned numeric handle directly to `(J)V` release or `(J)I`
+diagnostic calls. A mismatched fixed width is refused. Historical unbounded
+`Int` declarations keep their existing checked narrowing and result behavior;
+legacy maps do not gain these fixed-width declarations.
+
+Checked source exports now also admit explicit signed `Int64` as `J`, for pure
+and IO arguments/results. Such exports select the managed bridge, which owns
+paired import/export and checked signed LongValue conversion. This adds a
+handle transport boundary; default `Int`, Double exports and unimplemented
+Int64 primitive operations retain their refusals.
+
 The separate [`copied-input-arrays`](../copied-input-arrays/attempt.md)
 prerequisite adds an opt-in synchronous copy policy for nonnull `[D`/`[I`
 inputs and an Int64/void result. It does not change this scalar/String policy

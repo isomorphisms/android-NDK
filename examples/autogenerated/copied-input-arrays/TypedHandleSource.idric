@@ -1,0 +1,34 @@
+module TypedHandleSource
+
+import CopiedSurface
+import Data.Text
+
+-- Type sketch: the imported producer alone constructs and copies the primitive
+-- arrays. Its resulting opaque handle stays Int64 through explicit synchronous
+-- JNI declarations: ()J, (J)I, (JI)J and (J)V. Only the test observation uses
+-- Text; no payload or native ownership moves through a string representation.
+%foreign "C:copied_last,libcopiedarrays"
+native_last : PrimIO Int64
+%foreign "C:copied_count,libcopiedarrays"
+native_count : Int64 → PrimIO Int32
+%foreign "C:copied_bits,libcopiedarrays"
+native_bits : Int64 → Int32 → PrimIO Int64
+%foreign "C:copied_release,libcopiedarrays"
+native_release : Int64 → PrimIO ()
+
+%foreign "dex:static:Ljava/lang/Long;:toHexString:(J)Ljava/lang/String;"
+handle_bits_hex : Int64 → Text
+
+%export "dex:typed_handle_bits"
+export
+typed_handle_bits : Int32 → IO Text
+typed_handle_bits input = do
+  handle ← prepared_surface_handle input
+  current_handle ← primIO native_last
+  count ← primIO (native_count handle)
+  bits ← primIO (native_bits current_handle 0)
+  primIO (native_release handle)
+  pure (handle_bits_hex bits ++ ":" ++ cast count)
+
+main : IO ()
+main = pure ()

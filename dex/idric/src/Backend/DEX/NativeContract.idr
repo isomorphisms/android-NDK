@@ -150,3 +150,41 @@ native_copy_reference_constraints SynchronousCopiedInputArrayNativeBoundary targ
     _ => Left "JNI copy-input-array source result type does not match its descriptor"
   copy_argument_constraints ordinary targets
 native_copy_reference_constraints _ _ _ _ _ = Right []
+
+private
+scalar_source_matches : CFType -> FrameworkValueType -> Bool
+scalar_source_matches CFInt (ExistingValue IntegerValue) = True
+scalar_source_matches CFInt LongValue = True
+scalar_source_matches CFInt32 (ExistingValue IntegerValue) = True
+scalar_source_matches CFInt64 LongValue = True
+scalar_source_matches CFString (ExistingValue TextValue) = True
+scalar_source_matches CFUnit VoidValue = True
+scalar_source_matches _ _ = False
+
+private
+scalar_arguments_match : List CFType -> List FrameworkValueType -> Bool
+scalar_arguments_match [] [] = True
+scalar_arguments_match (source :: sources) (target :: targets) =
+  scalar_source_matches source target && scalar_arguments_match sources targets
+scalar_arguments_match _ _ = False
+
+||| Fixed-width scalar handles do not acquire a reference lifetime contract.
+||| Their checked primitive widths must match exactly; historical unbounded
+||| Int conversions remain supported by the existing explicit scalar policy.
+public export
+native_source_reference_constraints : NativeBoundaryContract ->
+  List FrameworkValueType -> FrameworkValueType -> List CFType -> CFType ->
+  Either String (List (Name, TypeReference))
+native_source_reference_constraints SynchronousBorrowedNonNullNativeBoundary targets result sources source_result = do
+  ordinary <- case reverse sources of
+    CFWorld :: rest => Right (reverse rest)
+    _ => Left "JNI synchronous scalar contract requires PrimIO with a trailing World token"
+  if scalar_arguments_match ordinary targets then Right ()
+    else Left "JNI synchronous scalar source argument type does not match its descriptor"
+  case source_result of
+    CFIORes value =>
+      if scalar_source_matches value result then Right []
+        else Left "JNI synchronous scalar source result type does not match its descriptor"
+    _ => Left "JNI synchronous scalar contract requires a checked PrimIO result"
+native_source_reference_constraints contract targets result sources source_result =
+  native_copy_reference_constraints contract targets result sources source_result

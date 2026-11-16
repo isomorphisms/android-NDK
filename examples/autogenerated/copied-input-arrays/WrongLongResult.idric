@@ -1,0 +1,11 @@
+module WrongLongResult
+
+%foreign "C:wrong_long_result,libcopiedarrays"
+wrong_native : PrimIO Int32
+
+%export "dex:wrong_long_result"
+wrong_long_result : Int32 → IO Int32
+wrong_long_result input = primIO wrong_native
+
+main : IO ()
+main = pure ()

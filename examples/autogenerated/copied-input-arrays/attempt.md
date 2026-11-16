@@ -19,6 +19,25 @@ calling-thread invocation, publishes an immutable native-owned snapshot and
 returns an opaque signed 64-bit handle. It retains neither local references
 nor borrowed/pinned array memory beyond return.
 
+The next source boundary is the native-owned numeric handle itself. After
+creation it remains `Int64`, while synchronous scalar JNI methods admit exact
+`Int64`↔`J` and `Int32`↔`I` arguments/results, including release `(J)V` and
+diagnostic/release-result `(J)I`. This belongs to the existing synchronous
+scalar/String contract and adds no managed-reference retention policy. Legacy
+unbounded `Int` conversions stay compatible; fixed-width declarations with
+incompatible descriptors must refuse. A real source fixture will create the
+array snapshot, observe it through typed scalar APIs and release it before
+return, with independent bit and post-release ownership observations.
+
+The application then returns this handle through an explicit signed
+`Int64`↔`J` source export, including `Text → IO Int64`. Any export with an
+Int64 argument/result uses the existing managed boundary, which counts two
+incoming/result words and boxes/unboxes signed LongValue. The older narrow
+scalar lowerer does not own wide parameter layout and must never receive these
+exports. Pure/IO runtime identities and actual snapshot creation will qualify
+that bridge, including signed extremes and a long parameter before an Int32
+parameter. Default `Int` and `Double` exports remain refused.
+
 A new opt-in JNI policy is:
 `current-thread synchronous borrowed-local nonnull-inputs copy-input-arrays propagate-exceptions`.
 The compiler checks exact Int32/Int64 primitive signatures, concrete external
@@ -77,6 +96,36 @@ domains through framework and native calls, broader arrays, array owners and
 constructors, unused/unqualified legacy rows and unsupported copy policies.
 Legacy and scalar/String explicit JNI sources emit exactly the same candidate
 bytes with this driver as with the prior scalar-only driver.
+
+The typed scalar extension adds exact I/J source matching before lowering and
+uses the existing checked narrowing and signed result boxing. Its source entry
+calls the shared `prepared_surface_handle` constructor directly, keeps that
+Int64 value through typed count/bit/release APIs, and returns only a test bit
+observation after release. The historical producer still calls its original
+legacy count adapter, so both contracts remain exercised separately. A new
+independent runner requires two input-specific bit strings, two actual creates
+and an empty last-handle slot after each source release. Positive/repeated source
+bytes match; the input mutation emits distinct, independently decoded bytes.
+Four actual I/J source argument/result mismatch cases refuse without DEX.
+The enlarged host contract fixture finalizes typed release/getter adapters and
+rejects all four wrong widths plus unsupported legacy fixed-width declarations.
+Both inherited scalar/String and legacy candidate bytes remain exactly
+unchanged. The existing ART gate also requires the typed source/release result
+and compiled-source mutant; execution is pending its hosted native fixture.
+
+The Int64 export slice now generates exact public `(J)J`, `(IJ)J`, `(JI)J`,
+`(JIJ)J`, `(I)J` and `(Text)J` descriptors. Full source (pure/IO identities plus
+real snapshot handles) and a separate pure-only source produce identical bytes
+with automatic and explicit managed selection. Repeated full source bytes match;
+the compiled IO identity mutation differs and independently decodes. Default
+Int and Double export probes reject with no DEX. Independent observers assemble
+and require signed minimum/maximum, −1/0/1, a value above 32 bits, exact wrong-I
+method lookup refusal, mixed layouts, actual native handles and explicit release.
+The public-boundary host fixture independently checks incoming pairs before
+and after narrow arguments and finalizes the generated bridges. Existing legacy
+and scalar/String native candidates retain their exact previous bytes. No new
+Int64 primitive operation is implemented or a complete arithmetic contract
+claimed; ART execution remains the hosted gate's next evidence boundary.
 
 The C fixture owns a checked handle registry, validates version/offsets/lengths
 and xyz powers, and copies with `GetDoubleArrayRegion`/`GetIntArrayRegion` before

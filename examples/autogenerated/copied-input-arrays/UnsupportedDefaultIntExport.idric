@@ -1,0 +1,8 @@
+module UnsupportedDefaultIntExport
+
+%export "dex:default_int_identity"
+default_int_identity : Int → Int
+default_int_identity value = value
+
+main : IO ()
+main = pure ()

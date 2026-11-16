@@ -73,10 +73,9 @@ count_handle handle = do
   count ← primIO (native_coefficient_count (cast handle))
   pure (cast count)
 
-%export "dex:produce_surface"
 export
-produce_surface : Int32 → IO Int32
-produce_surface input = do
+prepared_surface_handle : Int32 → IO Int64
+prepared_surface_handle input = do
   let prepared = MkPreparedInput 2 0 1 2 3 4
         [ MkTerm (cast input) 2 0 0
         , MkTerm (negate 0.0) 0 1 0
@@ -94,6 +93,13 @@ produce_surface input = do
   -- The independent observer still requires the snapshot's original bits/power.
   _ ← primIO (put_coefficient coefficients 0 0.0)
   _ ← primIO (put_exponent exponents 0 0)
+  pure handle
+
+%export "dex:produce_surface"
+export
+produce_surface : Int32 → IO Int32
+produce_surface input = do
+  handle ← prepared_surface_handle input
   count_handle handle
 
 %export "dex:copy_arrays"

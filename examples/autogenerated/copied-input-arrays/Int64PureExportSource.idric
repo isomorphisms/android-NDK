@@ -1,0 +1,27 @@
+module Int64PureExportSource
+
+-- A pure-only source root distinguishes automatic Int64 managed export
+-- selection from a runtime lane already needed by framework/IO declarations.
+%export "dex:int64_identity"
+export
+int64_identity : Int64 → Int64
+int64_identity value = value
+
+%export "dex:int64_after_int32"
+export
+int64_after_int32 : Int32 → Int64 → Int64
+int64_after_int32 before value = value
+
+%export "dex:int64_before_int32"
+export
+int64_before_int32 : Int64 → Int32 → Int64
+int64_before_int32 value after = value
+
+%export "dex:select_int64_argument"
+export
+select_int64_argument : Int64 → Int32 → Int64 → Int64
+select_int64_argument first 0 second = first
+select_int64_argument first _ second = second
+
+main : IO ()
+main = pure ()
