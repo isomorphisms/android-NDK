@@ -23,7 +23,7 @@ var original_path = ENV.PATH
   -landroid -llog -o "$output/libfixture.so"
 sed 's/android:extractNativeLibs="true"/android:extractNativeLibs="false"/' \
   "$repository/apk/tests/fixtures/AndroidManifest.xml" > "$output/AndroidManifest.xml"
-rg -F 'android:extractNativeLibs="false"' "$output/AndroidManifest.xml"
+grep -F 'android:extractNativeLibs="false"' "$output/AndroidManifest.xml"
 proc package() {
   env ANDROID_HOME="$sdk" ANDROID_BUILD_TOOLS="$tools" ANDROID_GREASE="$grease" \
     ANDROID_PACKAGE_ID=org.isomorphisms.androidndk.fixture ANDROID_VERSION_CODE=1 ANDROID_VERSION_NAME=1-test \
@@ -54,7 +54,7 @@ try { package > "$output/compressed-mutant.txt" 2>&1 }
 var status = _error.code
 setglobal ENV.PATH = original_path
 if (status === 0) { echo 'FAIL compressed native-library mutation passed' >&2; exit 1 }
-rg -F 'finished APK native library is compressed or missing' "$output/compressed-mutant.txt"
+grep -F 'finished APK native library is compressed or missing' "$output/compressed-mutant.txt"
 cmp "$output/direct.apk" "$output/previous.apk"
 cmp "$output/direct.receipt.tsv" "$output/previous.receipt.tsv"
 sha256sum "$repository/apk/build-nativeactivity-apk.sh" "$output/direct.apk" \
