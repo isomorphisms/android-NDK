@@ -1,0 +1,63 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+if (len(ARGV) !== 7) {
+  echo 'usage: grease native-storage.grease REPOSITORY SDK NDK TEST_KEY GREASE FRESH_OUTPUT TARGET_SDK' >&2
+  exit 2
+}
+var repository = ARGV[0]
+var sdk = ARGV[1]
+var ndk = ARGV[2]
+var key = ARGV[3]
+var grease = ARGV[4]
+var output = ARGV[5]
+for path in (ARGV[:6]) { if (path[0] !== '/') { echo 'FAIL absolute native-storage test paths required' >&2; exit 2 } }
+test ! -e "$output"
+mkdir -p "$output"
+var tools = "$sdk/build-tools/36.0.0"
+var compiler = "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android26-clang"
+var target_sdk = ARGV[6]
+var real_zip = $(command -v zip)
+var original_path = ENV.PATH
+"$compiler" -shared -fPIC "$repository/apk/tests/fixtures/native_activity.c" \
+  -Wl,-soname,libfixture.so,-z,max-page-size=16384 -Wl,-u,ANativeActivity_onCreate \
+  -landroid -llog -o "$output/libfixture.so"
+sed 's/android:extractNativeLibs="true"/android:extractNativeLibs="false"/' \
+  "$repository/apk/tests/fixtures/AndroidManifest.xml" > "$output/AndroidManifest.xml"
+rg -F 'android:extractNativeLibs="false"' "$output/AndroidManifest.xml"
+proc package() {
+  env ANDROID_HOME="$sdk" ANDROID_BUILD_TOOLS="$tools" ANDROID_GREASE="$grease" \
+    ANDROID_PACKAGE_ID=org.isomorphisms.androidndk.fixture ANDROID_VERSION_CODE=1 ANDROID_VERSION_NAME=1-test \
+    ANDROID_MIN_SDK=26 ANDROID_TARGET_SDK="$target_sdk" ANDROID_EXPECTED_LABEL='android-NDK fixture' \
+    ANDROID_KEYSTORE="$key" ANDROID_KEYSTORE_TYPE=PKCS12 ANDROID_KEY_ALIAS=wegert-debug \
+    ANDROID_STORE_PASSWORD=wegert-debug ANDROID_KEY_PASSWORD=wegert-debug \
+    ANDROID_EXPECTED_CERT_SHA256=de9b1d47c5a65e6d46a204b79dd9ee566b9d3c9832ba81ebc4213d3392e92ff9 \
+    ANDROID_SOURCE_COMMIT="$(git -C "$repository" rev-parse HEAD)" \
+    bash "$repository/apk/build-nativeactivity-apk.sh" "$output/AndroidManifest.xml" \
+      "$output/libfixture.so" x86_64 "$output/direct.apk"
+}
+package > "$output/positive.txt" 2>&1
+var method = $(LC_ALL=C unzip -lv "$output/direct.apk" lib/x86_64/libfixture.so |
+  awk '$NF == "lib/x86_64/libfixture.so" {print $2}')
+test "$method" = Stored
+"$tools/zipalign" -c -P 16 4 "$output/direct.apk" > "$output/alignment.txt"
+unzip -p "$output/direct.apk" lib/x86_64/libfixture.so > "$output/received.so"
+cmp "$output/libfixture.so" "$output/received.so"
+"$grease" "$repository/apk/verify-nativeactivity-receipt.grease" "$output/direct.receipt.tsv" "$output/direct.apk"
+cp "$output/direct.apk" "$output/previous.apk"
+cp "$output/direct.receipt.tsv" "$output/previous.receipt.tsv"
+mkdir -p "$output/bad-zip"
+cp "$repository/apk/tests/fixtures/compressed-zip.grease" "$output/bad-zip/zip"
+chmod 755 "$output/bad-zip/zip"
+setglobal ENV.ANDROID_TEST_REAL_ZIP = real_zip
+setglobal ENV.PATH = "$output/bad-zip:$(dirname "$grease"):$original_path"
+try { package > "$output/compressed-mutant.txt" 2>&1 }
+var status = _error.code
+setglobal ENV.PATH = original_path
+if (status === 0) { echo 'FAIL compressed native-library mutation passed' >&2; exit 1 }
+rg -F 'finished APK native library is compressed or missing' "$output/compressed-mutant.txt"
+cmp "$output/direct.apk" "$output/previous.apk"
+cmp "$output/direct.receipt.tsv" "$output/previous.receipt.tsv"
+sha256sum "$repository/apk/build-nativeactivity-apk.sh" "$output/direct.apk" \
+  "$output/direct.receipt.tsv" "$output/libfixture.so" > "$output/digests.txt"
+printf 'stored_native\tPASS\npage_alignment_16384\tPASS\nnative_byte_identity\tPASS\ncompressed_tool_mutant\tREJECTED\nprevious_APK_and_receipt\tPRESERVED\ninstallation\tNOT_RUN\n' > "$output/result.tsv"
+printf '\033[32mPASS\033[0m native storage, 16 KiB ZIP alignment, byte identity and compressed-tool refusal\n'

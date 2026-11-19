@@ -83,6 +83,16 @@ creates a key and never chooses a fallback signer. It verifies the keystore
 certificate before packaging and the finished APK signer, package ID,
 `versionCode`, NativeActivity launcher, ABI payload, and APK digest afterward.
 
+Native libraries are stored without ZIP compression and page-aligned to 16 KiB.
+The finished signed APK is independently checked for the storage method,
+alignment and exact native input bytes. This also supports manifests with
+`android:extractNativeLibs="false"`; ordinary four-byte alignment checks skip
+compressed entries and do not establish direct native loading. The existing
+packager and ZIP-aligner digests bind this policy in the receipt material.
+`tests/native-storage.grease` covers direct-loading metadata and a hostile ZIP
+tool that silently recompresses the ELF. That refusal must preserve a preceding
+verified APK and receipt. Installation remains a separate consumer gate.
+
 Run `apk/tests/run-packager.sh` with the Android SDK/NDK and an explicit test
 keystore to exercise the positive path plus missing/wrong-signer hostile cases.
 

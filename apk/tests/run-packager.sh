@@ -43,6 +43,9 @@ bash "$repo_root/apk/build-nativeactivity-apk.sh" \
 
 test -s "$work/fixture.apk"
 test -s "$work/fixture.receipt.tsv"
+"${ANDROID_GREASE:?ANDROID_GREASE is required}" "$repo_root/apk/tests/native-storage.grease" \
+    "$repo_root" "$ANDROID_SDK_ROOT" "$ndk" "$ANDROID_TEST_KEYSTORE" \
+    "$ANDROID_GREASE" "$work/native-storage" "$ANDROID_TARGET_SDK"
 if ANDROID_ACTIVITY_CLASS=example.NativeViewActivity \
     bash "$repo_root/apk/build-nativeactivity-apk.sh" \
       "$repo_root/apk/tests/fixtures/AndroidManifest.xml" "$work/libfixture.so" armeabi-v7a \
