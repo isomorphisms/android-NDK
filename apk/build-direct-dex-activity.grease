@@ -76,13 +76,24 @@ sha256sum "$manifest" "$dex" "$keystore" "$tools/aapt2" "$tools/zipalign" \
 "$tools/aapt2" link -o "$output/resource-base.apk" -I "$sdk/platforms/android-34/android.jar" \
   --manifest "$manifest" "$output/resources.zip"
 cp "$output/resource-base.apk" "$output/candidate-unaligned.apk"
-cp "$dex" "$output/classes.dex"
+# Normalize only producer-owned staging files. Input bytes and Unix modes remain
+# caller-owned; caller timestamps, UID/GID extras and host timezone are not APK
+# semantics. ZIP's earliest representable UTC instant avoids pre-1980 clamping.
+cp --preserve=mode -- "$dex" "$output/classes.dex"
+env TZ=UTC touch -t 198001010000.00 "$output/classes.dex"
 if (len(payload) !== 0) {
-  cd "$payload"
-  zip -q "$output/candidate-unaligned.apk" -@ < "$output/evidence/payload-files.txt"
+  mkdir -p "$output/staged-payload"
+  for entry in @(cat "$output/evidence/payload-files.txt") {
+    mkdir -p "$output/staged-payload/$(dirname "$entry")"
+    cp --preserve=mode -- "$payload/$entry" "$output/staged-payload/$entry"
+    env TZ=UTC touch -t 198001010000.00 "$output/staged-payload/$entry"
+  }
+  cd "$output/staged-payload"
+  env TZ=UTC zip -X -q "$output/candidate-unaligned.apk" -@ < "$output/evidence/payload-files.txt"
 }
 cd "$output"
-zip -q candidate-unaligned.apk classes.dex
+env TZ=UTC zip -X -q candidate-unaligned.apk classes.dex
+printf 'ZIP timestamp: 1980-01-01 00:00:00 UTC\nUnix input modes: preserved\nHost timestamp and UID/GID extras: excluded\nCaller paths: never normalized in place\n' > "$output/evidence/archive-metadata-policy.txt"
 "$tools/zipalign" -f -p 4 "$output/candidate-unaligned.apk" "$output/candidate-aligned.apk"
 "$tools/apksigner" sign --ks "$keystore" --ks-key-alias wegert-debug \
   --ks-pass pass:wegert-debug --key-pass pass:wegert-debug \

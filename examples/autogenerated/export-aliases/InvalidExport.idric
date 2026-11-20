@@ -1,0 +1,13 @@
+module InvalidExport
+
+data OrdinaryCounter = Counter Int32
+
+read_counter : OrdinaryCounter → Int32
+read_counter (Counter number) = number
+
+%export "dex:invalid_alias"
+invalid_alias : OrdinaryCounter → Int32
+invalid_alias = read_counter
+
+main : IO ()
+main = pure ()

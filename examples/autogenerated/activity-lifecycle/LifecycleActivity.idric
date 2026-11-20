@@ -1,0 +1,28 @@
+module LifecycleActivity
+
+import Data.Text
+
+data ActivityReference : Type where [external]
+
+%foreign "dex:virtual:Landroid/app/Activity;:setTitle:(Ljava/lang/CharSequence;)V"
+set_lifecycle_title : ActivityReference → Text → PrimIO ()
+
+%export "dex:create_lifecycle_reader"
+create_lifecycle_reader : ActivityReference → IO ()
+create_lifecycle_reader activity = primIO (set_lifecycle_title activity "Created")
+
+%export "dex:resume_lifecycle_reader"
+resume_lifecycle_reader : ActivityReference → IO ()
+resume_lifecycle_reader activity = primIO (set_lifecycle_title activity "Resumed")
+
+%export "dex:destroy_lifecycle_reader"
+destroy_lifecycle_reader : ActivityReference → IO ()
+destroy_lifecycle_reader activity = primIO (set_lifecycle_title activity "Destroyed")
+
+%cg dex extends Landroid/app/Activity;
+%cg dex override onCreate (Landroid/os/Bundle;)V create_lifecycle_reader
+%cg dex override onResume ()V resume_lifecycle_reader
+%cg dex override onDestroy ()V destroy_lifecycle_reader
+
+main : IO ()
+main = pure ()

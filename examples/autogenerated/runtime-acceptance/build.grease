@@ -20,7 +20,10 @@ git -C "$frontend" rev-parse HEAD > "$evidence/frontend-revision.txt"
 "$compiler" --version > "$evidence/frontend-version.txt"
 grease "$repository/dex/idric/install-frontend.grease" "$frontend" > "$evidence/compiler-api.txt" 2>&1
 cd "$repository/dex/idric"
-"$compiler" --build backend.ipkg > "$evidence/backend-build.txt" 2>&1
+try { "$compiler" --build backend.ipkg > "$evidence/backend-build.txt" 2>&1 }
+var backend_status = _error.code
+cat "$evidence/backend-build.txt"
+if (backend_status !== 0) { echo 'FAIL checked backend compilation' >&2; exit "$backend_status" }
 if rg -n '^[[:space:]]*(Error:|INTERNAL ERROR)' "$evidence/backend-build.txt" { echo 'FAIL backend compiler diagnostic' >&2; exit 1 }
 cp "$frontend/_/build/exec/idris2_app/libidris2_support.so" build/exec/idric-dex_app/
 setglobal ENV.IDRIS2_PATH = "$repository/dex/idric/build/ttc"

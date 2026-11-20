@@ -57,9 +57,19 @@ record TailContext where
   common_parameters : List Register
   temporary_references : List Register
   dispatch_label : Label
+  return_label : Maybe Label
 
--- Register 14 is reserved for a tail group's integer selector. Ordinary heap
--- primitives use 0..9, erased World uses 15, and expression results use 16.
+-- Registers 10/11 hold a recursive group's private continuation stack/frame;
+-- 12 is its integer return selector, 14 the member selector, 15 erased World,
+-- and 16 the expression result. Inline heap primitives use only 0..9.
+private
+record ReturnSite where
+  constructor MkReturnSite
+  resume_label : Label
+  restore_skip_label : Label
+  destination : Register
+  preserved_references : List Register
+
 
 private
 record HeapState where
@@ -69,6 +79,7 @@ record HeapState where
   next_label : Int
   code : List Instruction
   tail_context : Maybe TailContext
+  return_sites : List ReturnSite
 
 private
 emit : List Instruction -> HeapState -> HeapState
@@ -398,6 +409,32 @@ tail_transfer context name inputs state = do
   Right (emit (save ++ assign ++ clear ++ release ++
     [IntegerConstant (register 14) selected, Goto context.dispatch_label]) state)
 
+private
+-- A suspended call stores only compiler-owned references, including the
+-- caller's parameters. The resume selector is not a source constructor tag.
+-- No ANF or source program is interpreted at runtime: every resume is a
+-- statically emitted label in this group's ordinary DEX control flow.
+recursive_transfer : TailContext -> Name -> List Register -> Register ->
+  HeapState -> Either String HeapState
+recursive_transfer context name inputs destination state = do
+  let (resume, after_resume) = fresh_label state
+  let (skip_restore, labelled) = fresh_label after_resume
+  let references = nub (map snd state.locals)
+  let site = MkReturnSite resume skip_restore destination references
+  let integer_box = MkTypeReference "Ljava/lang/Integer;"
+  let save =
+        [ NewObject (register 11) node_type
+        , call InvokeDirect node_type "<init>" [] VoidValue [register 11] Nothing
+        , IntegerConstant (register 0) resume.number
+        , call InvokeStatic integer_box "valueOf" [integer_value]
+            (ReferenceValue integer_box) [register 0] (Just (register 8))
+        , node_add (register 11) (register 8)
+        ] ++ map (node_add (register 11)) references ++
+        [node_add (register 10) (register 11), NullReference (register 11)]
+  transferred <- tail_transfer context name inputs
+    (emit save ({ return_sites := state.return_sites ++ [site] } labelled))
+  Right (emit [Mark resume] transferred)
+
 mutual
   private
   lower : Bool -> Register -> Administrative_Normal_Form -> HeapState -> Either String HeapState
@@ -433,8 +470,13 @@ mutual
       (method, arity) <- maybe (Left ("Managed DEX has no checked target " ++ show name)) Right (lookup name state.methods)
       if arity /= cast (length inputs) then Left ("Managed DEX checked call arity mismatch " ++ show name) else Right ()
       case state.tail_context of
-        Just context => if in_tail && isJust (lookup name context.targets)
-          then tail_transfer context name inputs state
+        Just context => if isJust (lookup name context.targets)
+          then if in_tail
+            then tail_transfer context name inputs state
+            else case context.return_label of
+              Just _ => recursive_transfer context name inputs destination state
+              Nothing => Right (emit [call InvokeStatic generated_type method (replicate (length inputs) object_value)
+                object_value inputs (Just destination)] state)
           else Right (emit [call InvokeStatic generated_type method (replicate (length inputs) object_value)
             object_value inputs (Just destination)] state)
         Nothing => Right (emit [call InvokeStatic generated_type method (replicate (length inputs) object_value)
@@ -521,31 +563,57 @@ heap_method methods name method (Make_Administrative_Normal_Form_Function argume
   let locals = filter (\variable => not (elem variable arguments)) (nub (variables body))
   let parameter_start = 17 + cast (length locals)
   let mapping = number_locals 17 locals ++ number_locals parameter_start arguments
-  result <- lower True (register 16) body (MkHeapState methods mapping 0 [NullReference (register 15)] Nothing)
+  result <- lower True (register 16) body (MkHeapState methods mapping 0 [NullReference (register 15)] Nothing [])
   Right (MkMethodPlan (show name) method (cast (length arguments))
     (replicate (length arguments) object_value) object_value
     (parameter_start + cast (length arguments)) (result.code ++ [ReturnObject (register 16)]))
 heap_method methods name method definition = Left ("Managed DEX expected checked function " ++ show name)
 
+-- All direct calls determine recursive components; a binding's value can
+-- recurse before its continuation, even when that call is not in tail position.
 mutual
   private
-  tail_targets : Administrative_Normal_Form -> List Name
-  tail_targets (Administrative_Normal_Form_Named_Function_Application _ Nothing name _) = [name]
-  tail_targets (Administrative_Normal_Form_Binding _ variable value body) =
-    if returns_bound_variable variable body then tail_targets value else tail_targets body
-  tail_targets (Administrative_Normal_Form_Constructor_Case _ _ alternatives fallback) =
-    concatMap constructor_tail_targets alternatives ++ maybe [] tail_targets fallback
-  tail_targets (Administrative_Normal_Form_Constant_Case _ _ alternatives fallback) =
-    concatMap constant_tail_targets alternatives ++ maybe [] tail_targets fallback
-  tail_targets _ = []
+  recursive_targets : Administrative_Normal_Form -> List Name
+  recursive_targets (Administrative_Normal_Form_Named_Function_Application _ Nothing name _) = [name]
+  recursive_targets (Administrative_Normal_Form_Binding _ _ value body) =
+    recursive_targets value ++ recursive_targets body
+  recursive_targets (Administrative_Normal_Form_Constructor_Case _ _ alternatives fallback) =
+    concatMap constructor_recursive_targets alternatives ++ maybe [] recursive_targets fallback
+  recursive_targets (Administrative_Normal_Form_Constant_Case _ _ alternatives fallback) =
+    concatMap constant_recursive_targets alternatives ++ maybe [] recursive_targets fallback
+  recursive_targets _ = []
 
   private
-  constructor_tail_targets : Administrative_Normal_Form_Constructor_Alternative -> List Name
-  constructor_tail_targets (Make_Administrative_Normal_Form_Constructor_Alternative _ _ _ _ body) = tail_targets body
+  constructor_recursive_targets : Administrative_Normal_Form_Constructor_Alternative -> List Name
+  constructor_recursive_targets (Make_Administrative_Normal_Form_Constructor_Alternative _ _ _ _ body) = recursive_targets body
 
   private
-  constant_tail_targets : Administrative_Normal_Form_Constant_Alternative -> List Name
-  constant_tail_targets (Make_Administrative_Normal_Form_Constant_Alternative _ body) = tail_targets body
+  constant_recursive_targets : Administrative_Normal_Form_Constant_Alternative -> List Name
+  constant_recursive_targets (Make_Administrative_Normal_Form_Constant_Alternative _ body) = recursive_targets body
+
+mutual
+  private
+  suspended_targets : Bool -> Administrative_Normal_Form -> List Name
+  suspended_targets in_tail (Administrative_Normal_Form_Named_Function_Application _ Nothing name _) =
+    if in_tail then [] else [name]
+  suspended_targets in_tail (Administrative_Normal_Form_Binding _ variable value body) =
+    if in_tail && returns_bound_variable variable body then suspended_targets True value
+    else suspended_targets False value ++ suspended_targets in_tail body
+  suspended_targets in_tail (Administrative_Normal_Form_Constructor_Case _ _ alternatives fallback) =
+    concatMap (constructor_suspended_targets in_tail) alternatives ++ maybe [] (suspended_targets in_tail) fallback
+  suspended_targets in_tail (Administrative_Normal_Form_Constant_Case _ _ alternatives fallback) =
+    concatMap (constant_suspended_targets in_tail) alternatives ++ maybe [] (suspended_targets in_tail) fallback
+  suspended_targets _ _ = []
+
+  private
+  constructor_suspended_targets : Bool -> Administrative_Normal_Form_Constructor_Alternative -> List Name
+  constructor_suspended_targets in_tail (Make_Administrative_Normal_Form_Constructor_Alternative _ _ _ _ body) =
+    suspended_targets in_tail body
+
+  private
+  constant_suspended_targets : Bool -> Administrative_Normal_Form_Constant_Alternative -> List Name
+  constant_suspended_targets in_tail (Make_Administrative_Normal_Form_Constant_Alternative _ body) =
+    suspended_targets in_tail body
 
 private
 ordinary_body : Administrative_Normal_Form_Definition -> Maybe (List Int, Administrative_Normal_Form)
@@ -553,17 +621,17 @@ ordinary_body (Make_Administrative_Normal_Form_Function arguments body) = Just (
 ordinary_body _ = Nothing
 
 private
-tail_graph : List (Name, Administrative_Normal_Form_Definition) -> List (Name, List Name)
-tail_graph definitions = mapMaybe edge definitions
+recursive_graph : List (Name, Administrative_Normal_Form_Definition) -> List (Name, List Name)
+recursive_graph definitions = mapMaybe edge definitions
   where
     edge : (Name, Administrative_Normal_Form_Definition) -> Maybe (Name, List Name)
     edge (name, definition) = case ordinary_body definition of
-      Just (_, body) => Just (name, nub (tail_targets body))
+      Just (_, body) => Just (name, nub (recursive_targets body))
       Nothing => Nothing
 
 private
-tail_reachable : List (Name, List Name) -> Name -> List Name
-tail_reachable graph start = visit (length graph + 1) [] [start]
+recursive_reachable : List (Name, List Name) -> Name -> List Name
+recursive_reachable graph start = visit (length graph + 1) [] [start]
   where
     visit : Nat -> List Name -> List Name -> List Name
     visit Z seen pending = seen
@@ -574,18 +642,18 @@ tail_reachable graph start = visit (length graph + 1) [] [start]
        in if null fresh then visited else visit fuel visited following
 
 private
-tail_groups : List (Name, Administrative_Normal_Form_Definition) -> List (List Name)
-tail_groups definitions = collect [] (map fst graph)
+recursive_groups : List (Name, Administrative_Normal_Form_Definition) -> List (List Name)
+recursive_groups definitions = collect [] (map fst graph)
   where
     graph : List (Name, List Name)
-    graph = tail_graph definitions
+    graph = recursive_graph definitions
 
     collect : List Name -> List Name -> List (List Name)
     collect covered [] = []
     collect covered (name :: rest) =
       if elem name covered then collect covered rest else
-        let reachable = tail_reachable graph name
-            members = filter (\other => elem other reachable && elem name (tail_reachable graph other)) (map fst graph)
+        let reachable = recursive_reachable graph name
+            members = filter (\other => elem other reachable && elem name (recursive_reachable graph other)) (map fst graph)
             cyclic = length members > 1 || elem name (maybe [] id (lookup name graph))
          in if cyclic then members :: collect (members ++ covered) rest else collect covered rest
 
@@ -612,6 +680,57 @@ group_wrapper group_name selector maximum_arity methods name = do
     , ReturnObject (register 16)])
 
 private
+group_suspends : List (Name, Administrative_Normal_Form_Definition) -> List Name -> Bool
+group_suspends definitions names = any suspends names
+  where
+    suspends : Name -> Bool
+    suspends name = case lookup name definitions >>= ordinary_body of
+      Just (_, body) => any (\target => elem target names) (suspended_targets True body)
+      Nothing => False
+
+-- Only non-tail components need a heap stack. Pure tail components retain
+-- their existing allocation-free transfer and dead-reference contract.
+private
+group_return : TailContext -> List Instruction
+group_return context = case context.return_label of
+  Nothing => [ReturnObject (register 16)]
+  Just target => [Goto target]
+
+private
+recursive_returns : TailContext -> Label -> Label -> List ReturnSite -> List Instruction
+recursive_returns context return_label root_return sites =
+  let integer_box = MkTypeReference "Ljava/lang/Integer;"
+   in [ Mark return_label
+      , call InvokeVirtual node_type "size" [] integer_value [register 10] (Just (register 0))
+      , IntegerConstant (register 1) 0
+      , IntegerBranch EqualInteger (register 0) (register 1) root_return
+      , IntegerConstant (register 1) 1
+      , IntegerBinary SubtractInteger (register 0) (register 0) (register 1)
+      , call InvokeVirtual node_type "remove" [integer_value] object_value
+          [register 10, register 0] (Just (register 11))
+      , CheckCast (register 11) node_type
+      ] ++ node_get (register 8) (register 11) 0 ++
+      [ CheckCast (register 8) integer_box
+      , call InvokeVirtual integer_box "intValue" [] integer_value [register 8] (Just (register 12))
+      ] ++ concatMap restore sites ++
+      [ call InvokeStatic generated_type "__idricMatchFailure" [] object_value [] (Just (register 16))
+      , ReturnObject (register 16), Mark root_return, ReturnObject (register 16)
+      ]
+  where
+    restore : ReturnSite -> List Instruction
+    restore site =
+      let restores = concat (zipWith (\index, target => node_get target (register 11) index)
+            [1 .. cast (length site.preserved_references)] site.preserved_references)
+       in [ IntegerConstant (register 0) site.resume_label.number
+          , IntegerBranch NotEqualInteger (register 12) (register 0) site.restore_skip_label
+          ] ++ map NullReference
+            (filter (/= register 16) (context.temporary_references ++ context.common_parameters)) ++ restores ++
+          [ MoveObject site.destination (register 16), NullReference (register 11)
+          , NullReference (register 5), NullReference (register 8)
+          ] ++ (if site.destination == register 16 then [] else [NullReference (register 16)]) ++
+          [ Goto site.resume_label, Mark site.restore_skip_label ]
+
+private
 tail_group_methods : List (Name, (String, Int)) -> List (Name, Administrative_Normal_Form_Definition) ->
   List Name -> Either String (List MethodPlan)
 tail_group_methods methods definitions [] = Right []
@@ -626,21 +745,34 @@ tail_group_methods methods definitions names@(first :: rest) = do
   let locals_start = 17 + maximum_arity
   let parameter_start = locals_start + cast maximum_locals
   let parameter_registers = map register [parameter_start + 1 .. parameter_start + maximum_arity]
-  let group_name = "__idricTailGroup_" ++ first_method
+  let suspending = group_suspends definitions names
+  let group_name = (if suspending then "__idricRecursiveGroup_" else "__idricTailGroup_") ++ first_method
   let reference_scratch = map register [0, 1, 5, 7, 8, 9, 16]
   let temporary_references = reference_scratch ++ map register [17 .. parameter_start - 1]
-  let context = MkTailContext targets parameter_registers temporary_references (MkLabel 0)
+  let return_label = if suspending then Just (MkLabel (cast (length names) + 1)) else Nothing
+  let context = MkTailContext targets parameter_registers temporary_references (MkLabel 0) return_label
+  let initialise_stack = if suspending then
+        [ NewObject (register 10) node_type
+        , call InvokeDirect node_type "<init>" [] VoidValue [register 10] Nothing
+        , NullReference (register 11)
+        ] ++ map NullReference temporary_references else []
   let dispatch = concatMap (\(_, (selected, _)) =>
         [IntegerConstant (register 0) selected,
          IntegerBranch EqualInteger (register 14) (register 0) (MkLabel (selected + 1))]) targets
-  let initial = MkHeapState methods [] (cast (length names) + 1)
-        ([NullReference (register 15), Move (register 14) (register parameter_start), Mark (MkLabel 0)] ++ dispatch ++
-         [call InvokeStatic generated_type "__idricMatchFailure" [] object_value [] (Just (register 16)), ReturnObject (register 16)]) (Just context)
+  let first_fresh_label : Int = cast (length names) + (if suspending then 2 else 1)
+  let initial = MkHeapState methods [] first_fresh_label
+        ([NullReference (register 15), Move (register 14) (register parameter_start)] ++ initialise_stack ++
+         [Mark (MkLabel 0)] ++ dispatch ++
+         [call InvokeStatic generated_type "__idricMatchFailure" [] object_value [] (Just (register 16)), ReturnObject (register 16)]) (Just context) []
   lowered <- lower_members 0 initial (zip bodies local_lists)
   wrappers <- traverse (\(name, (selected, _)) => group_wrapper group_name selected maximum_arity methods name) targets
-  let dispatcher = MkMethodPlan ("checked managed tail group " ++ show first) group_name (maximum_arity + 1)
+  let returns = case return_label of
+        Nothing => []
+        Just target => let (root_return, _) = fresh_label lowered in
+          recursive_returns context target root_return lowered.return_sites
+  let dispatcher = MkMethodPlan ("checked managed recursive group " ++ show first) group_name (maximum_arity + 1)
         (integer_value :: replicate (cast maximum_arity) object_value) object_value
-        (parameter_start + maximum_arity + 1) lowered.code
+        (parameter_start + maximum_arity + 1) (lowered.code ++ returns)
   Right (dispatcher :: wrappers)
   where
     body_for : Name -> Either String (List Int, Administrative_Normal_Form)
@@ -656,15 +788,17 @@ tail_group_methods methods definitions names@(first :: rest) = do
       let mapping = number_locals local_start locals ++ zip arguments context.common_parameters
       result <- lower True (register 16) body
         ({ locals := mapping } (emit [Mark (MkLabel (next + 1))] state))
-      lower_members (next + 1) (emit [ReturnObject (register 16)] result) rest
+      lower_members (next + 1) (emit (group_return context) result) rest
 
-||| Lower direct tail-call cycles together. Original named methods remain ABI
-||| wrappers, so ordinary callers and closures do not share invocation state.
+||| Lower checked direct recursive cycles together. Pure tail components keep
+||| allocation-free transfers; other components retain their continuations in
+||| private heap frames. Original named ABI wrappers isolate invocation state.
+||| Closure dispatch, checked foreign boundaries and entry contracts are unchanged.
 public export
 heap_tail_methods : List (Name, (String, Int)) -> List (Name, Administrative_Normal_Form_Definition) ->
   Either String (List Name, List MethodPlan)
 heap_tail_methods methods definitions = do
-  let groups = tail_groups definitions
+  let groups = recursive_groups definitions
   lowered <- traverse (tail_group_methods methods definitions) groups
   Right (concat groups, concat lowered)
 

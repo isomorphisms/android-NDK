@@ -1,0 +1,52 @@
+module ExportAliases
+
+import Data.Text
+
+data CounterReference : Type where [external]
+
+%foreign "dex:virtual:Ljava/util/concurrent/atomic/AtomicInteger;:addAndGet:(I)I"
+add_counter : CounterReference → Int32 → PrimIO Int32
+
+%foreign "dex:virtual:Ljava/util/concurrent/atomic/AtomicInteger;:getAndAdd:(I)I"
+add_counter_previous : CounterReference → Int32 → PrimIO Int32
+
+change_counter : CounterReference → Int32 → IO ()
+change_counter counter amount =
+  if amount < 0 then do
+    _ ← primIO (add_counter_previous counter amount)
+    pure ()
+  else do
+    _ ← primIO (add_counter counter amount)
+    pure ()
+
+%export "dex:aliased_io"
+aliased_io : CounterReference → Int32 → IO ()
+aliased_io = change_counter
+
+checked_amount : Text → Either Text Int32
+checked_amount text = if trim text ≟ "" then Left "empty" else Right (cast (trim text))
+
+deferred_change : CounterReference → Text → IO ()
+deferred_change counter text = case checked_amount text of
+  Left _ ⇒ pure ()
+  Right amount ⇒ do
+    _ ← primIO (add_counter counter amount)
+    pure ()
+
+%export "dex:deferred_io"
+deferred_io : CounterReference → Text → IO ()
+deferred_io = deferred_change
+
+render : Text → Int32 → Text
+render text number = text ++ ":" ++ cast number
+
+%export "dex:aliased_pure"
+aliased_pure : Text → Int32 → Text
+aliased_pure = render
+
+%export "dex:partially_applied_pure"
+partially_applied_pure : Int32 → Text
+partially_applied_pure = render "fixed"
+
+main : IO ()
+main = pure ()

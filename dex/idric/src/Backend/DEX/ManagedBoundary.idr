@@ -106,9 +106,9 @@ return_value _ source = ReturnObject source
 -- The public signature stays scalar/opaque. ArrayList nodes and BigInteger
 -- values are private to the checked method graph and never become source ABI.
 public export
-managed_export_bridge : ForeignEffect -> String -> String ->
+managed_export_bridge_arity : ForeignEffect -> String -> String -> Int ->
   List FrameworkValueType -> FrameworkValueType -> Either String MethodPlan
-managed_export_bridge effect exported checked arguments result = do
+managed_export_bridge_arity effect exported checked checked_arity arguments result = do
   let world_count : Int = if effect == PrimitiveIOForeign then 1 else 0
   if cast (length arguments) + world_count > 12
     then Left "Managed export exceeds the checked twelve-argument frame"
@@ -116,6 +116,14 @@ managed_export_bridge effect exported checked arguments result = do
   (prepared, registers) <- import_parameters arguments 64 16
   let world_register = MkRegister (16 + cast (length arguments))
   let managed_registers = registers ++ if world_count == 1 then [world_register] else []
+  if checked_arity < 0 || checked_arity > cast (length managed_registers)
+    then Left "Managed export checked arity exceeds its checked source frame"
+    else Right ()
+  let direct = take (cast checked_arity) managed_registers
+  let remaining = drop (cast checked_arity) managed_registers
+  let applied = map (\argument => call InvokeStatic generated_type "__idricApply"
+        [object_value, object_value] object_value [MkRegister 12, argument]
+        (Just (MkRegister 12))) remaining
   let prepare_world = if world_count == 1 then [NullReference world_register] else []
   completed <- from_managed result (MkRegister 12) (MkRegister 0)
   Right (MkMethodPlan "checked managed export boundary" exported
@@ -123,9 +131,22 @@ managed_export_bridge effect exported checked arguments result = do
     (64 + sum (map value_width arguments))
     (prepared ++ prepare_world ++
      [call InvokeStatic generated_type checked
-       (replicate (length managed_registers) object_value) object_value
-       managed_registers (Just (MkRegister 12))] ++ completed ++
+       (replicate (length direct) object_value) object_value
+       direct (Just (MkRegister 12))] ++ applied ++ completed ++
      [return_value result (MkRegister 0)]))
+
+-- An alias or partial source definition can check to fewer ANF parameters
+-- than its public scalar/opaque ABI: it returns a checked closure. Saturate
+-- that closure with the remaining imported parameters (including World for
+-- IO) through the same closed dispatch table used by ordinary checked code.
+-- No internal heap value acquires an externally callable descriptor.
+public export
+managed_export_bridge : ForeignEffect -> String -> String ->
+  List FrameworkValueType -> FrameworkValueType -> Either String MethodPlan
+managed_export_bridge effect exported checked arguments result =
+  managed_export_bridge_arity effect exported checked
+    (cast (length arguments) + if effect == PrimitiveIOForeign then 1 else 0)
+    arguments result
 
 -- Foreign.parse_dex_foreign has already checked the source signature; Codegen
 -- has independently checked that every opaque source domain is external.
