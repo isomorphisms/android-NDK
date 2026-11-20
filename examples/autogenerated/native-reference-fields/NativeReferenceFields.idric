@@ -46,6 +46,21 @@ framework_plan name interfaces =
     Left problem ⇒ do putStrLn problem; exitFailure
     Right value ⇒ pure value
 
+constructor_plan : Text → Text → FrameworkValueType → Int → Bool → IO FilePlan
+constructor_plan name superclass argument words ignore_argument =
+  case framework_class_plan (Subclass name superclass Nothing []) [] of
+    Left problem ⇒ do putStrLn problem; exitFailure
+    Right base ⇒ do
+      let arguments = if ignore_argument then [] else [argument]
+      let registers = if ignore_argument then [MkRegister 0] else [MkRegister 0, MkRegister 1]
+      let constructor = MkBoundMethodPlan "framework constructor with incoming value" "<init>"
+            1 [argument] VoidValue (1 + words)
+            [ InvokeMethod (Invoke InvokeDirect
+                (MkMethodReference (MkTypeReference superclass) "<init>" arguments VoidValue)
+                registers Nothing)
+            , ReturnVoid ] ConstructorMethod
+      pure ({ methods := [constructor] } base)
+
 main : IO ()
 main = do
   plan ← case framework_class_plan
@@ -55,11 +70,17 @@ main = do
   let candidate = { fields := fields } plan
   runner ← framework_plan "Lqualification/Runner;" ["Ljava/lang/Runnable;"]
   plain ← framework_plan "Lqualification/ZPlain;" []
-  let positive = encode_dex_classes [candidate, runner, plain]
+  collection ← constructor_plan "Lqualification/CollectionBox;" "Ljava/util/ArrayList;"
+    (reference "Ljava/util/Collection;") 1 False
+  ignored ← constructor_plan "Lqualification/CollectionBox;" "Ljava/util/ArrayList;"
+    (reference "Ljava/util/Collection;") 1 True
+  date ← constructor_plan "Lqualification/WideDate;" "Ljava/util/Date;" LongValue 2 False
+  let constructors = [collection, date]
+  let positive = encode_dex_classes ([candidate, runner, plain] ++ constructors)
   case positive of
     Left problem ⇒ do putStrLn problem; exitFailure
     Right _ ⇒ pure ()
-  require (positive ≟ encode_dex_classes [plain, runner, { fields := reverse fields } plan])
+  require (positive ≟ encode_dex_classes (reverse constructors ++ [plain, runner, { fields := reverse fields } plan]))
     "field/class declaration order changed DEX"
   reject (encode_dex ({ fields := fields ++ fields } plan))
   reject (encode_dex ({ fields := [MkStaticFieldPlan "bad" (reference "Ljava/lang/Object;") 3] } plan))
@@ -72,11 +93,22 @@ main = do
               (reference "Landroid/os/IBinder;"))
         , ReturnObject (MkRegister 0) ]
   reject (encode_dex ({ methods := invalid_static_read :: candidate.methods } candidate))
+  case collection.methods of
+    [constructor] ⇒ do
+      reject (encode_dex ({ methods := [{ method_name := "wrong" } constructor] } collection))
+      reject (encode_dex ({ methods := [{ result_type := reference "Ljava/lang/Object;" } constructor] } collection))
+      reject (encode_dex ({ methods := [{ parameter_count := 0 } constructor] } collection))
+      reject (encode_dex ({ methods := [{ parameter_types := [VoidValue] } constructor] } collection))
+      reject (encode_dex ({ methods := [{ register_count := 1 } constructor] } collection))
+    _ ⇒ do putStrLn "FAIL missing constructor test plan"; exitFailure
   emit "native-reference-fields.dex" positive
   let changed = map change_field_kind fields
   emit "native-reference-fields-static-mutant.dex"
-    (encode_dex_classes [{ fields := changed } plan, runner, plain])
+    (encode_dex_classes ([{ fields := changed } plan, runner, plain] ++ constructors))
   emit "native-reference-fields-interface-mutant.dex"
-    (encode_dex_classes [candidate, runner,
-      { interfaces := [MkTypeReference "Ljava/lang/Runnable;"] } plain])
+    (encode_dex_classes ([candidate, runner,
+      { interfaces := [MkTypeReference "Ljava/lang/Runnable;"] } plain] ++ constructors))
+  emit "native-reference-fields-constructor-mutant.dex"
+    (encode_dex_classes [candidate, runner, plain, ignored, date])
   putStrLn "PASS native reference fields, isolated interface lists, deterministic ordering and five declaration/access refusals"
+  putStrLn "PASS reference and wide constructors and five malformed-constructor refusals"

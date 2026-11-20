@@ -1113,10 +1113,11 @@ finalize_method : MethodPlan -> Either String MethodPlan
 finalize_method original = do
   case original.mode of
     ConstructorMethod =>
-      if original.method_name == "<init>" && null original.parameter_types &&
-         original.result_type == VoidValue
+      if original.method_name == "<init>" && original.result_type == VoidValue &&
+         original.parameter_count == cast (length original.parameter_types) &&
+         not (elem VoidValue original.parameter_types)
         then Right ()
-        else Left "DEX callback constructor must be <init>()V"
+        else Left "DEX constructor must be <init> with valid parameters and void result"
     ClassInitializerMethod =>
       if original.method_name == "<clinit>" && null original.parameter_types &&
          original.result_type == VoidValue

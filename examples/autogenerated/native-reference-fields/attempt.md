@@ -49,3 +49,19 @@ reflects the two classes on ART and rejects an otherwise valid, compiled
 interface-list mutant. Existing field controls remain mandatory. These mixed
 class declarations also cover the real provider; they do not implement or
 simulate Shizuku authorization.
+
+The real Shizuku worker then requires its documented public Context constructor.
+The prior writer refuses that typed plan with `DEX callback constructor must be
+<init>()V`. Constructor mode now accepts validated non-void parameters and a
+matching logical parameter count while retaining a void result and the exact
+`<init>` name. Register placement, incoming wide words, invocation validation
+and ART's initialization rules remain shared with other executable methods.
+Class initializers still require `<clinit>()V`; no native constructor is added.
+
+The extended maintained generator forwards a Collection to ArrayList and a long
+to Date, rejects five malformed constructor declarations, and emits a valid
+compiled mutant which ignores the Collection argument. The separate ai-ci
+observer expects actual object identity and a value above 32 bits. Host
+generation, determinism, all refusal controls and independent decode pass;
+fresh API 29/34 execution is pending. The actual worker's Context constructor
+also emits and decodes through this writer, without smali candidate generation.

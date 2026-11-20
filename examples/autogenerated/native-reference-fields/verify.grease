@@ -32,7 +32,7 @@ cd "$evidence"
 "$evidence/field-generator" > "$evidence/positive.txt" 2>&1
 cat "$evidence/positive.txt"
 rg -x -F 'PASS native reference fields, isolated interface lists, deterministic ordering and five declaration/access refusals' "$evidence/positive.txt"
-for lane in native-reference-fields native-reference-fields-static-mutant native-reference-fields-interface-mutant {
+for lane in native-reference-fields native-reference-fields-static-mutant native-reference-fields-interface-mutant native-reference-fields-constructor-mutant {
   test -s "$evidence/$lane.dex"
   java -jar "$baksmali" disassemble "$evidence/$lane.dex" -o "$evidence/$lane.decoded"
 }
@@ -45,11 +45,17 @@ if rg -q '^\.implements ' "$evidence/native-reference-fields.decoded/qualificati
   echo 'FAIL empty class inherited another class interface list' >&2; exit 1
 }
 rg -x -F '.implements Ljava/lang/Runnable;' "$evidence/native-reference-fields-interface-mutant.decoded/qualification/ZPlain.smali"
+rg -x -F '.method public constructor <init>(Ljava/util/Collection;)V' "$evidence/native-reference-fields.decoded/qualification/CollectionBox.smali"
+rg -x -F '.method public constructor <init>(J)V' "$evidence/native-reference-fields.decoded/qualification/WideDate.smali"
+rg -x -F 'PASS reference and wide constructors and five malformed-constructor refusals' "$evidence/positive.txt"
 if cmp -s "$evidence/native-reference-fields.dex" "$evidence/native-reference-fields-static-mutant.dex" {
   echo 'FAIL unchanged field-kind mutant' >&2; exit 1
 }
 if cmp -s "$evidence/native-reference-fields.dex" "$evidence/native-reference-fields-interface-mutant.dex" {
   echo 'FAIL unchanged interface-list mutant' >&2; exit 1
+}
+if cmp -s "$evidence/native-reference-fields.dex" "$evidence/native-reference-fields-constructor-mutant.dex" {
+  echo 'FAIL unchanged constructor mutant' >&2; exit 1
 }
 git -C "$repository" rev-parse HEAD > "$evidence/backend-commit.txt"
 git -C "$frontend" rev-parse HEAD > "$evidence/frontend-commit.txt"
@@ -57,5 +63,5 @@ sha256sum "$source/NativeReferenceFields.idric" "$repository/dex/idric/src/Backe
   "$repository/dex/idric/src/Backend/DEX/Encode.idr" "$repository/dex/idric/src/Backend/DEX/Smali.idr" \
   "$evidence/field-generator" "$evidence/field-generator_app/field-generator.so" \
   "$evidence/native-reference-fields.dex" "$evidence/native-reference-fields-static-mutant.dex" \
-  "$evidence/native-reference-fields-interface-mutant.dex" > "$evidence/sha256.txt"
+  "$evidence/native-reference-fields-interface-mutant.dex" "$evidence/native-reference-fields-constructor-mutant.dex" > "$evidence/sha256.txt"
 printf 'typed_field_plans\tPASS\nclass_interface_lists\tPASS\ndeclaration_order_determinism\tPASS\ninvalid_declarations_and_access\tREJECTED\nindependent_decode\tPASS\nART\tNOT_RUN\nShizuku\tNOT_RUN\nphysical_TAB_P10\tNOT_RUN\n' > "$evidence/receipt.tsv"

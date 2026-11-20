@@ -47,12 +47,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: isomorphisms/ai-ci
-          ref: b3c923470dfe8a1a0fd1139e42f2860e472ec5a0
+          ref: d9fe9e826e7d20e99f0f11e44dc9c71bacccfbd1
           path: .tools/field-observer
           persist-credentials: false
       - name: Qualify pinned ICK for frontend native bootstrap
         id: ick
-        uses: isomorphisms/ai-ci/ick-host@32cb45b3a3a257aeb07881c75f3b846495cfb2c9
+        uses: isomorphisms/ai-ci/ick-host@2383379394a7af5a8808abbe2d7b159a55328a83
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: isomorphisms/catfood
