@@ -1,0 +1,15 @@
+module UnsupportedArrayConstruction
+
+data CoefficientArray : Type where [external]
+
+%foreign "dex:construct:[D:<init>:()V"
+construct_array : PrimIO CoefficientArray
+
+%export "dex:unsupported_array_construction"
+unsupported_array_construction : Int32 → IO Int32
+unsupported_array_construction input = do
+  _ ← primIO construct_array
+  pure input
+
+main : IO ()
+main = pure ()

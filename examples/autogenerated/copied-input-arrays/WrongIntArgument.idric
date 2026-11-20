@@ -1,0 +1,11 @@
+module WrongIntArgument
+
+%foreign "C:wrong_int_argument,libcopiedarrays"
+wrong_native : Int64 → PrimIO Int32
+
+%export "dex:wrong_int_argument"
+wrong_int_argument : Int32 → IO Int32
+wrong_int_argument input = primIO (wrong_native (cast input))
+
+main : IO ()
+main = pure ()

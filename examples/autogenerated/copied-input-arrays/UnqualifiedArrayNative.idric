@@ -1,0 +1,22 @@
+module UnqualifiedArrayNative
+
+data DoubleBufferReference : Type where [external]
+data CoefficientArray : Type where [external]
+
+%foreign "dex:static:Ljava/nio/DoubleBuffer;:allocate:(I)Ljava/nio/DoubleBuffer;"
+allocate_coefficients : Int32 → PrimIO DoubleBufferReference
+%foreign "dex:virtual:Ljava/nio/DoubleBuffer;:array:()[D"
+coefficient_array : DoubleBufferReference → PrimIO CoefficientArray
+%foreign "C:unqualified_array,libcopiedarrays"
+unqualified_array : CoefficientArray → PrimIO Int
+
+%export "dex:unqualified_array_native"
+unqualified_array_native : Int32 → IO Int32
+unqualified_array_native input = do
+  buffer ← primIO (allocate_coefficients input)
+  values ← primIO (coefficient_array buffer)
+  result ← primIO (unqualified_array values)
+  pure (cast result)
+
+main : IO ()
+main = pure ()

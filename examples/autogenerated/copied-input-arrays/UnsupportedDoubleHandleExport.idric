@@ -1,0 +1,8 @@
+module UnsupportedDoubleHandleExport
+
+%export "dex:unsupported_double_identity"
+unsupported_double_identity : Double → Double
+unsupported_double_identity value = value
+
+main : IO ()
+main = pure ()

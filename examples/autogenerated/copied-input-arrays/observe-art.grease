@@ -1,0 +1,98 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+if (len(ARGV) !== 3) { echo 'usage: grease observe-art.grease ADB SERIAL EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var evidence = ARGV[2]
+if (adb[0] !== '/' or evidence[0] !== '/') { echo 'FAIL absolute paths required' >&2; exit 2 }
+command -v rg > /dev/null
+if test -e "$evidence/art-positive.txt" { echo 'FAIL refusing reused copied-array ART evidence' >&2; exit 1 }
+"$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r' | rg -x 1
+var api = $("$adb" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')
+if (api !== ENV.AICI_EXPECTED_ANDROID_API or (api !== '29' and api !== '34')) {
+  echo 'FAIL unexpected copied-array ART API' >&2; exit 1
+}
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r' | rg -x x86_64
+var remote = '/data/local/tmp/idric-copied-input-arrays'
+"$adb" -s "$serial" shell rm -rf "$remote"
+"$adb" -s "$serial" shell mkdir "$remote"
+"$adb" -s "$serial" push "$evidence/positive/candidate.dex" "$remote/positive.dex"
+"$adb" -s "$serial" push "$evidence/mutant/candidate.dex" "$remote/mutant.dex"
+"$adb" -s "$serial" push "$evidence/runner.dex" "$remote/runner.dex"
+"$adb" -s "$serial" push "$evidence/libcopiedarrays.so" "$remote/libcopiedarrays.so"
+"$adb" -s "$serial" shell chmod 444 "$remote/positive.dex" "$remote/mutant.dex" "$remote/runner.dex" "$remote/libcopiedarrays.so"
+"$adb" -s "$serial" pull "$remote/positive.dex" "$evidence/positive.received.dex"
+"$adb" -s "$serial" pull "$remote/mutant.dex" "$evidence/mutant.received.dex"
+"$adb" -s "$serial" pull "$remote/runner.dex" "$evidence/runner.received.dex"
+"$adb" -s "$serial" pull "$remote/libcopiedarrays.so" "$evidence/libcopiedarrays.received.so"
+cmp "$evidence/positive/candidate.dex" "$evidence/positive.received.dex"
+cmp "$evidence/mutant/candidate.dex" "$evidence/mutant.received.dex"
+cmp "$evidence/runner.dex" "$evidence/runner.received.dex"
+cmp "$evidence/libcopiedarrays.so" "$evidence/libcopiedarrays.received.so"
+"$adb" -s "$serial" shell "CLASSPATH=$remote/positive.dex:$remote/runner.dex app_process -Xcheck:jni -Dcopiedarrays.library=$remote/libcopiedarrays.so /system/bin qualification.CopiedInputArraysRunner" \
+  > "$evidence/art-positive.txt" 2>&1
+cat "$evidence/art-positive.txt"
+rg -x -F 'PASS checked copied input arrays on ART' "$evidence/art-positive.txt"
+try {
+  "$adb" -s "$serial" shell "CLASSPATH=$remote/mutant.dex:$remote/runner.dex app_process -Xcheck:jni -Dcopiedarrays.library=$remote/libcopiedarrays.so /system/bin qualification.CopiedInputArraysRunner" \
+    > "$evidence/art-mutant.txt" 2>&1
+}
+var status = _error.code
+cat "$evidence/art-mutant.txt"
+if (status !== 73) { echo 'FAIL missing compiled array-producer mutant rejection' >&2; exit 1 }
+rg -x -F 'FAIL checked copied input arrays' "$evidence/art-mutant.txt"
+"$adb" -s "$serial" push "$evidence/typed-handles/candidate.dex" "$remote/typed-positive.dex"
+"$adb" -s "$serial" push "$evidence/typed-mutant/candidate.dex" "$remote/typed-mutant.dex"
+"$adb" -s "$serial" push "$evidence/typed-runner.dex" "$remote/typed-runner.dex"
+"$adb" -s "$serial" shell chmod 444 "$remote/typed-positive.dex" "$remote/typed-mutant.dex" "$remote/typed-runner.dex"
+"$adb" -s "$serial" pull "$remote/typed-positive.dex" "$evidence/typed-positive.received.dex"
+"$adb" -s "$serial" pull "$remote/typed-mutant.dex" "$evidence/typed-mutant.received.dex"
+"$adb" -s "$serial" pull "$remote/typed-runner.dex" "$evidence/typed-runner.received.dex"
+cmp "$evidence/typed-handles/candidate.dex" "$evidence/typed-positive.received.dex"
+cmp "$evidence/typed-mutant/candidate.dex" "$evidence/typed-mutant.received.dex"
+cmp "$evidence/typed-runner.dex" "$evidence/typed-runner.received.dex"
+"$adb" -s "$serial" shell "CLASSPATH=$remote/typed-positive.dex:$remote/typed-runner.dex app_process -Xcheck:jni -Dcopiedarrays.library=$remote/libcopiedarrays.so /system/bin qualification.TypedHandleRunner" \
+  > "$evidence/typed-art-positive.txt" 2>&1
+cat "$evidence/typed-art-positive.txt"
+rg -x -F 'PASS checked typed scalar handles on ART' "$evidence/typed-art-positive.txt"
+try {
+  "$adb" -s "$serial" shell "CLASSPATH=$remote/typed-mutant.dex:$remote/typed-runner.dex app_process -Xcheck:jni -Dcopiedarrays.library=$remote/libcopiedarrays.so /system/bin qualification.TypedHandleRunner" \
+    > "$evidence/typed-art-mutant.txt" 2>&1
+}
+var typed_status = _error.code
+cat "$evidence/typed-art-mutant.txt"
+if (typed_status !== 73) { echo 'FAIL missing compiled typed-handle source mutant rejection' >&2; exit 1 }
+rg -x -F 'FAIL checked typed scalar handles' "$evidence/typed-art-mutant.txt"
+"$adb" -s "$serial" push "$evidence/int64-exports/candidate.dex" "$remote/int64-positive.dex"
+"$adb" -s "$serial" push "$evidence/int64-mutant/candidate.dex" "$remote/int64-mutant.dex"
+"$adb" -s "$serial" push "$evidence/int64-pure-automatic/candidate.dex" "$remote/int64-pure.dex"
+"$adb" -s "$serial" push "$evidence/int64-runner.dex" "$remote/int64-runner.dex"
+"$adb" -s "$serial" shell chmod 444 "$remote/int64-positive.dex" "$remote/int64-mutant.dex" "$remote/int64-pure.dex" "$remote/int64-runner.dex"
+"$adb" -s "$serial" pull "$remote/int64-positive.dex" "$evidence/int64-positive.received.dex"
+"$adb" -s "$serial" pull "$remote/int64-mutant.dex" "$evidence/int64-mutant.received.dex"
+"$adb" -s "$serial" pull "$remote/int64-pure.dex" "$evidence/int64-pure.received.dex"
+"$adb" -s "$serial" pull "$remote/int64-runner.dex" "$evidence/int64-runner.received.dex"
+cmp "$evidence/int64-exports/candidate.dex" "$evidence/int64-positive.received.dex"
+cmp "$evidence/int64-mutant/candidate.dex" "$evidence/int64-mutant.received.dex"
+cmp "$evidence/int64-pure-automatic/candidate.dex" "$evidence/int64-pure.received.dex"
+cmp "$evidence/int64-runner.dex" "$evidence/int64-runner.received.dex"
+"$adb" -s "$serial" shell "CLASSPATH=$remote/int64-pure.dex:$remote/int64-runner.dex app_process /system/bin qualification.Int64IdentityObserver" \
+  > "$evidence/int64-pure-art.txt" 2>&1
+cat "$evidence/int64-pure-art.txt"
+rg -x -F 'PASS checked pure Int64 exports on ART' "$evidence/int64-pure-art.txt"
+"$adb" -s "$serial" shell "CLASSPATH=$remote/int64-positive.dex:$remote/int64-runner.dex app_process -Xcheck:jni -Dcopiedarrays.library=$remote/libcopiedarrays.so /system/bin qualification.Int64ExportRunner" \
+  > "$evidence/int64-art-positive.txt" 2>&1
+cat "$evidence/int64-art-positive.txt"
+rg -x -F 'PASS checked Int64 handle exports on ART' "$evidence/int64-art-positive.txt"
+try {
+  "$adb" -s "$serial" shell "CLASSPATH=$remote/int64-mutant.dex:$remote/int64-runner.dex app_process -Xcheck:jni -Dcopiedarrays.library=$remote/libcopiedarrays.so /system/bin qualification.Int64ExportRunner" \
+    > "$evidence/int64-art-mutant.txt" 2>&1
+}
+var int64_status = _error.code
+cat "$evidence/int64-art-mutant.txt"
+if (int64_status !== 73) { echo 'FAIL missing compiled Int64 IO identity mutant rejection' >&2; exit 1 }
+rg -x -F 'FAIL checked Int64 source exports' "$evidence/int64-art-mutant.txt"
+"$adb" -s "$serial" shell getprop ro.build.version.sdk > "$evidence/art-sdk.txt"
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi > "$evidence/art-abi.txt"
+printf 'checked_source_primitive_arrays_ART\tPASS\nactual_generated_JNI_copy_ART\tPASS\nindependent_bits_lengths_validation\tPASS\narray_mutation_after_return_preserves_snapshot\tPASS\ncompiled_source_mutant_rejected\tPASS\nchecked_typed_scalar_handles_ART\tPASS\ntyped_release_clears_last_handle\tPASS\ntyped_source_mutant_rejected\tPASS\npure_Int64_public_ABI_ART\tPASS\nIO_mixed_Int64_public_ABI_ART\tPASS\nreal_Int64_handle_export_ART\tPASS\nText_to_native_Int64_handle_ART\tPASS\nInt64_IO_source_mutant_rejected\tPASS\nphysical_A1\tNOT_RUN\nphysical_TAB_P10\tNOT_RUN\n' > "$evidence/art-result.tsv"
+printf '\033[32mPASS\033[0m actual source-to-copied-native-snapshot on ART\n'

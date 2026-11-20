@@ -1110,6 +1110,7 @@ native_contract service = service.boundary_contract
 private
 check_native_string : NativeBoundaryContract -> Register -> String -> List Instruction
 check_native_string LegacyUnqualifiedNativeBoundary value description = []
+check_native_string SynchronousCopiedInputArrayNativeBoundary value description = []
 check_native_string SynchronousBorrowedNonNullNativeBoundary value description =
   [ TextConstant (register 1) description
   , call InvokeStatic (MkTypeReference "Ljava/util/Objects;") "requireNonNull"
@@ -1126,6 +1127,24 @@ native_argument contract CFString (ExistingValue TextValue) source destination =
 native_argument contract CFInt (ExistingValue IntegerValue) source destination = Right (unbox_int destination source)
 native_argument contract CFInt LongValue source destination = Right
   [call InvokeStatic generated_type "__idricLongExact" [object_value] LongValue [source] (Just destination)]
+native_argument SynchronousBorrowedNonNullNativeBoundary CFInt32 (ExistingValue IntegerValue) source destination =
+  Right (unbox_int destination source)
+native_argument SynchronousBorrowedNonNullNativeBoundary CFInt64 LongValue source destination = Right
+  [call InvokeStatic generated_type "__idricLongExact" [object_value] LongValue [source] (Just destination)]
+native_argument SynchronousCopiedInputArrayNativeBoundary CFInt32 (ExistingValue IntegerValue) source destination =
+  Right (unbox_int destination source)
+native_argument SynchronousCopiedInputArrayNativeBoundary CFInt64 LongValue source destination = Right
+  [call InvokeStatic generated_type "__idricLongExact" [object_value] LongValue [source] (Just destination)]
+native_argument SynchronousCopiedInputArrayNativeBoundary (CFUser _ []) target@(ReferenceValue descriptor) source destination =
+  if copied_input_array target then Right
+    [ MoveObject destination source
+    , CheckCast destination descriptor
+    , TextConstant (register 1) "JNI copy-input-array contract rejects null input array"
+    , call InvokeStatic (MkTypeReference "Ljava/util/Objects;") "requireNonNull"
+        [object_value, text_value] object_value [destination, register 1] (Just destination)
+    , CheckCast destination descriptor
+    ]
+  else Left "Managed JNI copied reference must be [D or [I"
 native_argument contract source_type target_type source destination =
   Left ("Managed JNI argument cannot cross from " ++ show source_type ++ " to " ++ show target_type)
 
@@ -1146,6 +1165,8 @@ heap_foreign_linked services method definition@(Make_Administrative_Normal_Form_
   case filter (\service => elem service.convention conventions) services of
     [] => heap_foreign method definition
     [service] => do
+      _ <- native_source_reference_constraints service.boundary_contract
+        service.argument_types service.result_type arguments result
       ordinary <- case reverse arguments of
         CFWorld :: rest => Right (reverse rest)
         _ => Left "Managed JNI requires checked PrimIO with a trailing World token"
@@ -1157,9 +1178,19 @@ heap_foreign_linked services method definition@(Make_Administrative_Normal_Form_
       (prepared, registers) <- native_arguments (native_contract service) ordinary service.argument_types parameter_start 24
       completed <- the (Either String (List Instruction)) $ case (source_result, service.result_type) of
         (CFInt, ExistingValue IntegerValue) => Right (box_int (register 16) (register 0))
+        (CFInt32, ExistingValue IntegerValue) =>
+          if service.boundary_contract == SynchronousBorrowedNonNullNativeBoundary
+            then Right (box_int (register 16) (register 0))
+            else Left "Managed JNI typed Int32 result requires the explicit synchronous scalar contract"
         (CFInt, LongValue) => Right
           [call InvokeStatic number_type "valueOf" [LongValue] (ReferenceValue number_type)
             [register 0] (Just (register 16))]
+        (CFInt64, LongValue) =>
+          if service.boundary_contract == SynchronousCopiedInputArrayNativeBoundary ||
+             service.boundary_contract == SynchronousBorrowedNonNullNativeBoundary then Right
+            [call InvokeStatic number_type "valueOf" [LongValue] (ReferenceValue number_type)
+              [register 0] (Just (register 16))]
+          else Left "Managed JNI typed Int64 result requires an explicit synchronous contract"
         (CFString, ExistingValue TextValue) => Right
           ([MoveObject (register 16) (register 0)] ++
            check_native_string (native_contract service) (register 16) "JNI contract rejects null String result")

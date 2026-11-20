@@ -1,0 +1,14 @@
+module UnsupportedFloatArray
+
+data ArrayReference : Type where [external]
+%foreign "dex:static:Lqualification/ArrayProvider;:values:()[F"
+array_values : PrimIO ArrayReference
+
+%export "dex:unsupported_float_array"
+unsupported_float_array : Int32 → IO Int32
+unsupported_float_array input = do
+  _ ← primIO array_values
+  pure input
+
+main : IO ()
+main = pure ()

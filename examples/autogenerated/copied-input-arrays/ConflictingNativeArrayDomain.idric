@@ -1,0 +1,21 @@
+module ConflictingNativeArrayDomain
+
+data DoubleBufferReference : Type where [external]
+data ArrayReference : Type where [external]
+%foreign "dex:static:Ljava/nio/DoubleBuffer;:allocate:(I)Ljava/nio/DoubleBuffer;"
+allocate_coefficients : Int32 → PrimIO DoubleBufferReference
+%foreign "dex:virtual:Ljava/nio/DoubleBuffer;:array:()[D"
+coefficient_array : DoubleBufferReference → PrimIO ArrayReference
+%foreign "C:conflicting_native_array,libcopiedarrays"
+wrong_native_array : ArrayReference → PrimIO Int64
+
+%export "dex:conflicting_native_array_domain"
+conflicting_native_array_domain : Int32 → IO Int32
+conflicting_native_array_domain input = do
+  buffer ← primIO (allocate_coefficients input)
+  values ← primIO (coefficient_array buffer)
+  _ ← primIO (wrong_native_array values)
+  pure input
+
+main : IO ()
+main = pure ()

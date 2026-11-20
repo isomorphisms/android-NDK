@@ -1,0 +1,113 @@
+module CopiedSurface
+
+-- Each concrete external domain is constrained independently by checked
+-- framework declarations and the explicit native input-array contract.
+data DoubleBufferReference : Type where [external]
+data IntBufferReference : Type where [external]
+data CoefficientArray : Type where [external]
+data ExponentArray : Type where [external]
+
+%foreign "dex:static:Ljava/nio/DoubleBuffer;:allocate:(I)Ljava/nio/DoubleBuffer;"
+allocate_coefficients : Int32 → PrimIO DoubleBufferReference
+%foreign "dex:virtual:Ljava/nio/DoubleBuffer;:put:(ID)Ljava/nio/DoubleBuffer;"
+put_coefficient : DoubleBufferReference → Int32 → Double → PrimIO DoubleBufferReference
+%foreign "dex:virtual:Ljava/nio/DoubleBuffer;:array:()[D"
+coefficient_array : DoubleBufferReference → PrimIO CoefficientArray
+
+%foreign "dex:static:Ljava/nio/IntBuffer;:allocate:(I)Ljava/nio/IntBuffer;"
+allocate_exponents : Int32 → PrimIO IntBufferReference
+%foreign "dex:virtual:Ljava/nio/IntBuffer;:put:(II)Ljava/nio/IntBuffer;"
+put_exponent : IntBufferReference → Int32 → Int32 → PrimIO IntBufferReference
+%foreign "dex:virtual:Ljava/nio/IntBuffer;:array:()[I"
+exponent_array : IntBufferReference → PrimIO ExponentArray
+
+%foreign "dex:static:Ljava/lang/Double;:longBitsToDouble:(J)D"
+binary64_from_bits : Int64 → Double
+
+%foreign "C:copied_surface,libcopiedarrays"
+native_copy_surface : Int32 → Int32 → Int32 → Int32 → Int32 → Int32 → Int32 →
+  CoefficientArray → ExponentArray → PrimIO Int64
+
+-- Scalar observation keeps the existing unqualified contract unchanged.
+%foreign "C:copied_count,libcopiedarrays"
+native_coefficient_count : Int → PrimIO Int
+
+record Term where
+  constructor MkTerm
+  coefficient : Double
+  x_power : Int32
+  y_power : Int32
+  z_power : Int32
+
+record PreparedInput where
+  constructor MkPreparedInput
+  family_degree : Int32
+  offset_0 : Int32
+  offset_1 : Int32
+  offset_2 : Int32
+  offset_3 : Int32
+  offset_4 : Int32
+  terms : List Term
+
+term_count : List Term → Int32
+term_count [] = 0
+term_count (_ :: rest) = 1 + term_count rest
+
+fill_arrays : DoubleBufferReference → IntBufferReference → Int32 → List Term → IO ()
+fill_arrays coefficients exponents index [] = pure ()
+fill_arrays coefficients exponents index (term :: rest) = do
+  _ ← primIO (put_coefficient coefficients index term.coefficient)
+  let xyz = index + index + index
+  _ ← primIO (put_exponent exponents xyz term.x_power)
+  _ ← primIO (put_exponent exponents (xyz + 1) term.y_power)
+  _ ← primIO (put_exponent exponents (xyz + 2) term.z_power)
+  fill_arrays coefficients exponents (index + 1) rest
+
+copy_prepared : PreparedInput → CoefficientArray → ExponentArray → IO Int64
+copy_prepared prepared coefficients exponents = primIO
+  (native_copy_surface 1 prepared.family_degree prepared.offset_0 prepared.offset_1
+    prepared.offset_2 prepared.offset_3 prepared.offset_4 coefficients exponents)
+
+count_handle : Int64 → IO Int32
+count_handle handle = do
+  count ← primIO (native_coefficient_count (cast handle))
+  pure (cast count)
+
+export
+prepared_surface_handle : Int32 → IO Int64
+prepared_surface_handle input = do
+  let prepared = MkPreparedInput 2 0 1 2 3 4
+        [ MkTerm (cast input) 2 0 0
+        , MkTerm (negate 0.0) 0 1 0
+        , MkTerm 0.4 0 0 1
+        , MkTerm (binary64_from_bits 9221120237041090560) 0 0 0
+        ]
+      count = term_count prepared.terms
+  coefficients ← primIO (allocate_coefficients count)
+  exponents ← primIO (allocate_exponents (count + count + count))
+  fill_arrays coefficients exponents 0 prepared.terms
+  coefficient_values ← primIO (coefficient_array coefficients)
+  exponent_values ← primIO (exponent_array exponents)
+  handle ← copy_prepared prepared coefficient_values exponent_values
+  -- These ordinary source mutations happen after the native call has returned.
+  -- The independent observer still requires the snapshot's original bits/power.
+  _ ← primIO (put_coefficient coefficients 0 0.0)
+  _ ← primIO (put_exponent exponents 0 0)
+  pure handle
+
+%export "dex:produce_surface"
+export
+produce_surface : Int32 → IO Int32
+produce_surface input = do
+  handle ← prepared_surface_handle input
+  count_handle handle
+
+%export "dex:copy_arrays"
+export
+copy_arrays : CoefficientArray → ExponentArray → IO Int32
+copy_arrays coefficients exponents = do
+  handle ← primIO (native_copy_surface 1 2 0 1 2 3 4 coefficients exponents)
+  count_handle handle
+
+main : IO ()
+main = pure ()

@@ -1,0 +1,52 @@
+module Int64ExportSource
+
+import CopiedSurface
+import Data.Text
+
+-- Type sketch: signed Int64 enters and leaves the public DEX ABI as a paired
+-- primitive J, while checked heap code retains its private boxed integer.
+-- The real handle producer is the shared array-copy implementation; a Text
+-- selector supplies runtime input and does not parse/serialize native payloads.
+%export "dex:int64_identity"
+export
+int64_identity : Int64 → Int64
+int64_identity value = value
+
+%export "dex:int64_io_identity"
+export
+int64_io_identity : Int64 → IO Int64
+int64_io_identity value = pure value
+
+%export "dex:int64_after_int32"
+export
+int64_after_int32 : Int32 → Int64 → Int64
+int64_after_int32 before value = value
+
+%export "dex:int64_before_int32"
+export
+int64_before_int32 : Int64 → Int32 → Int64
+int64_before_int32 value after = value
+
+%export "dex:select_int64_argument"
+export
+select_int64_argument : Int64 → Int32 → Int64 → Int64
+select_int64_argument first 0 second = first
+select_int64_argument first _ second = second
+
+%export "dex:create_surface_handle"
+export
+create_surface_handle : Int32 → IO Int64
+create_surface_handle input = prepared_surface_handle input
+
+runtime_coefficient : Text → Int32
+runtime_coefficient "wide" = 16777217
+runtime_coefficient "negative" = -1
+runtime_coefficient _ = 0
+
+%export "dex:actual_prepare_handle"
+export
+actual_prepare_handle : Text → IO Int64
+actual_prepare_handle selection = prepared_surface_handle (runtime_coefficient selection)
+
+main : IO ()
+main = pure ()
