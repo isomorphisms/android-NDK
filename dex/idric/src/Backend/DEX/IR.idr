@@ -207,13 +207,23 @@ Show FieldReference where
   show field = field.owner.descriptor ++ "->" ++ field.name ++ ":" ++
     framework_descriptor field.value_type
 
-||| ART initializes unassigned static reference fields to null.
+||| Declared reference storage for a mechanical platform/JNI boundary.
+||| Static and instance fields have separate DEX class-data sections.
 public export
-record StaticFieldPlan where
-  constructor MkStaticFieldPlan
+record FieldPlan where
+  constructor MkFieldPlan
   name : String
   value_type : FrameworkValueType
   access_flags : Integer
+
+||| Preserve the existing static declaration interface.
+public export
+StaticFieldPlan : Type
+StaticFieldPlan = FieldPlan
+
+public export
+MkStaticFieldPlan : String -> FrameworkValueType -> Integer -> FieldPlan
+MkStaticFieldPlan = MkFieldPlan
 
 public export
 record MethodReference where
@@ -503,7 +513,7 @@ record FilePlan where
   constructor MkFieldClassFilePlan
   class_descriptor : String
   methods : List MethodPlan
-  fields : List StaticFieldPlan
+  fields : List FieldPlan
   interfaces : List TypeReference
   superclass : TypeReference
   access_flags : Integer

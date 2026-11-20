@@ -185,8 +185,9 @@ render_finalized_smali finalized =
     , ""
     ] ++ unlines (map (\implemented => ".implements " ++ show implemented) plan.interfaces) ++
     concat (map (\field =>
-      ".field " ++ (if field.access_flags == 10 then "private" else "public") ++
-      " static " ++ field.name ++ ":" ++ framework_descriptor field.value_type ++ "\n") plan.fields) ++
+      ".field " ++ (if elem field.access_flags [2, 10] then "private" else "public") ++
+      (if elem field.access_flags [9, 10] then " static " else " ") ++
+      field.name ++ ":" ++ framework_descriptor field.value_type ++ "\n") plan.fields) ++
     concat (map render_method plan.methods)
 
 -- Compatibility API invokes the encoder's bounded layout pass; rendering
