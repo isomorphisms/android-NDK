@@ -8,7 +8,7 @@ import Data.List
 ||| Private managed storage layouts. These do not describe an external ABI or
 ||| recover source field types which checked ANF has already erased.
 public export
-data ManagedValueKind = ConstructorNode | ClosureNode
+data ManagedValueKind = ConstructorNode | ClosureNode | MutableCellNode
 
 public export
 record ManagedValueLayout where
@@ -51,6 +51,12 @@ checked_constructor_layout : String -> Nat -> Either String ManagedValueLayout
 checked_constructor_layout tag count =
   if tag == "" then Left "Managed DEX constructor identity is empty"
     else Right (MakeManagedValueLayout ConstructorNode tag count 0 0)
+
+||| One private reference slot preserves source payload identity and aliases.
+||| Neither the cell nor its erased payload is admitted at the public ABI.
+public export
+managed_ioref_layout : ManagedValueLayout
+managed_ioref_layout = MakeManagedValueLayout MutableCellNode "__idricIORef" 1 0 0
 
 public export
 checked_closure_layout : String -> Int -> Nat -> Nat -> Either String ManagedValueLayout

@@ -1,0 +1,83 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+if (len(ARGV) !== 4) { echo 'usage: grease observe.grease ADB SERIAL VERIFIED_INPUT FRESH_EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var input = ARGV[2]
+var evidence = ARGV[3]
+for path in ([adb, input, evidence]) {
+  if (path[0] !== '/') { echo 'FAIL absolute paths required' >&2; exit 2 }
+}
+if test -e "$evidence" { echo 'FAIL reused exception observation' >&2; exit 1 }
+rg -x -F b'checked_exception_source\tPASS' "$input/result.tsv"
+var timeout = $(command -v timeout)
+test -x "$timeout"
+var qemu = $("$timeout" 20 "$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r')
+var api = $("$timeout" 20 "$adb" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')
+var abi = $("$timeout" 20 "$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')
+var state = $("$timeout" 20 "$adb" -s "$serial" get-state | tr -d '\r')
+var remote_timeout = $("$timeout" 20 "$adb" -s "$serial" shell 'command -v timeout' | tr -d '\r')
+if (qemu !== '1' or abi !== 'x86_64' or api !== ENV.AICI_EXPECTED_ANDROID_API or (api !== '29' and api !== '34') or state !== 'device' or remote_timeout !== '/system/bin/timeout') {
+  echo 'FAIL wrong checked exception ART target or missing bounded runtime' >&2
+  exit 1
+}
+mkdir -p "$evidence"
+printf 'qemu\t%s\napi\t%s\nabi\t%s\nstate\t%s\nserial\t%s\n' "$qemu" "$api" "$abi" "$state" "$serial" > "$evidence/preflight.tsv"
+var digest = $(sha256sum "$input/positive/candidate.dex" | cut -d ' ' -f 1)
+var remote = "/data/local/tmp/idric-checked-exceptions-$digest"
+"$timeout" 20 "$adb" -s "$serial" shell test ! -e "$remote"
+"$timeout" 20 "$adb" -s "$serial" shell mkdir "$remote"
+"$timeout" 20 "$adb" -s "$serial" push "$input/runner.dex" "$remote/runner.dex"
+"$timeout" 20 "$adb" -s "$serial" shell chmod 444 "$remote/runner.dex"
+"$timeout" 20 "$adb" -s "$serial" pull "$remote/runner.dex" "$evidence/runner.received.dex"
+cmp "$input/runner.dex" "$evidence/runner.received.dex"
+printf '%s\n' 'PASS checked exception action, actual Throwable identity and exactly-once cleanup' > "$evidence/expected.txt"
+for lane in positive cleanup-mutant handler-mutant rethrow-mutant {
+  "$timeout" 20 "$adb" -s "$serial" push "$input/$lane/candidate.dex" "$remote/$lane.dex"
+  "$timeout" 20 "$adb" -s "$serial" shell chmod 444 "$remote/$lane.dex"
+  "$timeout" 20 "$adb" -s "$serial" pull "$remote/$lane.dex" "$evidence/$lane.received.dex"
+  cmp "$input/$lane/candidate.dex" "$evidence/$lane.received.dex"
+  try {
+    "$timeout" 20 "$adb" -s "$serial" logcat -b all -d -v threadtime -t 2000 \
+      > "$evidence/$lane.before.logcat" 2> "$evidence/$lane.before-logcat.stderr"
+  }
+  var before_logcat_status = _error.code
+  try {
+    "$timeout" --signal=TERM --kill-after=5s 65 "$adb" -s "$serial" shell -T \
+      "$remote_timeout -s KILL 55 app_process -Xcheck:jni -Djava.class.path=$remote/runner.dex:$remote/$lane.dex /system/bin --nice-name=idric-exceptions-$lane ExceptionRunner" \
+      > "$evidence/$lane.actual" 2> "$evidence/$lane.stderr"
+  }
+  var status = _error.code
+  printf '%s\n' "$status" > "$evidence/$lane.exit"
+  try {
+    "$timeout" 20 "$adb" -s "$serial" logcat -b all -d -v threadtime -t 2000 \
+      > "$evidence/$lane.after.logcat" 2> "$evidence/$lane.after-logcat.stderr"
+  }
+  var after_logcat_status = _error.code
+  printf 'process_exit\t%s\nbefore_logcat_exit\t%s\nafter_logcat_exit\t%s\n' \
+    "$status" "$before_logcat_status" "$after_logcat_status" > "$evidence/$lane.status.tsv"
+  if (status === 124) {
+    printf 'termination\thost_timeout\n' >> "$evidence/$lane.status.tsv"
+  } elif (status >= 128 and status <= 192) {
+    printf 'termination\tsignal_style_shell_status\ninferred_signal_number\t%s\n' "$[status - 128]" >> "$evidence/$lane.status.tsv"
+  } else {
+    printf 'termination\tprocess_exit\n' >> "$evidence/$lane.status.tsv"
+  }
+  cat "$evidence/$lane.actual"
+  cat "$evidence/$lane.stderr"
+  cat "$evidence/$lane.status.tsv"
+  if (before_logcat_status !== 0 or after_logcat_status !== 0) { echo 'FAIL missing exception runtime diagnostics' >&2; exit 1 }
+  if (lane === 'positive') {
+    if (status !== 0) { echo 'FAIL actual checked exception execution' >&2; exit 1 }
+    cmp "$evidence/expected.txt" "$evidence/$lane.actual"
+  } else {
+    if (status !== 95) { echo 'FAIL missing designated exception source mutation rejection' >&2; exit 1 }
+    var message = 'java.lang.AssertionError: checked exception action, handler or cleanup order changed'
+    if (lane === 'rethrow-mutant') { setvar message = 'java.lang.AssertionError: checked rethrow replaced actual Throwable reference' }
+    rg -F "$message" "$evidence/$lane.stderr"
+    try { rg -e 'VerifyError|NoClassDefFoundError|UnsatisfiedLinkError|OutOfMemoryError' "$evidence/$lane.stderr" }
+    if (_error.code !== 1) { echo 'FAIL infrastructure exception is not mutation rejection' >&2; exit 1 }
+  }
+}
+printf 'checked_exception_ART\tPASS\napi\t%s\nabi\t%s\nnormal_and_throwing_actions\tPASS\nactual_Throwable_identity\tPASS\nhandler_exception_propagation\tPASS\nexactly_once_cleanup\tPASS\ncleanup_exception_precedence\tPASS\ncompiled_cleanup_handler_rethrow_mutants\tREJECTED\nActivity\tNOT_RUN\nPNG_resource_policy\tNOT_RUN\nphysical_device\tNOT_RUN\n' "$api" "$abi" > "$evidence/result.tsv"
+printf '\033[32mPASS\033[0m actual checked Throwable catch, rethrow and finally on ART; application acceptance separate\n'

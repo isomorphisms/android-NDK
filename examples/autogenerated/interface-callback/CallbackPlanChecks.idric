@@ -86,7 +86,7 @@ callback_cases =
   , ("wrong-source-signature-refuses", refuses_plan
        (with_interface_callbacks "LIdric/Generated;" [source_method]
          ["callback LFixture/ActionListener; onAction (Z)V receive_action"]))
-  , ("nonvoid-callback-refuses", refuses_plan
+  , ("unqualified-Int32-callback-result-refuses", refuses_plan
        (with_interface_callbacks "LIdric/Generated;" [source_method]
          ["callback LFixture/ActionListener; onAction (I)I receive_action"]))
   , ("malformed-interface-refuses", refuses_plan

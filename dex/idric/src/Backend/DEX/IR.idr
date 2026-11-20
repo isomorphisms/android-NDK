@@ -312,6 +312,17 @@ Show IntegerBinaryOperation where
   show MultiplyInteger = "mul-int"
 
 public export
+data Binary32Operation
+  = AddBinary32 | SubtractBinary32 | MultiplyBinary32 | DivideBinary32
+
+public export
+Show Binary32Operation where
+  show AddBinary32 = "add-float"
+  show SubtractBinary32 = "sub-float"
+  show MultiplyBinary32 = "mul-float"
+  show DivideBinary32 = "div-float"
+
+public export
 data Binary64Operation
   = AddBinary64 | SubtractBinary64 | MultiplyBinary64 | DivideBinary64
 
@@ -350,6 +361,16 @@ Show IntegerCondition where
   show GreaterThanInteger = "if-gt"
   show LessEqualInteger = "if-le"
 
+||| A reference comparison with null uses the DEX 21t opcode family, not an
+||| integer comparison or a platform-library call.
+public export
+data ReferenceNullCondition = EqualNull | NotEqualNull
+
+public export
+Show ReferenceNullCondition where
+  show EqualNull = "if-eqz"
+  show NotEqualNull = "if-nez"
+
 ||| Typed DEX planning instructions. Object/reference/wide operations remain
 ||| separate from ordinary integer operations so the encoder cannot silently
 ||| use the wrong opcode family.
@@ -365,12 +386,15 @@ data Instruction
   | SignedIntToBinary64 Register Register
   | LongConstant Register Int
   | AddLong Register Register Register
+  | Binary32Binary Binary32Operation Register Register Register
   | Binary64Constant Register Integer
   | Binary64Binary Binary64Operation Register Register Register
   | NegateBinary64 Register Register
   | CompareBinary64 Binary64NaNBias Register Register Register
   | StaticGetObject Register FieldReference
   | StaticPutObject Register FieldReference
+  | InstanceGetObject Register Register FieldReference
+  | InstancePutObject Register Register FieldReference
   | NullReference Register
   | TextConstant Register String
   | NewObject Register TypeReference
@@ -379,10 +403,13 @@ data Instruction
   | TextEqual Register Register Register
   | InvokeMethod InvocationPlan
   | IntegerBranch IntegerCondition Register Register Label
+  | ReferenceNullBranch ReferenceNullCondition Register Label
   | Goto Label
   | Goto16 Label
   | Goto32 Label
   | Mark Label
+  | MoveException Register
+  | CatchRegion TypeReference Label Label Label
   | ReturnInteger Register
   | ReturnObject Register
   | ReturnWide Register
@@ -417,6 +444,8 @@ Show Instruction where
     "const-wide/16 " ++ show destination ++ ", " ++ show value
   show (AddLong destination left right) =
     "add-long " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
+  show (Binary32Binary operation destination left right) =
+    show operation ++ " " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
   show (Binary64Constant destination bits) =
     "const-wide " ++ show destination ++ ", " ++
     show (if bits >= 9223372036854775808 then bits - 18446744073709551616 else bits) ++ "L"
@@ -430,6 +459,10 @@ Show Instruction where
     "sget-object " ++ show destination ++ ", " ++ show field
   show (StaticPutObject source field) =
     "sput-object " ++ show source ++ ", " ++ show field
+  show (InstanceGetObject destination receiver field) =
+    "iget-object " ++ show destination ++ ", " ++ show receiver ++ ", " ++ show field
+  show (InstancePutObject source receiver field) =
+    "iput-object " ++ show source ++ ", " ++ show receiver ++ ", " ++ show field
   show (NullReference destination) = "const-null " ++ show destination
   show (TextConstant destination value) =
     "const-string " ++ show destination ++ ", " ++ show value
@@ -452,10 +485,15 @@ Show Instruction where
   show (IntegerBranch condition left right target) =
     show condition ++ " " ++ show left ++ ", " ++
     show right ++ ", " ++ show target
+  show (ReferenceNullBranch condition reference target) =
+    show condition ++ " " ++ show reference ++ ", " ++ show target
   show (Goto target) = "goto " ++ show target
   show (Goto16 target) = "goto/16 " ++ show target
   show (Goto32 target) = "goto/32 " ++ show target
   show (Mark label) = show label
+  show (MoveException register) = "move-exception " ++ show register
+  show (CatchRegion caught beginning ending handler) =
+    ".catch " ++ show caught ++ " {" ++ show beginning ++ " .. " ++ show ending ++ "} " ++ show handler
   show (ReturnInteger register) = "return " ++ show register
   show (ReturnObject register) = "return-object " ++ show register
   show (ReturnWide register) = "return-wide " ++ show register

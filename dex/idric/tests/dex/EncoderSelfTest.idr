@@ -134,8 +134,15 @@ main = do
     (encode_instructions [] [] [IntToLong (MkRegister 0) (MkRegister 16)])
   expect_left "format 23x register limit"
     (encode_dex (single_method_file bad_arithmetic_method))
-  expect_left "format 22t register limit"
-    (encode_dex (single_method_file bad_branch_method))
+  expect_left "raw format 22t register limit"
+    (encode_instructions [] [] bad_branch_method.instructions)
+  -- Whole methods pass through generic register placement before encoding.
+  -- A high conditional operand alone must now reserve the staging registers;
+  -- the raw 22t writer still refuses an unplaced operand above v15.
+  case encode_dex (single_method_file bad_branch_method) of
+    Left explanation => fail ("high conditional register staging: " ++ explanation)
+    Right bytes => expect_equal "high conditional DEX signature"
+                     [100, 101, 120, 10] (take 4 bytes)
   -- Short forward offsets keep compact 10t encoding (1 code unit).
   let r0 = MkRegister 0
   let destination = MkLabel 0

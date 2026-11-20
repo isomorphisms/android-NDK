@@ -1,0 +1,36 @@
+module LibraryHeaderChecks
+
+import Backend.DEX.NativeContract
+import System
+
+%default covering
+
+private
+fail : String → IO ()
+fail explanation = do
+  putStrLn ("FAIL JNI library header: " ++ explanation)
+  exitFailure
+
+private
+reject : List String → IO ()
+reject columns = case parse_jni_library_header columns of
+  Left _ => pure ()
+  Right _ => fail "accepted malformed library header"
+
+main : IO ()
+main = do
+  case parse_jni_library_header ["library", "contract_29"] of
+    Right (JNILibraryName "contract_29") => pure ()
+    _ => fail "logical name changed"
+  case parse_jni_library_header ["library_property", "contract.library"] of
+    Right (JNIPathProperty "contract.library") => pure ()
+    _ => fail "historical path-property selection changed"
+  traverse_ reject
+    [ [], ["library"], ["library", ""], ["library_property", ""]
+    , ["library", "../contract"], ["library", "libcontract.so"]
+    , ["library", "contract-name"], ["library", "contract name"]
+    , ["library", "café"], ["library", "contract", "extra"]
+    , ["library_property", "contract.library", "library", "contract"]
+    , ["library", "contract", "library_property", "contract.library"]
+    ]
+  putStrLn "PASS explicit JNI library header and historical property selection"

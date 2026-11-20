@@ -1,0 +1,59 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+if (len(ARGV) !== 3) { echo 'usage: grease observe-art.grease ADB SERIAL EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var evidence = ARGV[2]
+if (adb[0] !== '/' or evidence[0] !== '/') { echo 'FAIL absolute paths required' >&2; exit 2 }
+if test -e "$evidence/art" { echo 'FAIL refusing reused SDK format ART evidence' >&2; exit 1 }
+mkdir -p "$evidence/art"
+var timeout = $(command -v timeout)
+test -x "$timeout"
+var state = $("$timeout" 20 "$adb" -s "$serial" get-state | tr -d '\r')
+var sdk = $("$timeout" 20 "$adb" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')
+var abi = $("$timeout" 20 "$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')
+var qemu = $("$timeout" 20 "$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r')
+var remote_timeout = $("$timeout" 20 "$adb" -s "$serial" shell 'command -v timeout' | tr -d '\r')
+printf 'state\t%s\nsdk\t%s\nabi\t%s\nqemu\t%s\n' "$state" "$sdk" "$abi" "$qemu" > "$evidence/art/preflight.tsv"
+if (state !== 'device' or (sdk !== '29' and sdk !== '34') or abi !== 'x86_64' or qemu !== '1' or remote_timeout !== '/system/bin/timeout') {
+  echo 'FAIL SDK format observer requires declared API29/API34 x86_64 emulator' >&2; exit 1
+}
+proc snapshot(candidate, phase) {
+  try {
+    "$timeout" 25 "$adb" -s "$serial" logcat -b all -d -t 2000 -v threadtime \
+      > "$evidence/art/$candidate-$phase.logcat" 2>&1
+  }
+  var status = _error.code
+  printf '%s\n' "$status" > "$evidence/art/$candidate-$phase.logcat.exit"
+  if (status !== 0) { echo 'FAIL SDK format diagnostics incomplete' >&2; exit 1 }
+}
+for candidate in positive order-mutant {
+  var remote = "/data/local/tmp/idric-sdk-object-array-$candidate"
+  "$adb" -s "$serial" shell mkdir -p "$remote"
+  "$adb" -s "$serial" push "$evidence/$candidate/candidate.dex" "$remote/candidate.dex"
+  "$adb" -s "$serial" push "$evidence/runner.dex" "$remote/runner.dex"
+  "$adb" -s "$serial" shell chmod 444 "$remote/candidate.dex" "$remote/runner.dex"
+  "$adb" -s "$serial" pull "$remote/candidate.dex" "$evidence/art/$candidate-received.dex"
+  "$adb" -s "$serial" pull "$remote/runner.dex" "$evidence/art/$candidate-runner-received.dex"
+  cmp "$evidence/$candidate/candidate.dex" "$evidence/art/$candidate-received.dex"
+  cmp "$evidence/runner.dex" "$evidence/art/$candidate-runner-received.dex"
+  snapshot "$candidate" before
+  try {
+    "$timeout" --signal=TERM --kill-after=10s 75 "$adb" -s "$serial" shell \
+      "CLASSPATH=$remote/candidate.dex:$remote/runner.dex $remote_timeout -s KILL 65 app_process -Xcheck:jni /system/bin --nice-name=idric-sdk-format-$candidate FormattedResourcesRunner" \
+      > "$evidence/art/$candidate.stdout.txt" 2> "$evidence/art/$candidate.stderr.txt"
+  }
+  var status = _error.code
+  printf '%s\n' "$status" > "$evidence/art/$candidate.exit"
+  snapshot "$candidate" after
+  cat "$evidence/art/$candidate.stdout.txt" "$evidence/art/$candidate.stderr.txt"
+  if (candidate === 'positive') {
+    if (status !== 0) { echo 'FAIL SDK format ART process; inspect retained Throwable' >&2; exit 1 }
+    rg -x -F 'PASS checked SDK format arguments' "$evidence/art/$candidate.stdout.txt"
+  } else {
+    if (status !== 89) { echo 'FAIL missing designated format argument source mutation rejection' >&2; exit 1 }
+    rg -x -F 'FAIL checked SDK format arguments' "$evidence/art/$candidate.stderr.txt"
+  }
+}
+printf 'format_argument_ART\tPASS\nSDK_Resources_getString_invocation\tPASS\nsource_mutation_rejected\tPASS\napplication_resource_formats\tPENDING\nnormal_Activity\tPENDING\nphysical_device\tNOT_RUN\n' > "$evidence/art/result.tsv"
+printf '\033[32mPASS\033[0m SDK format arguments and Resources invocation on ART; application resources separate\n'

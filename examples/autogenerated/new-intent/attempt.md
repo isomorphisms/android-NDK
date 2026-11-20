@@ -44,3 +44,13 @@ This removes one compiler limitation; it does not complete IB search. The real
 IB receiver-to-google_icu_url attempt still stops at Prelude.Types.fastUnpack
 in the framework/scalar lowering path. The separate managed command path is
 not an Activity bridge.
+
+At backend89f366f7f2ee62e0a7567c558e6880e1fa7f6eec, canonical run43827720933
+passed the host, positive new-Intent emission, repeat, decode and omitted-Intent
+refusal checks. Its wrong-signature source was also refused without DEX, but
+the helper still required the old four-method lifecycle diagnostic. The exact
+expected text now includes the added pause, save-state and Activity-result
+forms. The same well-typed wrong-signature source was recompiled locally with
+the unchanged qualified driver and produced the expanded diagnostic with no
+candidate DEX. This changes one assertion, not the allowed signatures or the
+source refusal. Fresh full canonical execution remains required.

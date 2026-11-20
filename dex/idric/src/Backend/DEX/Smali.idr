@@ -71,6 +71,7 @@ render_instruction (LongConstant destination value) =
 render_instruction (AddLong destination left right) =
   "add-long " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
 render_instruction instruction@(Binary64Constant _ _) = show instruction
+render_instruction instruction@(Binary32Binary _ _ _ _) = show instruction
 render_instruction instruction@(Binary64Binary _ _ _ _) = show instruction
 render_instruction instruction@(NegateBinary64 _ _) = show instruction
 render_instruction instruction@(CompareBinary64 _ _ _ _) = show instruction
@@ -78,6 +79,8 @@ render_instruction (StaticGetObject destination field) =
   "sget-object " ++ show destination ++ ", " ++ show field
 render_instruction (StaticPutObject source field) =
   "sput-object " ++ show source ++ ", " ++ show field
+render_instruction instruction@(InstanceGetObject _ _ _) = show instruction
+render_instruction instruction@(InstancePutObject _ _ _) = show instruction
 render_instruction (NullReference destination) =
   render_constant destination 0
 render_instruction (TextConstant destination value) =
@@ -139,10 +142,15 @@ render_instruction (InvokeMethod invocation) =
     render_result result register = " # invalid-result-plan"
 render_instruction (IntegerBranch condition left right target) =
   show condition ++ " " ++ show left ++ ", " ++ show right ++ ", " ++ show target
+render_instruction (ReferenceNullBranch condition reference target) =
+  show condition ++ " " ++ show reference ++ ", " ++ show target
 render_instruction (Goto target) = "goto " ++ show target
 render_instruction (Goto16 target) = "goto/16 " ++ show target
 render_instruction (Goto32 target) = "goto/32 " ++ show target
 render_instruction (Mark label) = show label
+render_instruction (MoveException register) = "move-exception " ++ show register
+render_instruction (CatchRegion caught beginning ending handler) =
+  ".catch " ++ show caught ++ " {" ++ show beginning ++ " .. " ++ show ending ++ "} " ++ show handler
 render_instruction (ReturnInteger register) = "return " ++ show register
 render_instruction (ReturnObject register) = "return-object " ++ show register
 render_instruction (ReturnWide register) = "return-wide " ++ show register
@@ -190,8 +198,9 @@ render_finalized_smali finalized =
     , ""
     ] ++ unlines (map (\implemented => ".implements " ++ show implemented) plan.interfaces) ++
     concat (map (\field =>
-      ".field " ++ (if elem field.access_flags [2, 10] then "private" else "public") ++
+      ".field " ++ (if elem field.access_flags [2, 10, 0x12] then "private" else "public") ++
       (if elem field.access_flags [9, 10] then " static " else " ") ++
+      (if field.access_flags == 0x12 then "final " else "") ++
       field.name ++ ":" ++ framework_descriptor field.value_type ++ "\n") plan.fields) ++
     concat (map render_method plan.methods)
 

@@ -1,0 +1,11 @@
+module WrongSignatureRefusal
+
+%foreign "dex:reference-is-null"
+bad_null : Text → Int32
+
+%export "dex:bad_null"
+bad_export : Text → Int32
+bad_export = bad_null
+
+main : IO ()
+main = pure ()

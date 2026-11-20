@@ -1,0 +1,2 @@
+library owner
+C:owner_identity,libowner identity (I)I current-thread synchronous borrowed-local nonnull-strings propagate-exceptions

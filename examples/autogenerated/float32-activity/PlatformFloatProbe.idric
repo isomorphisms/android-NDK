@@ -1,0 +1,15 @@
+module PlatformFloatProbe
+
+data Float32 : Type where [external]
+
+%foreign "dex:static:Ljava/lang/Float;:intBitsToFloat:(I)F"
+from_bits : Int32 → Float32
+%foreign "dex:static:Ljava/lang/Float;:floatToRawIntBits:(F)I"
+float_bits : Float32 → Int32
+
+%export "dex:platform_float_probe"
+platform_float_probe : Int32 → Int32
+platform_float_probe bits = float_bits (from_bits bits)
+
+main : IO ()
+main = pure ()

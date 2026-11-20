@@ -1,0 +1,108 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+if (len(ARGV) !== 5) {
+  echo 'usage: grease observe-art.grease ADB SERIAL CANDIDATE_EVIDENCE FRESH_ART_OUTPUT EXPECTED_API' >&2
+  exit 2
+}
+var adb = ARGV[0]
+var serial = ARGV[1]
+var evidence = ARGV[2]
+var output = ARGV[3]
+var expected_api = ARGV[4]
+for path in ([adb, evidence, output]) {
+  if (path[0] !== '/') { echo 'FAIL absolute paths required' >&2; exit 2 }
+}
+if (expected_api !== '23' and expected_api !== '29' and expected_api !== '34') {
+  echo 'FAIL undeclared reference-null ART API' >&2; exit 2
+}
+if test -e "$output" { echo 'FAIL refusing reused reference-null ART evidence' >&2; exit 1 }
+"$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r' | rg -x 1
+var api = $("$adb" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')
+if (api !== expected_api) { echo 'FAIL unexpected reference-null ART API' >&2; exit 1 }
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r' | rg -x x86_64
+mkdir -p "$output"
+"$adb" -s "$serial" emu avd name > "$output/emulator.txt"
+"$adb" -s "$serial" shell getprop ro.build.version.sdk > "$output/sdk.txt"
+"$adb" -s "$serial" shell getprop ro.product.cpu.abi > "$output/abi.txt"
+for candidate in direct managed direct-mutant managed-mutant {
+  var remote = "/data/local/tmp/idric-reference-null-$candidate"
+  "$adb" -s "$serial" shell mkdir -p "$remote"
+  "$adb" -s "$serial" push "$evidence/$candidate/candidate.dex" "$remote/candidate.dex"
+  "$adb" -s "$serial" push "$evidence/runner.dex" "$remote/runner.dex"
+  "$adb" -s "$serial" shell chmod 444 "$remote/candidate.dex" "$remote/runner.dex"
+  "$adb" -s "$serial" pull "$remote/candidate.dex" "$output/$candidate-received.dex"
+  "$adb" -s "$serial" pull "$remote/runner.dex" "$output/$candidate-runner-received.dex"
+  cmp "$evidence/$candidate/candidate.dex" "$output/$candidate-received.dex"
+  cmp "$evidence/runner.dex" "$output/$candidate-runner-received.dex"
+  try {
+    "$adb" -s "$serial" logcat -b all -d -v threadtime -t 2000 \
+      > "$output/$candidate.before.logcat" 2> "$output/$candidate.before-logcat.stderr"
+  }
+  var before_logcat_status = _error.code
+  # API23 adbd has no shell-v2/raw execution or remote exit-status protocol.
+  # Force its supported PTY and frame the remote status explicitly. This tiny
+  # command tail is interpreted by Android's fixed system shell, not Grease.
+  try {
+    if (api === '23') {
+      timeout 60 "$adb" -s "$serial" shell -tt \
+        "CLASSPATH=$remote/candidate.dex:$remote/runner.dex app_process -Xcheck:jni /system/bin --nice-name=idric-reference-null-$candidate ReferenceNullRunner; printf '\\nIDRIC_REFERENCE_NULL_EXIT=%s\\n' \"\$?\"" \
+        > "$output/$candidate.pty.stdout" 2> "$output/$candidate.stderr"
+    } else {
+      timeout 60 "$adb" -s "$serial" shell -T \
+        "CLASSPATH=$remote/candidate.dex:$remote/runner.dex app_process -Xcheck:jni /system/bin --nice-name=idric-reference-null-$candidate ReferenceNullRunner" \
+        > "$output/$candidate.stdout" 2> "$output/$candidate.stderr"
+    }
+  }
+  var transport_status = _error.code
+  var status = transport_status
+  var legacy_status_valid = true
+  if (api === '23') {
+    tr -d '\r' < "$output/$candidate.pty.stdout" > "$output/$candidate.stdout"
+    if (transport_status !== 0) {
+      setvar legacy_status_valid = false
+    } else {
+      try {
+        rg -c '^IDRIC_REFERENCE_NULL_EXIT=[0-9]+$' "$output/$candidate.stdout" \
+          > "$output/$candidate.exit-marker-count"
+      }
+      var marker_status = _error.code
+      if (marker_status !== 0 or $(cat "$output/$candidate.exit-marker-count") !== '1') {
+        setvar legacy_status_valid = false
+      } else {
+        var remote_exit = $(sed -n 's/^IDRIC_REFERENCE_NULL_EXIT=//p' "$output/$candidate.stdout")
+        if (remote_exit === '0') { setvar status = 0 } else {
+          if (remote_exit === '95') { setvar status = 95 } else {
+            setvar legacy_status_valid = false
+          }
+        }
+      }
+    }
+  }
+  printf '%s\n' "$status" > "$output/$candidate.exit"
+  printf '%s\n' "$transport_status" > "$output/$candidate.transport-exit"
+  try {
+    "$adb" -s "$serial" logcat -b all -d -v threadtime -t 2000 \
+      > "$output/$candidate.after.logcat" 2> "$output/$candidate.after-logcat.stderr"
+  }
+  var after_logcat_status = _error.code
+  printf 'process_exit\t%s\ntransport_exit\t%s\nbefore_logcat_exit\t%s\nafter_logcat_exit\t%s\n' \
+    "$status" "$transport_status" "$before_logcat_status" "$after_logcat_status" > "$output/$candidate.status.tsv"
+  cat "$output/$candidate.stdout" "$output/$candidate.stderr" > "$output/$candidate.txt"
+  cat "$output/$candidate.txt" "$output/$candidate.status.tsv"
+  if (before_logcat_status !== 0 or after_logcat_status !== 0) {
+    echo 'FAIL missing reference-null logcat evidence' >&2; exit 1
+  }
+  if (not legacy_status_valid) {
+    echo 'FAIL legacy shell transport or unique remote exit status' >&2; exit 1
+  }
+  if (candidate === 'direct' or candidate === 'managed') {
+    if (status !== 0) { echo 'FAIL actual reference-null ART execution' >&2; exit 1 }
+    rg -x -F 'PASS checked reference-null semantics' "$output/$candidate.txt"
+  } else {
+    if (status !== 95) { echo 'FAIL missing designated reference-null source mutation rejection' >&2; exit 1 }
+    rg -x -F 'FAIL checked reference-null semantics' "$output/$candidate.txt"
+  }
+}
+printf 'API\t%s\nexternal_null_and_nonnull_ART\tPASS\nprecise_domain_casts\tPASS\ndirect_and_managed\tPASS\ncompiled_source_mutants_rejected\tPASS\nwhole_Activity\tNOT_RUN\nphysical_device\tNOT_RUN\n' \
+  "$api" > "$output/result.tsv"
+printf '\033[32mPASS\033[0m checked null/non-null external references and source mutations on ART API%s\n' "$api"

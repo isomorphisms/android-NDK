@@ -6,9 +6,12 @@ import Backend.DEX.Capabilities
 import Backend.DEX.Foreign
 import Backend.DEX.NativeContract
 import Backend.DEX.IR
+import Backend.DEX.GeneratedOwner
 import Backend.DEX.Lower
 import Backend.DEX.Heap
 import Backend.DEX.ManagedBoundary
+import Backend.DEX.ManagedRunnable
+import Backend.DEX.ManagedActivityField
 import Backend.DEX.RuntimeArgs
 import Backend.DEX.Unpack
 import Backend.DEX.Smali
@@ -316,6 +319,58 @@ validate_exports exports =
     Just duplicate => Left ("Duplicate generated DEX method name `" ++ duplicate ++ "`")
 
 private
+checked_activity_fields :
+  {auto c : Ref Ctxt Defs} -> List (Name, TypeReference) -> List String ->
+  Core (List ManagedActivityField, List String)
+checked_activity_fields domains directives = do
+  parsed <- case traverse parse_activity_field directives of
+    Left explanation => throw (UserError ("dex rejected managed Activity field: " ++ explanation))
+    Right fields => pure (catMaybes fields)
+  if null parsed then pure ([], []) else do
+    if not (elem "managed-exports" directives) ||
+       not (any (\directive => words directive == ["extends", "Landroid/app/Activity;"]) directives)
+      then throw (UserError "Managed Activity fields require managed-exports and an explicit Activity parent")
+      else pure ()
+    if length (nub (map field_name parsed)) /= length parsed ||
+       length (nub (concatMap (\field => [field.getter, field.setter]) parsed)) /= 2 * length parsed
+      then throw (UserError "Managed Activity field names and accessor endpoints must be unique")
+      else pure ()
+    receipts <- traverse validate parsed
+    pure (parsed, receipts)
+  where
+    source_type : Name -> Nat -> Core ClosedTerm
+    source_type name arity = do
+      context <- get Ctxt
+      case !(lookupDefExact name (gamma context)) of
+        Just (ExternDef actual) => if actual == arity then pure ()
+          else throw (UserError ("Managed Activity field endpoint has wrong checked arity: " ++ show name))
+        _ => throw (UserError ("Managed Activity field endpoint must be a checked %extern: " ++ show name))
+      Just original <- lookupTyExact name (gamma context)
+        | Nothing => throw (UserError ("Missing managed Activity field source type: " ++ show name))
+      normalised <- normalise context Env.empty original
+      toFullNames normalised
+
+    validate : ManagedActivityField -> Core String
+    validate field = do
+      read_type <- source_type field.getter 2
+      write_type <- source_type field.setter 3
+      (receiver, payload) <- case activity_field_getter_type read_type of
+        Left explanation => throw (UserError (explanation ++ ": " ++ show field.getter))
+        Right value => pure value
+      (write_receiver, write_payload) <- case activity_field_setter_type write_type of
+        Left explanation => throw (UserError (explanation ++ ": " ++ show field.setter))
+        Right value => pure value
+      if receiver /= write_receiver || lookup receiver domains /= Just (MkTypeReference "Landroid/app/Activity;")
+        then throw (UserError "Managed Activity field accessors require the same validated Activity source receiver")
+        else pure ()
+      context <- get Ctxt
+      if not !(convert context Env.empty payload write_payload)
+        then throw (UserError "Managed Activity field getter and setter payload source types differ")
+        else pure ()
+      pure (field.field_name ++ "\t" ++ show receiver ++ "\t" ++ show payload ++ "\t" ++
+        show field.getter ++ "\t" ++ show field.setter)
+
+private
 lower_exports :
   Name ->
   List (Name, DEXForeign) ->
@@ -410,7 +465,12 @@ managed_methods services foreigns abis definitions = do
             Right (lowered :: more)
 
 private
-managed_plan : String -> Maybe (String, List JNIService) -> List ExportABI -> List Name ->
+jni_library_initializer : JNILibrarySource -> MethodPlan
+jni_library_initializer (JNIPathProperty property) = heap_native_loader property
+jni_library_initializer (JNILibraryName name) = heap_named_native_loader name
+
+private
+managed_plan : String -> Maybe (JNILibrarySource, List JNIService) -> List ExportABI -> List Name ->
   List (Name, Administrative_Normal_Form_Definition) -> Either String FilePlan
 managed_plan program_name native [entry] reachable definitions = do
   if entry.effect /= PrimitiveIOForeign || entry.result_type /= VoidValue ||
@@ -430,7 +490,7 @@ managed_plan program_name native [entry] reachable definitions = do
   entry_bridge <- managed_export_bridge_arity entry.effect entry.method_name checked arity
     entry.parameter_types entry.result_type
   let native_methods = if null services then [] else
-        maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native services) native
+        maybe [] (\mapping => jni_library_initializer (fst mapping) :: map heap_native services) native
   let closure_targets = checked_closure_targets live
   let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
   let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
@@ -456,21 +516,21 @@ managed_plan _ _ _ _ _ = Left "Managed command execution requires exactly one IO
 -- Explicit qualification lane for checked heap semantics behind the existing
 -- framework/scalar ABI. Ordinary source data never acquires a foreign ABI.
 private
-managed_exports_plan : Maybe (String, List JNIService) -> List (Name, DEXForeign) ->
+managed_exports_plan : List ManagedActivityField -> Maybe (JNILibrarySource, List JNIService) -> List (Name, DEXForeign) ->
   List ExportABI -> List Name -> List (Name, Administrative_Normal_Form_Definition) ->
   Either String FilePlan
-managed_exports_plan native foreigns exports reachable definitions = do
+managed_exports_plan fields native foreigns exports reachable definitions = do
   let live = filter (\definition => elem (fst definition) reachable) definitions
-  let abis = managed_abis 0 live
+  let abis = managed_abis 0 live ++ activity_field_abis fields
   methods <- managed_methods (maybe [] snd native) foreigns abis live
   bridges <- traverse (bridge abis) exports
-  let native_methods = maybe [] (\mapping => heap_native_loader (fst mapping) :: map heap_native (snd mapping)) native
+  let native_methods = maybe [] (\mapping => jni_library_initializer (fst mapping) :: map heap_native (snd mapping)) native
   -- Public exports admit only checked scalars and opaque SDK references.
   -- Their managed closures originate in the same checked partial applications
   -- as command entries. Direct-call definitions need no dispatcher branch.
   let closure_targets = checked_closure_targets live
   let closure_abis = filter (\binding => elem (fst binding) closure_targets) abis
-  let all_methods = methods ++ [heap_apply closure_abis, heap_match_failure,
+  let all_methods = methods ++ activity_field_methods fields ++ [heap_apply closure_abis, heap_match_failure,
         heap_exact_number False, heap_exact_number True, heap_character, heap_text_number, heap_text_compare] ++ bridges ++ native_methods
   case find_duplicate_name (map method_name all_methods) of
     Just name => Left ("Managed framework/generated method name collision: " ++ name)
@@ -577,9 +637,12 @@ managed_text_plan _ _ _ = Left "Managed pure Text execution requires exactly one
 private
 parse_jni_services : List String -> Either String (List JNIService)
 parse_jni_services [] = Right []
-parse_jni_services (line :: rest) =
-  if null (words line) then parse_jni_services rest else do
-    parsed <- parse_native_boundary_row (words line)
+parse_jni_services (line :: rest) = case words line of
+  [] => parse_jni_services rest
+  "library" :: _ => Left "JNI map repeats a library header"
+  "library_property" :: _ => Left "JNI map repeats a library header"
+  columns => do
+    parsed <- parse_native_boundary_row columns
     if isPrefixOf (unpack "__idric") (unpack parsed.native_method_name) || parsed.native_method_name == "main"
       then Left "JNI method name is reserved for the checked runtime" else Right ()
     let service = MkJNIService parsed.native_convention parsed.native_method_name
@@ -589,7 +652,7 @@ parse_jni_services (line :: rest) =
       then Left "JNI map repeats a convention or native method" else Right (service :: more)
 
 private
-load_jni_services : List String -> Core (Maybe (String, List JNIService))
+load_jni_services : List String -> Core (Maybe (JNILibrarySource, List JNIService))
 load_jni_services directives =
   case filter (\directive => isPrefixOf (unpack "jni-map=") (unpack directive)) directives of
     [] => pure Nothing
@@ -597,12 +660,12 @@ load_jni_services directives =
       let path = pack (drop 8 (unpack directive))
       contents <- Core.readFile path
       case lines contents of
-        header :: rows => case words header of
-          ["library_property", property] => case parse_jni_services rows of
+        header :: rows => case parse_jni_library_header (words header) of
+          Left explanation => throw (UserError ("dex rejected JNI map: " ++ explanation))
+          Right library => case parse_jni_services rows of
             Left explanation => throw (UserError ("dex rejected JNI map: " ++ explanation))
             Right [] => throw (UserError "dex rejected empty JNI map")
-            Right services => pure (Just (property, services))
-          _ => throw (UserError "dex JNI map requires library_property header")
+            Right services => pure (Just (library, services))
         [] => throw (UserError "dex rejected empty JNI map")
     _ => throw (UserError "dex accepts exactly one explicit JNI map")
 
@@ -624,7 +687,8 @@ native_external_constraints services ((name, definition) :: rest) = do
 
 private
 clear_candidate_outputs : String -> String -> Core ()
-clear_candidate_outputs directory name = traverse_ clear [".dex", ".dex.plan", ".smali", ".runtime.tsv"]
+clear_candidate_outputs directory name = traverse_ clear
+  [".dex", ".dex.plan", ".smali", ".captured-runnable.smali", ".runtime.tsv", ".field-types.tsv"]
   where
     clear : String -> Core ()
     clear extension = do
@@ -653,38 +717,48 @@ compile_dex definitions syntax temporary_directory output_directory
       Left explanation =>
         throw (UserError ("dex rejected foreign declaration: " ++ explanation))
       Right accepted => pure accepted
-  directives <- getDirectives (Other backend_name)
+  declared_directives <- getDirectives (Other backend_name)
+  (generated_owner, directives) <- case select_generated_owner declared_directives of
+    Left explanation => throw (UserError ("dex rejected generated owner: " ++ explanation))
+    Right accepted => pure accepted
   native_services <- load_jni_services directives
   framework_domains <- resolve_external_domains foreigns
   native_constraints <- case native_external_constraints (maybe [] snd native_services) (anf resolved_compile_data) of
     Left explanation => throw (UserError ("dex rejected native source declaration: " ++ explanation))
     Right accepted => pure accepted
   external_domains <- validate_external_domains native_constraints framework_domains
+  (activity_fields, field_receipts) <- checked_activity_fields external_domains directives
+  let checked_definitions = map (rewrite_activity_fields activity_fields) (anf resolved_compile_data)
   export_abis <- traverse (resolve_export_abi external_domains) qualified_exports
-  let reachable = reachable_functions (anf resolved_compile_data)
+  let reachable = reachable_functions checked_definitions
                     (map internal_name export_abis) []
+  let captures_runnable = any (\(name, foreign) => elem name reachable &&
+        case foreign.operation of
+          ManagedRunnableCapture => True
+          _ => False) foreigns
   helpers <- discover_helpers
-    (filter (ordinary_function (anf resolved_compile_data)) reachable) export_abis 0
+    (filter (ordinary_function checked_definitions) reachable) export_abis 0
   let compiled_abis = export_abis ++ helpers
   let calls = foreigns ++ mapMaybe checked_invocation compiled_abis
   let checked_file = output_directory </> (requested_output_name ++ ".checked.anf")
   Core.writeFile checked_file
     ("directives pending; checked source definitions:\n" ++
-     render_checked_exports compiled_abis (anf resolved_compile_data))
+     render_checked_exports compiled_abis checked_definitions)
   integer_less_name <-
     toResolvedNames
       (NS (mkNamespace "Prelude.EqOrd") (UN (Basic "<")))
   case validate_exports export_abis of
     Left explanation => throw (UserError ("dex rejected exports: " ++ explanation))
     Right () => pure ()
-  let live_definitions = filter (\definition => elem (fst definition) reachable) (anf resolved_compile_data)
-  let requirements = checked_runtime_requirements live_definitions
+  let live_definitions = filter (\definition => elem (fst definition) reachable) checked_definitions
+  let requirements = checked_runtime_requirements live_definitions ++
+        map (\field => RequiresRuntime "managed-activity-fields" field.field_name) activity_fields
   -- LongValue parameters/results require paired import/export layout. Keep
   -- them in the existing managed boundary, including pure exports without a
   -- directive; the narrow direct lowerer counts one word per source argument.
   let wide_export = any (\entry => entry.result_type == LongValue ||
         elem LongValue entry.parameter_types) export_abis
-  let managed_export_boundary = elem "managed-exports" directives || wide_export
+  let managed_export_boundary = elem "managed-exports" directives || wide_export || captures_runnable
   -- The checked command contract selects the managed runtime, except when
   -- the checked graph actually uses the separate framework/reference ABI.
   -- A declaration's spelling or the accidental presence of argv is not a mode.
@@ -694,8 +768,14 @@ compile_dex definitions syntax temporary_directory output_directory
   let framework_calls = any (\foreign => elem (fst foreign) reachable) foreigns
   -- An explicit checked-export boundary wins over automatic command selection.
   -- In particular, a lone IO Unit export is not necessarily an ART main entry.
+  let framework_adapter = any (\directive => case words directive of
+        "extends" :: _ => True
+        "activity" :: _ => True
+        "override" :: _ => True
+        "callback" :: _ => True
+        _ => False) directives
   let managed_command = command_entry && not framework_calls &&
-                        not managed_export_boundary
+                        not managed_export_boundary && not framework_adapter
   -- A scalar-only Text export can require operations owned by the managed
   -- Text runtime even when optimization removes all ordinary constructors.
   -- Select from the checked graph, retaining the same pure ABI and refusals.
@@ -721,7 +801,7 @@ compile_dex definitions syntax temporary_directory output_directory
             Right accepted => pure accepted
       else do
         methods <- if managed_export_boundary
-          then case managed_exports_plan native_services foreigns export_abis reachable (anf resolved_compile_data) of
+          then case managed_exports_plan activity_fields native_services foreigns export_abis reachable checked_definitions of
             Left explanation => throw (UserError ("dex rejected managed exports: " ++ explanation))
             Right accepted => pure accepted.methods
           else case lower_exports integer_less_name calls compiled_abis (anf resolved_compile_data) of
@@ -731,17 +811,20 @@ compile_dex definitions syntax temporary_directory output_directory
         -- declarations; it is not a framework callback declaration.
         let callback_directives = if managed_export_boundary
               then filter (\directive => directive /= "managed-exports" &&
-                not (isPrefixOf (unpack "jni-map=") (unpack directive))) directives
+                not (isPrefixOf (unpack "jni-map=") (unpack directive)) &&
+                not (isPrefixOf (unpack "managed-field ") (unpack directive))) directives
               else directives
         case with_interface_callbacks "LIdric/Generated;" methods callback_directives of
           Left explanation => throw (UserError ("dex rejected callback: " ++ explanation))
-          Right accepted => pure accepted
+          Right accepted => pure ({ fields := accepted.fields ++ activity_field_declarations activity_fields } accepted)
+  let class_plans : List FilePlan = relocate_generated_classes generated_owner
+        ([plan] ++ (if captures_runnable then [managed_runnable_class] else []))
   finalized <-
-    case finalize_file_plan plan of
+    case traverse finalize_file_plan class_plans of
       Left explanation => throw (UserError ("dex layout rejected plan: " ++ explanation))
       Right accepted => pure accepted
   bytes <-
-    case encode_finalized_dex finalized of
+    case encode_finalized_classes finalized of
       Left explanation => throw (UserError ("dex encoder rejected plan: " ++ explanation))
       Right encoded => pure encoded
   let dex_file = output_directory </> (requested_output_name ++ ".dex")
@@ -752,13 +835,22 @@ compile_dex definitions syntax temporary_directory output_directory
     Left explanation => throw (UserError ("Could not write DEX: " ++ explanation))
     Right () => pure ()
   Core.writeFile checked_file
-    ("directives:\n" ++ unlines directives ++ "\n" ++
+    ("directives:\n" ++ unlines declared_directives ++ "\n" ++
      render_checked_exports compiled_abis (anf resolved_compile_data))
-  Core.writeFile plan_file (render_file_plan (finalized_plan finalized))
-  Core.writeFile smali_file (render_finalized_smali finalized)
+  Core.writeFile plan_file (concatMap (render_file_plan . finalized_plan) finalized)
+  case finalized of
+    generated :: callback :: _ => do
+      Core.writeFile smali_file (render_finalized_smali generated)
+      Core.writeFile (output_directory </> (requested_output_name ++ ".captured-runnable.smali"))
+        (render_finalized_smali callback)
+    generated :: _ => Core.writeFile smali_file (render_finalized_smali generated)
+    [] => throw (UserError "DEX finalized no checked classes")
   Core.writeFile (output_directory </> (requested_output_name ++ ".runtime.tsv"))
     (render_runtime_requirements (if managed_command then "managed-command" else "checked-platform")
-      requirements (finalized_plan finalized).methods)
+      requirements (concatMap (methods . finalized_plan) finalized))
+  if null activity_fields then pure () else
+    Core.writeFile (output_directory </> (requested_output_name ++ ".field-types.tsv"))
+      ("field\treceiver_source_type\tclosed_payload_source_type\tgetter\tsetter\n" ++ unlines field_receipts)
   pure (Just dex_file)
 
 private

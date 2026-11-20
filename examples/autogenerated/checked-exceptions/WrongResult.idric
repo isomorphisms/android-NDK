@@ -1,0 +1,8 @@
+module WrongResult
+%foreign "dex:finally-io-unit"
+bad_finally : IO () → IO () → PrimIO Text
+%export "dex:wrong_exception_result"
+wrong_exception_result : IO Text
+wrong_exception_result = primIO (bad_finally (pure ()) (pure ()))
+main : IO ()
+main = pure ()

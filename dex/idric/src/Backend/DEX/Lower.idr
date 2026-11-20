@@ -2,6 +2,7 @@ module Backend.DEX.Lower
 
 import Backend.DEX.Foreign
 import Backend.DEX.IR
+import Backend.DEX.ReferenceNull
 import Compiler.ANF
 import Core.FC
 import Core.Name
@@ -608,6 +609,23 @@ lower_foreign_call destination destination_type name arguments state =
               (emit (InvokeMethod (Invoke InvokeDirect method
                        (destination :: registers) Nothing))
                 (emit (NewObject destination method.owner) state))
+            Float32Arithmetic _ =>
+              Left "Checked Float32 arithmetic requires the managed external-value boundary"
+            ManagedRunnableCapture =>
+              Left "Captured Runnable requires the checked managed closure boundary"
+            CheckedReferenceNull => case registers of
+              [input] =>
+                let (null_case, after_null) = fresh_label state
+                    (finished, after_finished) = fresh_label after_null in
+                Right (foldl (flip emit) after_finished
+                  (reference_null_instructions input destination null_case finished))
+              _ => Left "DEX checked reference null test requires exactly one argument"
+            ManagedCatchIOUnit =>
+              Left "Checked catch requires the checked managed closure boundary"
+            ManagedFinallyIOUnit =>
+              Left "Checked finally requires the checked managed closure boundary"
+            ManagedThrowThrowable =>
+              Left "Checked throw requires the checked managed Throwable boundary"
 
 private
 lower_comparison :

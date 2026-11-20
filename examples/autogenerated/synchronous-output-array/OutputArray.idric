@@ -1,0 +1,32 @@
+module OutputArray
+
+data PixelBuffer : Type where [external]
+data PixelOutput : Type where [external]
+
+%foreign "dex:static:Ljava/nio/IntBuffer;:allocate:(I)Ljava/nio/IntBuffer;"
+allocate_pixels : Int32 → PrimIO PixelBuffer
+
+%foreign "dex:virtual:Ljava/nio/IntBuffer;:array:()[I"
+pixel_array : PixelBuffer → PrimIO PixelOutput
+
+%foreign "dex:virtual:Ljava/nio/IntBuffer;:get:(I)I"
+read_pixel : PixelBuffer → Int32 → PrimIO Int32
+
+%foreign "C:render_output,librenderoutput"
+render_output : Int64 → Int32 → Int32 → Int32 → Double → Double → Double → Double →
+  PixelOutput → PrimIO Int32
+
+%export "dex:render_probe"
+render_probe : Int32 → IO Int32
+render_probe input = do
+  pixels ← primIO (allocate_pixels 4)
+  output ← primIO (pixel_array pixels)
+  status ← primIO (render_output 16777217 2 2 1 0.4 0.37 (-0.19) 1.1 output)
+  if status ≟ 0 then primIO (read_pixel pixels 0) else pure status
+
+%export "dex:render_into"
+render_into : PixelOutput → IO Int32
+render_into output = primIO (render_output 16777217 2 2 1 0.4 0.37 (-0.19) 1.1 output)
+
+main : IO ()
+main = pure ()

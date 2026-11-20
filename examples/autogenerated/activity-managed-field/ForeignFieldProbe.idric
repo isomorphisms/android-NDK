@@ -1,0 +1,39 @@
+module ForeignFieldProbe
+
+import Data.IORef
+import Data.Text
+
+data ActivityReference : Type where [external]
+data AppState = Active Text (List Text) | Closed
+
+-- Deliberately unimplemented convention: preserve what the frontend actually
+-- exposes for the source-owned managed cell before selecting a field mechanism.
+%foreign "dex:virtual:LIdric/Generated;:getState:()Ljava/lang/Object;"
+get_state : ActivityReference → PrimIO (IORef AppState)
+
+%foreign "dex:virtual:LIdric/Generated;:setState:(Ljava/lang/Object;)V"
+set_state : ActivityReference → IORef AppState → PrimIO ()
+
+%foreign "dex:virtual:Landroid/app/Activity;:getTaskId:()I"
+activity_identity : ActivityReference → PrimIO Int32
+
+%cg dex extends Landroid/app/Activity;
+
+%export "dex:initialize_state"
+initialize_state : ActivityReference → Text → IO ()
+initialize_state activity value = do
+  ignored ← primIO (activity_identity activity)
+  state ← newIORef (Active value [value])
+  primIO (set_state activity state)
+
+%export "dex:read_state"
+read_state : ActivityReference → IO Text
+read_state activity = do
+  state ← primIO (get_state activity)
+  current ← readIORef state
+  case current of
+    Active value [_] ⇒ pure value
+    _ ⇒ pure "closed"
+
+main : IO ()
+main = pure ()

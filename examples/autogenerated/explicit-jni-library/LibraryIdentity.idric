@@ -1,0 +1,14 @@
+module LibraryIdentity
+
+%default covering
+
+-- Reuse the existing purpose-neutral checked JNI fixture and its exact I ABI.
+%foreign "C:contract_narrow,libcontract"
+native_identity : Int32 → PrimIO Int32
+
+%export "dex:library_identity"
+library_identity : Int32 → IO Int32
+library_identity value = primIO (native_identity value)
+
+main : IO ()
+main = pure ()

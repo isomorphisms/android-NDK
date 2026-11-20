@@ -108,6 +108,10 @@ wide_move_width destination source =
 private
 instruction_width : Instruction -> Either String Int
 instruction_width (Mark label) = Right 0
+instruction_width (CatchRegion _ _ _ _) = Right 0
+instruction_width (MoveException register) =
+  if valid_register 255 register then Right 1
+    else Left "DEX move-exception requires a reference in v0..v255"
 instruction_width (IntegerConstant destination value) =
   if not (valid_register 255 destination)
     then Left ("DEX const destination exceeds v255: " ++ show destination)
@@ -145,6 +149,10 @@ instruction_width (AddLong destination left right) =
   if valid_register 255 destination && valid_register 255 left && valid_register 255 right
     then Right 2
     else Left "DEX add-long format 23x requires registers v0..v255"
+instruction_width (Binary32Binary _ destination left right) =
+  if valid_register 255 destination && valid_register 255 left && valid_register 255 right
+    then Right 2
+    else Left "DEX binary32 format 23x requires registers v0..v255"
 instruction_width (Binary64Constant destination bits) =
   if not (valid_register 255 destination)
     then Left "DEX const-wide requires a register pair beginning in v0..v255"
@@ -169,6 +177,12 @@ instruction_width (StaticGetObject destination field) =
 instruction_width (StaticPutObject source field) =
   if valid_register 255 source then Right 2
     else Left "DEX sput-object format 21c requires register v0..v255"
+instruction_width (InstanceGetObject destination receiver _) =
+  if valid_register 15 destination && valid_register 15 receiver then Right 2
+    else Left "DEX iget-object format 22c requires registers v0..v15"
+instruction_width (InstancePutObject source receiver _) =
+  if valid_register 15 source && valid_register 15 receiver then Right 2
+    else Left "DEX iput-object format 22c requires registers v0..v15"
 instruction_width (NullReference destination) =
   instruction_width (IntegerConstant destination 0)
 instruction_width (CheckCast register _) =
@@ -199,6 +213,9 @@ instruction_width (IntegerBranch _ left right target) =
   if valid_register 15 left && valid_register 15 right
     then Right 2
     else Left "DEX format 22t integer branches require registers v0..v15"
+instruction_width (ReferenceNullBranch _ reference _) =
+  if valid_register 255 reference then Right 2
+    else Left "DEX format 21t reference-null branches require register v0..v255"
 instruction_width (Goto target) = Right 1
 instruction_width (Goto16 target) = Right 2
 instruction_width (Goto32 target) = Right 3
@@ -289,6 +306,11 @@ inverse_condition LessEqualInteger = GreaterThanInteger
 inverse_condition GreaterThanInteger = LessEqualInteger
 inverse_condition GreaterEqualInteger = LessThanInteger
 
+private
+inverse_reference_condition : ReferenceNullCondition -> ReferenceNullCondition
+inverse_reference_condition EqualNull = NotEqualNull
+inverse_reference_condition NotEqualNull = EqualNull
+
 -- DEX has no wider conditional opcode. A far condition becomes its inverse
 -- over a goto/32. The skip label is fresh within the actual placed method.
 -- Zero offsets retain their existing explicit refusal.
@@ -305,6 +327,16 @@ widen_branch labels address next_label instruction@(IntegerBranch condition left
       then Left "DEX conditional layout exhausted its fresh label range"
       else Right
         ([IntegerBranch (inverse_condition condition) left right (MkLabel next_label),
+          Goto32 target, Mark (MkLabel next_label)], True, next_label + 1)
+widen_branch labels address next_label instruction@(ReferenceNullBranch condition reference target) = do
+  target_address <- find_label target labels
+  let offset = target_address - address
+  if offset >= -32768 && offset <= 32767
+    then Right ([instruction], False, next_label)
+    else if next_label >= signed32_max
+      then Left "DEX conditional layout exhausted its fresh label range"
+      else Right
+        ([ReferenceNullBranch (inverse_reference_condition condition) reference (MkLabel next_label),
           Goto32 target, Mark (MkLabel next_label)], True, next_label + 1)
 widen_branch labels address next_label instruction = do
   (widened, changed) <- widen_goto labels address instruction
@@ -339,6 +371,13 @@ binary_opcode : IntegerBinaryOperation -> Integer
 binary_opcode AddInteger = 0x90
 binary_opcode SubtractInteger = 0x91
 binary_opcode MultiplyInteger = 0x92
+
+private
+binary32_opcode : Binary32Operation -> Integer
+binary32_opcode AddBinary32 = 0xa6
+binary32_opcode SubtractBinary32 = 0xa7
+binary32_opcode MultiplyBinary32 = 0xa8
+binary32_opcode DivideBinary32 = 0xa9
 
 private
 binary64_opcode : Binary64Operation -> Integer
@@ -395,6 +434,10 @@ encode_instruction :
   List (Label, Int) -> Int -> Instruction ->
   Either String (List Int)
 encode_instruction strings descriptors method_ids field_ids labels address (Mark label) = Right []
+encode_instruction strings descriptors method_ids field_ids labels address (CatchRegion _ _ _ _) = Right []
+encode_instruction strings descriptors method_ids field_ids labels address instruction@(MoveException register) = do
+  _ <- instruction_width instruction
+  Right (u16le (0x0d + cast register.number * 256))
 encode_instruction strings descriptors method_ids field_ids labels address instruction@(CheckCast register target) = do
   _ <- instruction_width instruction
   index <- lookup_index "check-cast type" target.descriptor descriptors
@@ -439,6 +482,11 @@ encode_instruction strings descriptors method_ids field_ids labels address
   Right (u16le (0x9b + cast destination.number * 256) ++
          u16le (cast left.number + cast right.number * 256))
 encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(Binary32Binary operation destination left right) = do
+  _ <- instruction_width instruction
+  Right (u16le (binary32_opcode operation + cast destination.number * 256) ++
+         u16le (cast left.number + cast right.number * 256))
+encode_instruction strings descriptors method_ids field_ids labels address
   instruction@(Binary64Constant destination bits) = do
   _ <- instruction_width instruction
   Right (u16le (0x18 + cast destination.number * 256) ++ u64le bits)
@@ -468,6 +516,20 @@ encode_instruction strings descriptors method_ids field_ids labels address
   index <- lookup_index "sput-object field" field field_ids
   if index > 65535 then Left "DEX sput-object field-id exceeds 65535"
     else Right (u16le (0x69 + cast source.number * 256) ++ u16le (cast index))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(InstanceGetObject destination receiver field) = do
+  _ <- instruction_width instruction
+  index <- lookup_index "iget-object field" field field_ids
+  if index > 65535 then Left "DEX iget-object field-id exceeds 65535"
+    else Right (u16le (0x54 + cast destination.number * 256 + cast receiver.number * 4096) ++
+      u16le (cast index))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(InstancePutObject source receiver field) = do
+  _ <- instruction_width instruction
+  index <- lookup_index "iput-object field" field field_ids
+  if index > 65535 then Left "DEX iput-object field-id exceeds 65535"
+    else Right (u16le (0x5b + cast source.number * 256 + cast receiver.number * 4096) ++
+      u16le (cast index))
 encode_instruction strings descriptors method_ids field_ids labels address (NullReference destination) =
   encode_instruction strings descriptors method_ids field_ids labels address (IntegerConstant destination 0)
 encode_instruction strings descriptors method_ids field_ids labels address
@@ -527,6 +589,17 @@ encode_instruction strings descriptors method_ids field_ids labels address
           (branch_opcode condition + cast left.number * 256 +
            cast right.number * 4096) ++
          u16le (cast offset))
+encode_instruction strings descriptors method_ids field_ids labels address
+  instruction@(ReferenceNullBranch condition reference target) = do
+  _ <- instruction_width instruction
+  target_address <- find_label target labels
+  let offset = target_address - address
+  if offset == 0 || offset < -32768 || offset > 32767
+    then Left ("DEX format 21t reference-null branch offset is zero or out of range at code unit " ++
+               show address ++ ": " ++ show offset)
+    else
+      let opcode = case condition of EqualNull => 0x38; NotEqualNull => 0x39 in
+      Right (u16le (opcode + cast reference.number * 256) ++ u16le (cast offset))
 encode_instruction strings descriptors method_ids field_ids labels address instruction@(Goto target) = do
   _ <- instruction_width instruction
   target_address <- find_label target labels
@@ -829,7 +902,21 @@ private
 instruction_field_references : Instruction -> List FieldReference
 instruction_field_references (StaticGetObject _ field) = [field]
 instruction_field_references (StaticPutObject _ field) = [field]
+instruction_field_references (InstanceGetObject _ _ field) = [field]
+instruction_field_references (InstancePutObject _ _ field) = [field]
 instruction_field_references _ = []
+
+private
+static_fields : Instruction -> List FieldReference
+static_fields (StaticGetObject _ field) = [field]
+static_fields (StaticPutObject _ field) = [field]
+static_fields _ = []
+
+private
+instance_fields : Instruction -> List FieldReference
+instance_fields (InstanceGetObject _ _ field) = [field]
+instance_fields (InstancePutObject _ _ field) = [field]
+instance_fields _ = []
 
 private
 declared_field_reference : String -> FieldPlan -> FieldReference
@@ -857,6 +944,7 @@ private
 instruction_type_descriptors : Instruction -> List String
 instruction_type_descriptors (CheckCast register target) = [target.descriptor]
 instruction_type_descriptors (NewObject _ object_type) = [object_type.descriptor]
+instruction_type_descriptors (CatchRegion caught _ _ _) = [caught.descriptor]
 instruction_type_descriptors _ = []
 
 private
@@ -991,7 +1079,125 @@ record PreparedMethod where
   prototype_index : Int
   instruction_bytes : List Int
   instruction_units : Int
+  protected_region_count : Int
+  protected_region_bytes : List Int
   code_offset : Int
+
+private
+record ProtectedRegion where
+  constructor ResolvedRegion
+  beginning : Int
+  ending : Int
+  handler : Int
+  caught_type : TypeReference
+
+private
+resolve_regions : List (Label, Int) -> List Instruction -> Either String (List ProtectedRegion)
+resolve_regions labels [] = Right []
+resolve_regions labels (CatchRegion caught beginning ending handler :: rest) = do
+  start_address <- find_label beginning labels
+  end_address <- find_label ending labels
+  handler_address <- find_label handler labels
+  more <- resolve_regions labels rest
+  Right (ResolvedRegion start_address end_address handler_address caught :: more)
+resolve_regions labels (_ :: rest) = resolve_regions labels rest
+
+private
+addressed_instructions : Int -> List Instruction -> Either String (List (Int, Instruction))
+addressed_instructions address [] = Right []
+addressed_instructions address (instruction :: rest) = do
+  width <- instruction_width instruction
+  more <- addressed_instructions (address + width) rest
+  Right (if width == 0 then more else (address, instruction) :: more)
+
+private
+terminates_flow : Instruction -> Bool
+terminates_flow (ReturnInteger _) = True
+terminates_flow (ReturnObject _) = True
+terminates_flow (ReturnWide _) = True
+terminates_flow ReturnVoid = True
+terminates_flow (ThrowObject _) = True
+terminates_flow (Goto _) = True
+terminates_flow (Goto16 _) = True
+terminates_flow (Goto32 _) = True
+terminates_flow _ = False
+
+private
+branch_target : Instruction -> Maybe Label
+branch_target (IntegerBranch _ _ _ target) = Just target
+branch_target (ReferenceNullBranch _ _ target) = Just target
+branch_target (Goto target) = Just target
+branch_target (Goto16 target) = Just target
+branch_target (Goto32 target) = Just target
+branch_target _ = Nothing
+
+private
+validate_handler_entries : List Int -> List (Label, Int) -> Bool ->
+  List (Int, Instruction) -> Either String ()
+validate_handler_entries handlers labels previous_terminates [] = Right ()
+validate_handler_entries handlers labels previous_terminates ((address, instruction) :: rest) = do
+  case instruction of
+    MoveException _ =>
+      if address > 0 && elem address handlers && previous_terminates
+        then Right ()
+        else Left "DEX move-exception must begin a declared handler with no ordinary fallthrough"
+    _ => if elem address handlers
+      then Left "DEX exception handler must begin with move-exception"
+      else Right ()
+  case branch_target instruction of
+    Nothing => Right ()
+    Just label => do
+      target <- find_label label labels
+      if elem target handlers
+        then Left "DEX ordinary branch cannot enter an exception handler"
+        else Right ()
+  validate_handler_entries handlers labels (terminates_flow instruction) rest
+
+private
+validate_region_ranges : Int -> Int -> List ProtectedRegion -> Either String ()
+validate_region_ranges units previous_end [] = Right ()
+validate_region_ranges units previous_end (region :: rest) = do
+  if region.beginning < previous_end || region.beginning < 0 ||
+     region.ending <= region.beginning || region.ending > units ||
+     region.ending - region.beginning > 65535 || region.handler <= 0 ||
+     region.handler >= units ||
+     (region.handler >= region.beginning && region.handler < region.ending)
+    then Left "DEX protected regions must be nonempty, disjoint, bounded and exclude their own handler"
+    else Right ()
+  validate_region_ranges units region.ending rest
+
+private
+checked_regions : List Instruction -> Either String (List ProtectedRegion)
+checked_regions instructions = do
+  labels <- label_addresses instructions
+  addressed <- addressed_instructions 0 instructions
+  widths <- traverse instruction_width instructions
+  resolved <- resolve_regions labels instructions
+  let regions = sortBy (\left, right => compare left.beginning right.beginning) resolved
+  if length regions > 65535 then Left "DEX method exceeds the protected region count" else Right ()
+  validate_region_ranges (sum widths) 0 regions
+  validate_handler_entries (map handler regions) labels False addressed
+  Right regions
+
+private
+encode_regions : List String -> List ProtectedRegion -> Either String (List Int)
+encode_regions descriptors [] = Right []
+encode_regions descriptors regions = do
+  let count = uleb128 (cast (length regions))
+  (items, handlers) <- go (cast (length count)) regions
+  Right (items ++ count ++ handlers)
+  where
+    go : Int -> List ProtectedRegion -> Either String (List Int, List Int)
+    go offset [] = Right ([], [])
+    go offset (region :: rest) = do
+      index <- lookup_index "exception type" region.caught_type.descriptor descriptors
+      if offset > 65535 then Left "DEX encoded catch handler offset exceeds uint16" else Right ()
+      -- A positive signed-LEB size of one names one typed catch, no catch-all.
+      let payload = [1] ++ uleb128 (cast index) ++ uleb128 (cast region.handler)
+      (items, handlers) <- go (offset + cast (length payload)) rest
+      let item = u32le (cast region.beginning) ++
+        u16le (cast (region.ending - region.beginning)) ++ u16le (cast offset)
+      Right (item ++ items, payload ++ handlers)
 
 private
 prepare_methods :
@@ -1007,11 +1213,13 @@ prepare_methods strings descriptors prototypes method_ids field_ids class_descri
     lookup_index "generated method"
       (generated_method_reference class_descriptor method) method_ids
   bytes <- encode_final_instructions strings descriptors method_ids field_ids method.instructions
+  regions <- checked_regions method.instructions
+  region_bytes <- encode_regions descriptors regions
   more <-
     prepare_methods strings descriptors prototypes method_ids field_ids class_descriptor rest
   Right
     (MkPreparedMethod class_descriptor method incoming_words outgoing_words method_index prototype_index bytes
-      (cast (length bytes) `div` 2) 0 :: more)
+      (cast (length bytes) `div` 2) (cast (length regions)) region_bytes 0 :: more)
 
 private
 record CodeLayout where
@@ -1037,9 +1245,11 @@ layout_code_from current (method :: rest) accumulated laid_out first =
         u16le (cast method.plan.register_count) ++
         u16le (cast method.incoming_words) ++
         u16le (cast method.outgoing_words) ++
-        u16le 0 ++ u32le 0 ++
+        u16le (cast method.protected_region_count) ++ u32le 0 ++
         u32le (cast method.instruction_units)
-      item = header ++ method.instruction_bytes
+      handler_padding = if method.protected_region_count > 0 && method.instruction_units `mod` 2 /= 0
+        then [0, 0] else []
+      item = header ++ method.instruction_bytes ++ handler_padding ++ method.protected_region_bytes
       placed = { code_offset := start } method
       next_first =
         case first of
@@ -1110,7 +1320,7 @@ class_data plan methods field_ids = do
       Right (index, field.access_flags)) plan.fields
   let ordered_fields = sortBy (\left, right => compare (fst left) (fst right)) indexed
   let static_fields = filter (\field => elem (snd field) [9, 10]) ordered_fields
-  let instance_fields = filter (\field => elem (snd field) [1, 2]) ordered_fields
+  let instance_fields = filter (\field => elem (snd field) [1, 2, 0x12]) ordered_fields
   let direct = filter (\method => not (virtual_method method.plan.mode)) methods
   let virtual = filter (\method => virtual_method method.plan.mode) methods
   Right (uleb128 (cast (length static_fields)) ++ uleb128 (cast (length instance_fields)) ++
@@ -1231,6 +1441,7 @@ finalize_method original = do
     else do
      placed <- prepare_method_invocations original
      widened <- relax_gotos (S (2 * length placed.instructions)) placed.instructions
+     _ <- checked_regions widened
      Right ({ instructions := widened } placed)
 
 private
@@ -1256,12 +1467,28 @@ private
 validate_field_instruction : Instruction -> Either String ()
 validate_field_instruction (StaticGetObject _ field) =
   if object_field_value field.value_type && valid_field_name field.name
-    then validate_value_type field.value_type
+    then do
+      validate_class_descriptor field.owner.descriptor
+      validate_value_type field.value_type
     else Left "DEX sget-object requires a named reference-typed field"
 validate_field_instruction (StaticPutObject _ field) =
   if object_field_value field.value_type && valid_field_name field.name
-    then validate_value_type field.value_type
+    then do
+      validate_class_descriptor field.owner.descriptor
+      validate_value_type field.value_type
     else Left "DEX sput-object requires a named reference-typed field"
+validate_field_instruction (InstanceGetObject _ _ field) =
+  if object_field_value field.value_type && valid_field_name field.name
+    then do
+      validate_class_descriptor field.owner.descriptor
+      validate_value_type field.value_type
+    else Left "DEX iget-object requires a named reference-typed field"
+validate_field_instruction (InstancePutObject _ _ field) =
+  if object_field_value field.value_type && valid_field_name field.name
+    then do
+      validate_class_descriptor field.owner.descriptor
+      validate_value_type field.value_type
+    else Left "DEX iput-object requires a named reference-typed field"
 validate_field_instruction _ = Right ()
 
 private
@@ -1273,7 +1500,7 @@ validate_declared_fields plan = do
   _ <- traverse
     (\field =>
       if valid_field_name field.name && object_field_value field.value_type &&
-         elem field.access_flags [1, 2, 9, 10]
+         elem field.access_flags [1, 2, 9, 10, 0x12]
         then validate_value_type field.value_type
         else Left "DEX field declaration must be public/private static or instance reference")
     plan.fields
@@ -1282,6 +1509,7 @@ validate_declared_fields plan = do
 private
 validate_allocation : Instruction -> Either String ()
 validate_allocation (NewObject _ object_type) = validate_class_descriptor object_type.descriptor
+validate_allocation (CatchRegion caught _ _ _) = validate_class_descriptor caught.descriptor
 validate_allocation _ = Right ()
 
 export
@@ -1338,7 +1566,7 @@ layout_class_data current (plan :: rest) methods fields = do
     layout_class_data (current + cast (length bytes)) rest methods fields
   Right (bytes ++ other, (plan.class_descriptor, current) :: offsets, finish)
 
-private
+export
 encode_finalized_classes : List FinalizedFilePlan -> Either String (List Int)
 encode_finalized_classes frozen = do
   if null frozen then Left "A DEX file needs at least one class" else Right ()
@@ -1359,12 +1587,20 @@ encode_finalized_classes frozen = do
   if length field_ids > 65536
     then Left "DEX field_id count exceeds the 16-bit instruction index range"
     else Right ()
-  let owned_fields = concatMap
+  let owned_static_fields = concatMap
         (\plan => map (declared_field_reference plan.class_descriptor)
           (filter (\field => elem field.access_flags [9, 10]) plan.fields)) plans
-  let referenced_fields = concatMap (concatMap instruction_field_references . instructions) methods
-  if any (\field => elem field.owner.descriptor classes && not (elem field owned_fields)) referenced_fields
+  let owned_instance_fields = concatMap
+        (\plan => map (declared_field_reference plan.class_descriptor)
+          (filter (\field => elem field.access_flags [1, 2, 0x12]) plan.fields)) plans
+  let all_instructions = concatMap instructions methods
+  let referenced_static_fields = concatMap static_fields all_instructions
+  let referenced_instance_fields = concatMap instance_fields all_instructions
+  if any (\field => elem field.owner.descriptor classes && not (elem field owned_static_fields)) referenced_static_fields
     then Left "DEX generated class reads or writes an undeclared static field"
+    else Right ()
+  if any (\field => elem field.owner.descriptor classes && not (elem field owned_instance_fields)) referenced_instance_fields
+    then Left "DEX generated class reads or writes an undeclared instance field"
     else Right ()
   let method_ids = sort_method_references
         (concatMap (\plan => all_method_references plan.class_descriptor plan.methods) plans)

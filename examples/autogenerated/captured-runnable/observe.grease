@@ -1,0 +1,92 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+if (len(ARGV) !== 4) { echo 'usage: grease observe.grease ADB SERIAL VERIFIED_INPUT FRESH_EVIDENCE' >&2; exit 2 }
+var adb = ARGV[0]
+var serial = ARGV[1]
+var input = ARGV[2]
+var evidence = ARGV[3]
+for path in ([adb, input, evidence]) {
+  if (path[0] !== '/') { echo 'FAIL absolute paths required' >&2; exit 2 }
+}
+if test -e "$evidence" { echo 'FAIL reused captured Runnable observation' >&2; exit 1 }
+test -s "$input/result.tsv"
+rg -x -F 'checked_source	PASS' "$input/result.tsv"
+# Resolve the exact emulator before any remote mutation. This is separate from
+# Android widget, APK, or physical-device acceptance.
+var qemu = $("$adb" -s "$serial" shell getprop ro.kernel.qemu | tr -d '\r')
+var api = $("$adb" -s "$serial" shell getprop ro.build.version.sdk | tr -d '\r')
+var abi = $("$adb" -s "$serial" shell getprop ro.product.cpu.abi | tr -d '\r')
+if (qemu !== '1' or abi !== 'x86_64' or api !== ENV.AICI_EXPECTED_ANDROID_API or (api !== '29' and api !== '34')) {
+  echo 'FAIL wrong captured Runnable ART target' >&2
+  exit 1
+}
+mkdir -p "$evidence"
+"$adb" -s "$serial" shell getprop > "$evidence/getprop.txt"
+var digest = $(sha256sum "$input/positive/candidate.dex" | cut -d ' ' -f 1)
+var remote = "/data/local/tmp/idric-captured-runnable-$digest"
+"$adb" -s "$serial" shell test ! -e "$remote"
+"$adb" -s "$serial" shell mkdir "$remote"
+"$adb" -s "$serial" push "$input/runner.dex" "$remote/runner.dex"
+"$adb" -s "$serial" shell chmod 444 "$remote/runner.dex"
+"$adb" -s "$serial" pull "$remote/runner.dex" "$evidence/runner.received.dex"
+cmp "$input/runner.dex" "$evidence/runner.received.dex"
+printf '%s\n' 'PASS checked captured Runnable: isolated ADT/Text/list, deferred/repeated run, retained Thread, Executor' > "$evidence/expected.txt"
+for lane in positive order-mutant text-mutant {
+  "$adb" -s "$serial" push "$input/$lane/candidate.dex" "$remote/$lane.dex"
+  "$adb" -s "$serial" shell chmod 444 "$remote/$lane.dex"
+  "$adb" -s "$serial" pull "$remote/$lane.dex" "$evidence/$lane.received.dex"
+  cmp "$input/$lane/candidate.dex" "$evidence/$lane.received.dex"
+  try {
+    "$adb" -s "$serial" logcat -b all -d -v threadtime -t 2000 \
+      > "$evidence/$lane.before.logcat" 2> "$evidence/$lane.before-logcat.stderr"
+  }
+  var before_logcat_status = _error.code
+  try {
+    timeout 60 "$adb" -s "$serial" shell -T \
+      "app_process -Xcheck:jni -Djava.class.path=$remote/runner.dex:$remote/$lane.dex /system/bin --nice-name=idric-captured-runnable-$lane CapturedRunnableRunner" \
+      > "$evidence/$lane.actual" 2> "$evidence/$lane.stderr"
+  }
+  var status = _error.code
+  printf '%s\n' "$status" > "$evidence/$lane.exit"
+  # Always retain process diagnostics before checking positive/mutant outcomes.
+  try {
+    "$adb" -s "$serial" logcat -b all -d -v threadtime -t 2000 \
+      > "$evidence/$lane.after.logcat" 2> "$evidence/$lane.after-logcat.stderr"
+  }
+  var after_logcat_status = _error.code
+  printf 'process_exit\t%s\nbefore_logcat_exit\t%s\nafter_logcat_exit\t%s\n' \
+    "$status" "$before_logcat_status" "$after_logcat_status" > "$evidence/$lane.status.tsv"
+  if (status === 124) {
+    printf 'termination\thost_timeout_60s\n' >> "$evidence/$lane.status.tsv"
+  } elif (status >= 128 and status <= 192) {
+    printf 'termination\tsignal_style_shell_status\ninferred_signal_number\t%s\n' "$[status - 128]" \
+      >> "$evidence/$lane.status.tsv"
+  } else {
+    printf 'termination\tprocess_exit\n' >> "$evidence/$lane.status.tsv"
+  }
+  cat "$evidence/$lane.actual"
+  cat "$evidence/$lane.stderr"
+  cat "$evidence/$lane.status.tsv"
+  try {
+    rg -n -e 'CapturedRunnableRunner|idric-captured-runnable|AndroidRuntime|FATAL|Fatal signal|SIG[A-Z]+|lmkd|lowmemorykiller|avc: denied' \
+      "$evidence/$lane.after.logcat" > "$evidence/$lane.diagnostics.txt"
+  }
+  var diagnostic_status = _error.code
+  if (diagnostic_status > 1) { echo 'FAIL captured Runnable diagnostic extraction' >&2; exit 1 }
+  cat "$evidence/$lane.diagnostics.txt"
+  if (before_logcat_status !== 0 or after_logcat_status !== 0) {
+    echo 'FAIL missing captured Runnable logcat evidence' >&2; exit 1
+  }
+  if (lane === 'positive') {
+    if (status !== 0) { echo 'FAIL captured Runnable platform dispatch' >&2; exit 1 }
+    cmp "$evidence/expected.txt" "$evidence/$lane.actual"
+  } else {
+    if (status !== 93) { echo 'FAIL missing designated captured Runnable assertion rejection' >&2; exit 1 }
+    rg -F 'java.lang.AssertionError: repeated action mutated or lost its captured closure' "$evidence/$lane.stderr"
+    if rg -e 'VerifyError|NoClassDefFoundError|UnsatisfiedLinkError|OutOfMemoryError' "$evidence/$lane.stderr" {
+      echo 'FAIL infrastructure exception is not source-mutation rejection' >&2; exit 1
+    }
+  }
+}
+printf 'schema\tidric-captured-runnable-v1\napi\t%s\nabi\t%s\nsource_ADT_Text_list_capture\tPASS\ndeferred_and_repeated_run\tPASS\nThread_after_factory_return_and_GC_pressure\tPASS\nExecutor_dispatch\tPASS\ncompiled_order_mutation\tREJECTED\ncompiled_Text_mutation\tREJECTED\nActivity_lifecycle\tNOT_RUN\nAPK\tNOT_RUN\nphysical_device\tNOT_RUN\n' "$api" "$abi" > "$evidence/result.tsv"
+printf '\033[32mPASS\033[0m captured checked action executed by platform Runnable, Thread and Executor\n'

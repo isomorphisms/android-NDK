@@ -1,0 +1,15 @@
+module OrdinaryFloatDomain
+
+data Float32 = OrdinaryFloat32 Int32
+
+%foreign "dex:static:Ljava/lang/Float;:intBitsToFloat:(I)F"
+from_bits : Int32 → Float32
+%foreign "dex:static:Ljava/lang/Float;:floatToRawIntBits:(F)I"
+float_bits : Float32 → Int32
+
+%export "dex:ordinary_float"
+ordinary_float : Int32 → Int32
+ordinary_float bits = float_bits (from_bits bits)
+
+main : IO ()
+main = pure ()

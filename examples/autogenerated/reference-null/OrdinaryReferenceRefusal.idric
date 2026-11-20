@@ -1,0 +1,13 @@
+module OrdinaryReferenceRefusal
+
+data OrdinaryReference = OrdinaryObject
+
+%foreign "dex:reference-is-null"
+bad_null : OrdinaryReference → Int32
+
+%export "dex:bad_null"
+bad_export : OrdinaryReference → Int32
+bad_export = bad_null
+
+main : IO ()
+main = pure ()

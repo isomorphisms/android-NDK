@@ -1,0 +1,99 @@
+module ReferenceNullPlanCheck
+
+import Backend.DEX.Encode
+import Backend.DEX.Foreign
+import Backend.DEX.IR
+import Backend.DEX.ManagedBoundary
+import Backend.DEX.Placement
+import Backend.DEX.ReferenceNull
+import Backend.DEX.Smali
+import Core.CompileExpr
+import Core.Name
+import Data.List
+import Data.String
+import System
+
+%default covering
+
+fail : Text → IO a
+fail reason = do putStrLn ("FAIL reference-null plans: " ++ reason); exitFailure
+
+check : Text → Bool → IO ()
+check _ True = pure ()
+check label False = fail label
+
+refuse : Text → Either Text a → IO ()
+refuse _ (Left _) = pure ()
+refuse label (Right _) = fail (label ++ " accepted")
+
+object_source : CFType
+object_source = CFUser (UN (Basic "ObjectReference")) []
+
+main : IO ()
+main = do
+  Right intrinsic ← pure (parse_dex_foreign "dex:reference-is-null" [object_source] CFInt32)
+    | Left reason => fail reason
+  check "pure external reference input" (intrinsic.effect == PureForeign &&
+    foreign_target_arguments intrinsic == [ExistingValue ObjectValue] &&
+    foreign_target_result intrinsic == ExistingValue IntegerValue)
+  check "full external Object constraint remains required" (foreign_reference_constraints intrinsic ==
+    Right [(UN (Basic "ObjectReference"), MkTypeReference "Ljava/lang/Object;")])
+  refuse "missing argument" (parse_dex_foreign "dex:reference-is-null" [] CFInt32)
+  refuse "two arguments" (parse_dex_foreign "dex:reference-is-null" [object_source, object_source] CFInt32)
+  refuse "Text argument" (parse_dex_foreign "dex:reference-is-null" [CFString] CFInt32)
+  refuse "integer argument" (parse_dex_foreign "dex:reference-is-null" [CFInt32] CFInt32)
+  refuse "applied managed argument" (parse_dex_foreign "dex:reference-is-null"
+    [CFUser (UN (Basic "IORef")) [CFString]] CFInt32)
+  refuse "wrong result" (parse_dex_foreign "dex:reference-is-null" [object_source] CFString)
+  refuse "effectful declaration" (parse_dex_foreign "dex:reference-is-null"
+    [object_source, CFWorld] (CFIORes CFInt32))
+  Right null_bytes ← pure (encode_instructions [] []
+    [ReferenceNullBranch EqualNull (MkRegister 255) (MkLabel 0), ReturnVoid, Mark (MkLabel 0), ReturnVoid])
+    | Left reason => fail reason
+  check "independent 21t equal-null encoding" (null_bytes == [0x38,0xff,3,0,0x0e,0,0x0e,0])
+  Right nonnull_bytes ← pure (encode_instructions [] []
+    [ReferenceNullBranch NotEqualNull (MkRegister 7) (MkLabel 0), ReturnVoid, Mark (MkLabel 0), ReturnVoid])
+    | Left reason => fail reason
+  check "independent 21t not-null encoding" (nonnull_bytes == [0x39,7,3,0,0x0e,0,0x0e,0])
+  refuse "raw 8-bit register overflow" (encode_instructions [] []
+    [ReferenceNullBranch EqualNull (MkRegister 256) (MkLabel 0), Mark (MkLabel 0)])
+  refuse "negative reference register" (encode_instructions [] []
+    [ReferenceNullBranch EqualNull (MkRegister (-1)) (MkLabel 0), Mark (MkLabel 0)])
+  refuse "unknown branch target" (encode_instructions [] []
+    [ReferenceNullBranch EqualNull (MkRegister 0) (MkLabel 0)])
+  refuse "zero branch offset" (encode_instructions [] []
+    [Mark (MkLabel 0), ReferenceNullBranch EqualNull (MkRegister 0) (MkLabel 0)])
+  let high = MkMethodPlan "high reference input" "high_null" 1
+        [ExistingValue ObjectValue] (ExistingValue IntegerValue) 302
+        (reference_null_instructions (MkRegister 301) (MkRegister 299) (MkLabel 0) (MkLabel 1) ++
+         [ReturnInteger (MkRegister 299)])
+  Right placed ← pure (prepare_method_invocations high) | Left reason => fail reason
+  check "high reference stages through object move" (any (\instruction => case instruction of
+    MoveObject (MkRegister 0) source => source.number > 255
+    _ => False) placed.instructions)
+  Right high_plan ← pure (finalize_file_plan (MkFilePlan "LIdric/ReferenceNullHigh;" [high]))
+    | Left reason => fail reason
+  Right high_bytes ← pure (encode_finalized_dex high_plan) | Left reason => fail reason
+  check "high-register plan encodes" (length high_bytes > 112)
+  let far = MkMethodPlan "far reference branch" "far_null" 1 [ExistingValue ObjectValue] VoidValue 1
+        ([ReferenceNullBranch EqualNull (MkRegister 0) (MkLabel 0)] ++
+         replicate 32768 ReturnVoid ++ [Mark (MkLabel 0), ReturnVoid])
+  Right far_plan ← pure (finalize_file_plan (MkFilePlan "LIdric/ReferenceNullFar;" [far]))
+    | Left reason => fail reason
+  let far_smali = render_finalized_smali far_plan
+  check "far reference branch uses inverse and goto32"
+    (isInfixOf "if-nez v0" far_smali && isInfixOf "goto/32" far_smali)
+  Right far_bytes ← pure (encode_finalized_dex far_plan) | Left reason => fail reason
+  check "far conditional encodes" (length far_bytes > 65536)
+  let bad_frame = MkMethodPlan "outside reference frame" "bad_frame" 0 [] VoidValue 1
+        [ReferenceNullBranch EqualNull (MkRegister 1) (MkLabel 0), ReturnVoid, Mark (MkLabel 0), ReturnVoid]
+  refuse "reference outside method frame" (prepare_method_invocations bad_frame)
+  Right bridge ← pure (managed_foreign_bridge "null_bridge" intrinsic) | Left reason => fail reason
+  check "managed bridge directly branches" (any (\instruction => case instruction of
+    ReferenceNullBranch EqualNull _ _ => True
+    _ => False) bridge.instructions)
+  Right bridge_plan ← pure (finalize_file_plan (MkFilePlan "LIdric/ReferenceNullBridge;" [bridge]))
+    | Left reason => fail reason
+  Right bridge_bytes ← pure (encode_finalized_dex bridge_plan) | Left reason => fail reason
+  check "managed bridge encodes" (length bridge_bytes > 112)
+  putStrLn "PASS reference-null parser encoder placement and widening checks"

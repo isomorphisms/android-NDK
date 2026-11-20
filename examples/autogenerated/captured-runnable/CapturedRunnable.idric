@@ -1,0 +1,64 @@
+module CapturedRunnable
+
+import Data.Text
+
+data BuilderReference : Type where [external]
+data RunnableReference : Type where [external]
+
+%foreign "dex:virtual:Ljava/lang/StringBuilder;:append:(Ljava/lang/String;)Ljava/lang/StringBuilder;"
+append_visible : BuilderReference → Text → PrimIO BuilderReference
+
+%foreign "dex:virtual:Ljava/lang/StringBuilder;:toString:()Ljava/lang/String;"
+read_visible : BuilderReference → PrimIO Text
+
+%foreign "dex:interface:Ljava/lang/Runnable;:run:()V"
+run_platform : RunnableReference → PrimIO ()
+
+-- This new convention must be explicitly checked; it is not an Object cast.
+%foreign "dex:capture-runnable"
+capture_runnable : IO () → PrimIO RunnableReference
+
+data JobMode = OriginalOrder | ReversedOrder
+
+record CapturedJob where
+  constructor RetainedJob
+  mode : JobMode
+  label : Text
+  fragments : List Text
+
+join_fragments : List Text → Text
+join_fragments [] = ""
+join_fragments (fragment :: remaining) = fragment ++ join_fragments remaining
+
+reverse_fragments : List Text → List Text → List Text
+reverse_fragments [] reversed = reversed
+reverse_fragments (fragment :: remaining) reversed =
+  reverse_fragments remaining (fragment :: reversed)
+
+job_text : CapturedJob → Text
+job_text job = job.label ++ ":" ++ case job.mode of
+  OriginalOrder ⇒ join_fragments job.fragments
+  ReversedOrder ⇒ join_fragments (reverse_fragments job.fragments [])
+
+run_job : BuilderReference → CapturedJob → IO ()
+run_job sink job = do
+  _ ← primIO (append_visible sink (job_text job))
+  pure ()
+
+%export "dex:make_captured_runnable"
+make_captured_runnable : BuilderReference → Text → Bool → IO RunnableReference
+make_captured_runnable sink label reversed =
+  let mode = if reversed then ReversedOrder else OriginalOrder
+      job = RetainedJob mode label [label, "|λ🙂|", "tail"] in
+  primIO (capture_runnable (run_job sink job))
+
+%export "dex:dispatch_captured_runnable"
+dispatch_captured_runnable : RunnableReference → IO ()
+dispatch_captured_runnable runnable = primIO (run_platform runnable)
+
+%export "dex:read_captured_sink"
+read_captured_sink : BuilderReference → IO Text
+read_captured_sink sink = primIO (read_visible sink)
+
+main : IO ()
+main = pure ()

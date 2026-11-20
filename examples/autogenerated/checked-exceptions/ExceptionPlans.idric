@@ -1,0 +1,122 @@
+module ExceptionPlans
+
+import Backend.DEX.Encode
+import Backend.DEX.Foreign
+import Backend.DEX.IR
+import Backend.DEX.ManagedExceptions
+import Backend.DEX.Placement
+import Backend.DEX.Smali
+import Core.CompileExpr
+import Core.Name
+import Data.List
+import Data.Text
+import System
+
+check : Text → Bool → IO ()
+check label True = pure ()
+check label False = do
+  putStrLn ("FAIL " ++ label)
+  exitFailure
+
+accepts : Text → Either Text value → IO value
+accepts label (Right value) = pure value
+accepts label (Left reason) = do
+  putStrLn ("FAIL " ++ label ++ ": " ++ reason)
+  exitFailure
+
+refuses : Text → Either Text value → IO ()
+refuses label (Left _) = pure ()
+refuses label (Right _) = check label False
+
+action : CFType
+action = CFUser (NS (mkNamespace "PrimIO") (UN (Basic "IO"))) [CFUnit]
+
+throwable : CFType
+throwable = CFUser (UN (Basic "ThrowableReference")) []
+
+object_value : FrameworkValueType
+object_value = ExistingValue ObjectValue
+
+caught_type : TypeReference
+caught_type = MkTypeReference "Ljava/lang/Throwable;"
+
+region : Label → Label → Label → Instruction
+region = CatchRegion caught_type
+
+method : List Instruction → MethodPlan
+method = MkMethodPlan "checked protected-region encoder qualification" "probe"
+  0 [] VoidValue 2
+
+plan : List Instruction → FilePlan
+plan body = MkFilePlan "LIdric/ExceptionPlan;" [method body]
+
+good_body : List Instruction
+good_body =
+  [ Mark (MkLabel 0), IntegerConstant (MkRegister 0) 1
+  , Mark (MkLabel 1), ReturnVoid
+  , Mark (MkLabel 2), MoveException (MkRegister 1), ReturnVoid
+  , region (MkLabel 0) (MkLabel 1) (MkLabel 2)
+  ]
+
+-- Encoding is covering; this host program deliberately invokes the writer.
+covering
+main : IO ()
+main = do
+  _ ← accepts "exact checked catch signature" (parse_dex_foreign "dex:catch-io-unit"
+    [action, CFFun throwable action, CFWorld] (CFIORes CFUnit))
+  _ ← accepts "exact checked finally signature" (parse_dex_foreign "dex:finally-io-unit"
+    [action, action, CFWorld] (CFIORes CFUnit))
+  _ ← accepts "exact checked throw signature" (parse_dex_foreign "dex:throw-throwable"
+    [throwable, CFWorld] (CFIORes CFUnit))
+  refuses "pure catch" (parse_dex_foreign "dex:catch-io-unit" [action, CFFun throwable action] CFUnit)
+  refuses "wrong action value" (parse_dex_foreign "dex:catch-io-unit"
+    [CFString, CFFun throwable action, CFWorld] (CFIORes CFUnit))
+  refuses "wrong action result" (parse_dex_foreign "dex:finally-io-unit"
+    [CFUser (NS (mkNamespace "PrimIO") (UN (Basic "IO"))) [CFString], action, CFWorld] (CFIORes CFUnit))
+  refuses "missing handler" (parse_dex_foreign "dex:catch-io-unit" [action, CFWorld] (CFIORes CFUnit))
+  refuses "scalar handler domain" (parse_dex_foreign "dex:catch-io-unit"
+    [action, CFFun CFString action, CFWorld] (CFIORes CFUnit))
+  refuses "wrong enclosing result" (parse_dex_foreign "dex:throw-throwable"
+    [throwable, CFWorld] (CFIORes CFString))
+  _ ← accepts "even instruction protected item" (encode_dex (plan good_body))
+  _ ← accepts "odd instruction protected item" (encode_dex (plan
+    (IntegerConstant (MkRegister 0) 2 :: good_body)))
+  refuses "orphan move-exception" (encode_dex (plan [MoveException (MkRegister 0), ReturnVoid]))
+  refuses "undefined protected label" (encode_dex (plan
+    (region (MkLabel 7) (MkLabel 1) (MkLabel 2) :: good_body)))
+  refuses "empty protected range" (encode_dex (plan
+    (take 7 good_body ++ [region (MkLabel 0) (MkLabel 0) (MkLabel 2)])))
+  refuses "overlapping protected regions" (encode_dex (plan
+    (region (MkLabel 0) (MkLabel 1) (MkLabel 2) :: good_body)))
+  refuses "fallthrough into handler" (encode_dex (plan
+    [ Mark (MkLabel 0), IntegerConstant (MkRegister 0) 1, Mark (MkLabel 1)
+    , Mark (MkLabel 2), MoveException (MkRegister 1), ReturnVoid
+    , region (MkLabel 0) (MkLabel 1) (MkLabel 2) ]))
+  refuses "ordinary branch into handler" (encode_dex (plan
+    [ Mark (MkLabel 0), Goto (MkLabel 2), Mark (MkLabel 1), ReturnVoid
+    , Mark (MkLabel 2), MoveException (MkRegister 1), ReturnVoid
+    , region (MkLabel 0) (MkLabel 1) (MkLabel 2) ]))
+  refuses "reference-null branch into handler" (encode_dex (plan
+    [ Mark (MkLabel 0), NullReference (MkRegister 0)
+    , ReferenceNullBranch EqualNull (MkRegister 0) (MkLabel 2)
+    , Mark (MkLabel 1), ReturnVoid
+    , Mark (MkLabel 2), MoveException (MkRegister 1), ReturnVoid
+    , region (MkLabel 0) (MkLabel 1) (MkLabel 2) ]))
+  refuses "handler without move-exception" (encode_dex (plan
+    [ Mark (MkLabel 0), IntegerConstant (MkRegister 0) 1, Mark (MkLabel 1), ReturnVoid
+    , Mark (MkLabel 2), ReturnVoid, region (MkLabel 0) (MkLabel 1) (MkLabel 2) ]))
+  refuses "array catch type" (encode_dex (plan
+    (take 7 good_body ++ [CatchRegion (MkTypeReference "[I") (MkLabel 0) (MkLabel 1) (MkLabel 2)])))
+  placed ← accepts "high exception register staging" (prepare_method_invocations
+    (MkMethodPlan "high handler" "high" 0 [] VoidValue 402
+      [ Mark (MkLabel 0), IntegerConstant (MkRegister 0) 1, Mark (MkLabel 1), ReturnVoid
+      , Mark (MkLabel 2), MoveException (MkRegister 400), ReturnVoid
+      , region (MkLabel 0) (MkLabel 1) (MkLabel 2) ]))
+  check "handler move-exception remains first" (isInfixOf "move-exception v0\nmove-object v402, v0"
+    (unlines (map show placed.instructions)))
+  finalized ← accepts "checked finally finalized" (finalize_file_plan
+    (MkFilePlan "LIdric/Generated;" [managed_finally_io_unit "finally_action"]))
+  let rendered = render_finalized_smali finalized
+  check "same finalized symbolic handler" (isInfixOf ".catch Ljava/lang/Throwable;" rendered)
+  check "actual rethrow" (isInfixOf "throw v1" rendered)
+  putStrLn "PASS checked exception actions, protected regions and handler entry refusals"

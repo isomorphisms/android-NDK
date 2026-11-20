@@ -1,0 +1,16 @@
+module OrdinaryTextCast
+
+data PretendText = SourceWords Text
+data ObjectReference : Type where [external]
+
+%foreign "dex:cast:Ljava/lang/String;:Ljava/lang/Object;"
+pretend_text_object : PretendText → ObjectReference
+%foreign "dex:static:Ljava/util/Objects;:toString:(Ljava/lang/Object;)Ljava/lang/String;"
+object_text : ObjectReference → Text
+
+%export "dex:ordinary_text_cast"
+ordinary_text_cast : Text → Text
+ordinary_text_cast input = object_text (pretend_text_object (SourceWords input))
+
+main : IO ()
+main = pure ()

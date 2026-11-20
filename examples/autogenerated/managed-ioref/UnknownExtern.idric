@@ -1,0 +1,11 @@
+module UnknownExtern
+
+%extern
+prim__unknownCell : Text → PrimIO Text
+
+%export "dex:unknown_cell"
+unknown_cell : Text → IO Text
+unknown_cell value = primIO (prim__unknownCell value)
+
+main : IO ()
+main = pure ()

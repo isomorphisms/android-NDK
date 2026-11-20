@@ -25,6 +25,12 @@ data ForeignOperation
   = MethodInvocation InvokeKind MethodReference
   | CheckedReferenceCast TypeReference TypeReference
   | ObjectConstruction MethodReference
+  | Float32Arithmetic Binary32Operation
+  | ManagedRunnableCapture
+  | ManagedCatchIOUnit
+  | ManagedFinallyIOUnit
+  | ManagedThrowThrowable
+  | CheckedReferenceNull
 
 public export
 record DEXForeign where
@@ -140,6 +146,8 @@ parse_type allow_void ('J' :: rest) =
   Right (LongValue, rest)
 parse_type allow_void ('D' :: rest) =
   Right (ExistingValue DoubleValue, rest)
+parse_type allow_void ('F' :: rest) =
+  Right (ExistingValue FloatValue, rest)
 parse_type True ('V' :: rest) =
   Right (VoidValue, rest)
 parse_type False ('V' :: rest) =
@@ -154,8 +162,10 @@ parse_type allow_void ('[' :: 'D' :: rest) =
   Right (ReferenceValue (MkTypeReference "[D"), rest)
 parse_type allow_void ('[' :: 'I' :: rest) =
   Right (ReferenceValue (MkTypeReference "[I"), rest)
-parse_type allow_void ('[' :: rest) =
-  Left "DEX array descriptors admit only checked primitive [D/[I references"
+parse_type allow_void all@('[' :: rest) =
+  case drop_prefix (unpack "[Ljava/lang/Object;") all of
+    Just after => Right (ReferenceValue (MkTypeReference "[Ljava/lang/Object;"), after)
+    Nothing => Left "DEX array descriptors admit only checked primitive [D/[I references or opaque [Ljava/lang/Object;"
 parse_type allow_void (character :: rest) =
   Left ("Unsupported DEX descriptor type " ++ show character)
 
@@ -231,6 +241,7 @@ source_matches_target CFInt32 (ExistingValue IntegerValue) = True
 source_matches_target CFInt32 (ExistingValue BooleanValue) = True
 source_matches_target CFInt64 LongValue = True
 source_matches_target CFDouble (ExistingValue DoubleValue) = True
+source_matches_target (CFUser _ []) (ExistingValue FloatValue) = True
 source_matches_target CFString (ExistingValue TextValue) = True
 source_matches_target CFString (ReferenceValue reference) =
   reference.descriptor == "Ljava/lang/CharSequence;"
@@ -279,6 +290,12 @@ foreign_target_arguments foreign = case foreign.operation of
   MethodInvocation kind method => target_argument_types kind method
   CheckedReferenceCast source target => [reference_type (unpack source.descriptor)]
   ObjectConstruction method => method.argument_types
+  Float32Arithmetic _ => [ExistingValue FloatValue, ExistingValue FloatValue]
+  ManagedRunnableCapture => [ExistingValue ObjectValue]
+  ManagedCatchIOUnit => [ExistingValue ObjectValue, ExistingValue ObjectValue]
+  ManagedFinallyIOUnit => [ExistingValue ObjectValue, ExistingValue ObjectValue]
+  ManagedThrowThrowable => [ReferenceValue (MkTypeReference "Ljava/lang/Throwable;")]
+  CheckedReferenceNull => [ExistingValue ObjectValue]
 
 public export
 foreign_target_result : DEXForeign -> FrameworkValueType
@@ -286,6 +303,12 @@ foreign_target_result foreign = case foreign.operation of
   MethodInvocation kind method => method.result
   CheckedReferenceCast source target => reference_type (unpack target.descriptor)
   ObjectConstruction method => ReferenceValue method.owner
+  Float32Arithmetic _ => ExistingValue FloatValue
+  ManagedRunnableCapture => ReferenceValue (MkTypeReference "Ljava/lang/Runnable;")
+  ManagedCatchIOUnit => VoidValue
+  ManagedFinallyIOUnit => VoidValue
+  ManagedThrowThrowable => VoidValue
+  CheckedReferenceNull => ExistingValue IntegerValue
 
 ||| Preserve the consolidated constructor views while retaining one explicit
 ||| ObjectConstruction operation in the canonical checked representation.
@@ -309,6 +332,36 @@ describe_foreign foreign = case foreign.operation of
   MethodInvocation kind method => show method
   CheckedReferenceCast source target => "checked cast " ++ show source ++ " to " ++ show target
   ObjectConstruction method => "construction " ++ show method
+  Float32Arithmetic operation => "checked Float32 " ++ show operation
+  ManagedRunnableCapture => "checked captured IO Unit Runnable factory"
+  ManagedCatchIOUnit => "checked IO Unit action and actual Throwable handler"
+  ManagedFinallyIOUnit => "checked IO Unit action and exactly-once cleanup"
+  ManagedThrowThrowable => "checked actual Throwable rethrow"
+  CheckedReferenceNull => "checked pure reference null test"
+
+private
+float32_operation : String -> Either String Binary32Operation
+float32_operation "add" = Right AddBinary32
+float32_operation "subtract" = Right SubtractBinary32
+float32_operation "multiply" = Right MultiplyBinary32
+float32_operation "divide" = Right DivideBinary32
+float32_operation other = Left ("Unsupported checked Float32 operation " ++ show other)
+
+private
+float32_signature : List CFType -> CFType -> Either String ()
+float32_signature [CFUser left [], CFUser right []] (CFUser result []) =
+  if left == right && left == result then Right ()
+    else Left "Checked Float32 arithmetic requires one consistent external value domain"
+float32_signature _ _ =
+  Left "Checked Float32 arithmetic requires two values and a result in one external Float32 domain"
+
+private
+parse_float32_foreign : String -> List CFType -> CFType -> Either String DEXForeign
+parse_float32_foreign operation arguments result = do
+  checked <- float32_operation operation
+  (effect, ordinary, value) <- normalise_signature arguments result
+  float32_signature ordinary value
+  Right (DeclareDEXForeign effect (Float32Arithmetic checked) ordinary value)
 
 private
 signatures_match :
@@ -345,22 +398,9 @@ validate_signature kind method source_arguments source_result = do
       Left
         ("dex foreign result type does not match " ++ show method)
 
-||| Parse and type-check one backend-specific calling convention:
-|||
-||| dex:<static|virtual|interface>:<owner-descriptor>:<name>:<method-descriptor>
-||| dex:construct:<owner-descriptor>:<init>:(<arguments>)V allocates and
-||| initializes its own receiver; checked PrimIO returns the opaque owner.
-|||
-||| Example:
-||| dex:static:Landroid/os/Binder;:getCallingUid:()I
-public export
-parse_dex_foreign :
-  String -> List CFType -> CFType -> Either String DEXForeign
-parse_dex_foreign convention source_arguments source_result = do
-  body <-
-    case drop_prefix (unpack "dex:") (unpack convention) of
-      Nothing => Left "Foreign convention is not for the dex backend"
-      Just value => Right value
+private
+parse_standard_foreign : List Char -> List CFType -> CFType -> Either String DEXForeign
+parse_standard_foreign body source_arguments source_result =
   case drop_prefix (unpack "cast:") body of
     Just cast_fields => do
       (source_chars, target_chars) <- maybe (Left "DEX cast requires source and target reference descriptors")
@@ -371,8 +411,17 @@ parse_dex_foreign convention source_arguments source_result = do
       validate_reference_descriptor target_descriptor
       (effect, ordinary_arguments, ordinary_result) <- normalise_signature source_arguments source_result
       case ordinary_arguments of
+        [CFString] =>
+          if source_descriptor == "Ljava/lang/String;" && target_descriptor == "Ljava/lang/Object;" &&
+             reference_source_type ordinary_result
+            then Right (DeclareDEXForeign effect
+                   (CheckedReferenceCast (MkTypeReference source_descriptor) (MkTypeReference target_descriptor))
+                   ordinary_arguments ordinary_result)
+            else Left "DEX Text cast admits only explicit String to Object with a checked external Object result"
         [argument] =>
-          if reference_source_type argument && reference_source_type ordinary_result
+          if source_descriptor == "Ljava/lang/String;"
+            then Left "DEX String source cast requires checked Text"
+          else if reference_source_type argument && reference_source_type ordinary_result
             then Right (DeclareDEXForeign effect
                    (CheckedReferenceCast (MkTypeReference source_descriptor) (MkTypeReference target_descriptor))
                    ordinary_arguments ordinary_result)
@@ -389,6 +438,84 @@ parse_dex_foreign convention source_arguments source_result = do
         else MkDEXForeign effect kind method ordinary_arguments ordinary_result)
 
 private
+parse_runnable_foreign : List CFType -> CFType -> Either String DEXForeign
+parse_runnable_foreign source_arguments source_result = do
+  (effect, arguments, result) <- normalise_signature source_arguments source_result
+  if effect /= PrimitiveIOForeign
+    then Left "DEX captured Runnable factory must return PrimIO"
+    else Right ()
+  case arguments of
+    [CFUser name [CFUnit]] =>
+      if name == NS (mkNamespace "PrimIO") (UN (Basic "IO"))
+        then Right ()
+        else Left "DEX captured Runnable requires exactly one checked IO Unit action"
+    _ => Left "DEX captured Runnable requires exactly one checked IO Unit action"
+  case result of
+    CFUser _ [] => Right (DeclareDEXForeign effect ManagedRunnableCapture arguments result)
+    _ => Left "DEX captured Runnable requires a concrete external Runnable result domain"
+
+private
+io_unit_action : CFType -> Bool
+io_unit_action (CFUser name [CFUnit]) =
+  name == NS (mkNamespace "PrimIO") (UN (Basic "IO"))
+io_unit_action _ = False
+
+private
+exception_signature : ForeignOperation -> List CFType -> Bool
+exception_signature ManagedCatchIOUnit [action, CFFun (CFUser _ []) handler] =
+  io_unit_action action && io_unit_action handler
+exception_signature ManagedFinallyIOUnit [action, cleanup] =
+  io_unit_action action && io_unit_action cleanup
+exception_signature ManagedThrowThrowable [CFUser _ []] = True
+exception_signature _ _ = False
+
+private
+parse_exception_foreign : ForeignOperation -> List CFType -> CFType -> Either String DEXForeign
+parse_exception_foreign operation source_arguments source_result = do
+  (effect, arguments, result) <- normalise_signature source_arguments source_result
+  if effect /= PrimitiveIOForeign
+    then Left "DEX checked exception operation must return PrimIO Unit"
+    else Right ()
+  case result of
+    CFUnit => Right ()
+    _ => Left "DEX checked exception operation must return PrimIO Unit"
+  if exception_signature operation arguments
+    then Right (DeclareDEXForeign effect operation arguments result)
+    else Left "DEX checked exception operation requires exact IO Unit actions and a concrete Throwable handler domain"
+
+||| Parse and type-check one backend-specific calling convention:
+|||
+||| dex:<static|virtual|interface>:<owner-descriptor>:<name>:<method-descriptor>
+||| dex:construct:<owner-descriptor>:<init>:(<arguments>)V allocates and
+||| initializes its own receiver; checked PrimIO returns the opaque owner.
+||| dex:float32:<add|subtract|multiply|divide> uses one consistent external
+||| Float32 value domain and emits a true one-word float arithmetic operation.
+public export
+parse_dex_foreign :
+  String -> List CFType -> CFType -> Either String DEXForeign
+parse_dex_foreign convention source_arguments source_result = do
+  body <-
+    case drop_prefix (unpack "dex:") (unpack convention) of
+      Nothing => Left "Foreign convention is not for the dex backend"
+      Just value => Right value
+  if body == unpack "capture-runnable"
+    then parse_runnable_foreign source_arguments source_result
+    else if body == unpack "catch-io-unit"
+      then parse_exception_foreign ManagedCatchIOUnit source_arguments source_result
+    else if body == unpack "finally-io-unit"
+      then parse_exception_foreign ManagedFinallyIOUnit source_arguments source_result
+    else if body == unpack "throw-throwable"
+      then parse_exception_foreign ManagedThrowThrowable source_arguments source_result
+    else if body == unpack "reference-is-null"
+      then case (source_arguments, source_result) of
+        ([CFUser _ []], CFInt32) =>
+          Right (DeclareDEXForeign PureForeign CheckedReferenceNull source_arguments source_result)
+        _ => Left "DEX reference-is-null requires exactly one external Object domain and a pure Int32 result"
+    else case drop_prefix (unpack "float32:") body of
+      Just operation => parse_float32_foreign (pack operation) source_arguments source_result
+      Nothing => parse_standard_foreign body source_arguments source_result
+
+private
 reference_constraint :
   CFType -> FrameworkValueType -> Either String (List (Name, TypeReference))
 reference_constraint CFString (ReferenceValue descriptor) =
@@ -399,6 +526,8 @@ reference_constraint (CFUser name []) (ReferenceValue descriptor) =
   Right [(name, descriptor)]
 reference_constraint (CFUser name []) (ExistingValue ObjectValue) =
   Right [(name, MkTypeReference "Ljava/lang/Object;")]
+reference_constraint (CFUser name []) (ExistingValue FloatValue) =
+  Right [(name, MkTypeReference "Ljava/lang/Float;")]
 reference_constraint source (ReferenceValue descriptor) =
   Left "DEX reference requires a concrete external source domain"
 reference_constraint source (ExistingValue ObjectValue) =
@@ -423,8 +552,14 @@ public export
 foreign_reference_constraints :
   DEXForeign -> Either String (List (Name, TypeReference))
 foreign_reference_constraints foreign = do
-  arguments <- argument_constraints foreign.source_argument_types
-    (foreign_target_arguments foreign)
+  arguments <- case foreign.operation of
+    -- The private checked IO value never acquires a foreign Object domain.
+    ManagedRunnableCapture => Right []
+    ManagedCatchIOUnit => case foreign.source_argument_types of
+      [_, CFFun (CFUser name []) _] => Right [(name, MkTypeReference "Ljava/lang/Throwable;")]
+      _ => Left "DEX checked catch lost its Throwable handler signature"
+    ManagedFinallyIOUnit => Right []
+    _ => argument_constraints foreign.source_argument_types (foreign_target_arguments foreign)
   result <- reference_constraint foreign.source_result_type (foreign_target_result foreign)
   Right (arguments ++ result)
 

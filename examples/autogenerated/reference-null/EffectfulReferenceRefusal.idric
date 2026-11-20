@@ -1,0 +1,13 @@
+module EffectfulReferenceRefusal
+
+data ObjectReference : Type where [external]
+
+%foreign "dex:reference-is-null"
+bad_null : ObjectReference → PrimIO Int32
+
+%export "dex:bad_null"
+bad_export : ObjectReference → IO Int32
+bad_export object = primIO (bad_null object)
+
+main : IO ()
+main = pure ()

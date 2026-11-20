@@ -1,0 +1,17 @@
+module ConflictingFloatDomain
+
+data Float32 : Type where [external]
+
+%foreign "dex:static:Ljava/lang/Float;:intBitsToFloat:(I)F"
+from_bits : Int32 → Float32
+%foreign "dex:virtual:Ljava/lang/Double;:doubleValue:()D"
+wrong_double : Float32 → Double
+%foreign "dex:static:Ljava/lang/Double;:doubleToRawLongBits:(D)J"
+double_bits : Double → Int64
+
+%export "dex:conflicting_float"
+conflicting_float : Int32 → Int64
+conflicting_float bits = double_bits (wrong_double (from_bits bits))
+
+main : IO ()
+main = pure ()

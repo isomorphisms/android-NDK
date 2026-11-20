@@ -1,0 +1,9 @@
+module PureFactory
+data RunnableReference : Type where [external]
+%foreign "dex:capture-runnable"
+capture : IO () → RunnableReference
+%export "dex:bad_capture"
+bad_capture : RunnableReference
+bad_capture = capture (pure ())
+main : IO ()
+main = pure ()

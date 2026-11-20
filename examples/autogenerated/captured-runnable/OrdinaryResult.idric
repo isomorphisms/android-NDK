@@ -1,0 +1,9 @@
+module OrdinaryResult
+data RunnableReference = OrdinaryRunnable
+%foreign "dex:capture-runnable"
+capture : IO () → PrimIO RunnableReference
+%export "dex:bad_capture"
+bad_capture : IO RunnableReference
+bad_capture = primIO (capture (pure ()))
+main : IO ()
+main = pure ()

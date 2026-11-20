@@ -1,0 +1,9 @@
+module WrongAction
+data ThrowableReference : Type where [external]
+%foreign "dex:catch-io-unit"
+bad_catch : Text → (ThrowableReference → IO ()) → PrimIO ()
+%export "dex:wrong_exception_action"
+wrong_exception_action : IO ()
+wrong_exception_action = primIO (bad_catch "not an action" (\_ ⇒ pure ()))
+main : IO ()
+main = wrong_exception_action

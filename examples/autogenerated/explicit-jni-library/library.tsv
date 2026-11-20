@@ -1,0 +1,2 @@
+library contract
+C:contract_narrow,libcontract narrow (I)I current-thread synchronous borrowed-local nonnull-strings propagate-exceptions

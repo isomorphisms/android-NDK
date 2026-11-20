@@ -70,6 +70,8 @@ instruction_registers (LongConstant destination value) =
 instruction_registers (AddLong destination left right) =
   Right [destination, next_register destination, left, next_register left,
          right, next_register right]
+instruction_registers (Binary32Binary _ destination left right) =
+  Right [destination, left, right]
 instruction_registers (Binary64Constant destination _) =
   Right [destination, next_register destination]
 instruction_registers (Binary64Binary _ destination left right) =
@@ -81,6 +83,8 @@ instruction_registers (CompareBinary64 _ destination left right) =
   Right [destination, left, next_register left, right, next_register right]
 instruction_registers (StaticGetObject destination field) = Right [destination]
 instruction_registers (StaticPutObject source field) = Right [source]
+instruction_registers (InstanceGetObject destination receiver _) = Right [destination, receiver]
+instruction_registers (InstancePutObject source receiver _) = Right [source, receiver]
 instruction_registers (NullReference destination) = Right [destination]
 instruction_registers (TextConstant destination _) = Right [destination]
 instruction_registers (NewObject destination _) = Right [destination]
@@ -93,10 +97,13 @@ instruction_registers (InvokeMethod invocation) = do
   words <- invocation_register_words invocation
   Right (words ++ result_registers invocation)
 instruction_registers (IntegerBranch _ left right _) = Right [left, right]
+instruction_registers (ReferenceNullBranch _ reference _) = Right [reference]
 instruction_registers (Goto _) = Right []
 instruction_registers (Goto16 _) = Right []
 instruction_registers (Goto32 _) = Right []
 instruction_registers (Mark _) = Right []
+instruction_registers (MoveException register) = Right [register]
+instruction_registers (CatchRegion _ _ _ _) = Right []
 instruction_registers (ReturnInteger register) = Right [register]
 instruction_registers (ReturnObject register) = Right [register]
 instruction_registers (ThrowObject register) = Right [register]
@@ -150,7 +157,11 @@ instruction_staging (InvokeMethod invocation) = call_staging invocation
 instruction_staging (TextEqual destination left right) =
   call_staging (text_call destination left right)
 instruction_staging (CheckCast register _) = Right (register.number > 255, 0)
+instruction_staging (ReferenceNullBranch _ reference _) = Right (reference.number > 255, 0)
+instruction_staging (IntegerBranch _ left right _) =
+  Right (left.number > 15 || right.number > 15, 0)
 instruction_staging (ThrowObject register) = Right (register.number > 255, 0)
+instruction_staging (MoveException register) = Right (register.number > 255, 0)
 instruction_staging (NewObject destination _) = Right (destination.number > 255, 0)
 instruction_staging (ArrayLength destination array) =
   Right (destination.number > 15 || array.number > 15, 0)
@@ -164,6 +175,8 @@ instruction_staging (LongConstant destination value) =
   Right (destination.number > 255, 0)
 instruction_staging (AddLong destination left right) =
   Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
+instruction_staging (Binary32Binary _ destination left right) =
+  Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
 instruction_staging (Binary64Constant destination _) = Right (destination.number > 255, 0)
 instruction_staging (Binary64Binary _ destination left right) =
   Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
@@ -175,6 +188,10 @@ instruction_staging (StaticGetObject destination field) =
   Right (destination.number > 255, 0)
 instruction_staging (StaticPutObject source field) =
   Right (source.number > 255, 0)
+instruction_staging (InstanceGetObject destination receiver _) =
+  Right (destination.number > 15 || receiver.number > 15, 0)
+instruction_staging (InstancePutObject source receiver _) =
+  Right (source.number > 15 || receiver.number > 15, 0)
 instruction_staging _ = Right (False, 0)
 
 private
@@ -335,6 +352,20 @@ place_instruction scratch_start (Binary64Constant destination bits) =
   if low_byte_register target
     then Right [Binary64Constant target bits]
     else Right [Binary64Constant scratch_zero bits, MoveWide target scratch_zero]
+place_instruction scratch_start (Binary32Binary operation destination left right) =
+  let target = shift_register destination
+      first = shift_register left
+      second = shift_register right in
+  if low_byte_register target && low_byte_register first && low_byte_register second
+    then Right [Binary32Binary operation target first second]
+    else
+      let output = if low_byte_register target then target else scratch_zero
+          result_move = if output == target then [] else [Move target output]
+      in Right
+        ([ Move scratch_zero first
+         , Move scratch_one second
+         , Binary32Binary operation output scratch_zero scratch_one
+         ] ++ result_move)
 place_instruction scratch_start (Binary64Binary operation destination left right) =
   let target = shift_register destination
       first = shift_register left
@@ -367,6 +398,20 @@ place_instruction scratch_start (StaticPutObject source field) =
   if low_byte_register input
     then Right [StaticPutObject input field]
     else Right [MoveObject scratch_zero input, StaticPutObject scratch_zero field]
+place_instruction scratch_start (InstanceGetObject destination receiver field) =
+  let target = shift_register destination
+      object = shift_register receiver in
+  if target.number <= 15 && object.number <= 15
+    then Right [InstanceGetObject target object field]
+    else Right [MoveObject scratch_zero object,
+      InstanceGetObject scratch_one scratch_zero field, MoveObject target scratch_one]
+place_instruction scratch_start (InstancePutObject source receiver field) =
+  let input = shift_register source
+      object = shift_register receiver in
+  if input.number <= 15 && object.number <= 15
+    then Right [InstancePutObject input object field]
+    else Right [MoveObject scratch_zero input, MoveObject scratch_one object,
+      InstancePutObject scratch_zero scratch_one field]
 place_instruction scratch_start (IntToLong destination source) =
   let target = shift_register destination
       input_register = shift_register source
@@ -411,10 +456,21 @@ place_instruction scratch_start (IntegerBranch condition left right target) =
       , Move scratch_one second
       , IntegerBranch condition scratch_zero scratch_one target
       ]
+place_instruction scratch_start (ReferenceNullBranch condition reference target) =
+  let input = shift_register reference in
+  if input.number <= 255
+    then Right [ReferenceNullBranch condition input target]
+    else Right [MoveObject scratch_zero input, ReferenceNullBranch condition scratch_zero target]
 place_instruction scratch_start instruction@(Goto _) = Right [instruction]
 place_instruction scratch_start instruction@(Goto16 _) = Right [instruction]
 place_instruction scratch_start instruction@(Goto32 _) = Right [instruction]
 place_instruction scratch_start instruction@(Mark _) = Right [instruction]
+place_instruction scratch_start instruction@(CatchRegion _ _ _ _) = Right [instruction]
+place_instruction scratch_start (MoveException register) =
+  let target = shift_register register in
+  if target.number <= 255
+    then Right [MoveException target]
+    else Right [MoveException scratch_zero, MoveObject target scratch_zero]
 place_instruction scratch_start (ReturnInteger register) =
   let target = shift_register register in
   if low_byte_register target

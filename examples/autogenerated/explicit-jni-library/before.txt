@@ -1,0 +1,1 @@
+Error: dex JNI map requires library_property header

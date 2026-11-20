@@ -1,0 +1,7 @@
+directives pending; checked source definitions:
+export ExternFieldProbe.initialize_state as initialize_state
+[0, 1, 2]: %let v3 = (ExternFieldProbe.activity_identity(v0, v2)) in (%let v4 = (%let v17 = (%let v15 = (%let v11 = (%let v8 = (%let v5 = (<ExternFieldProbe.{initialize_state:0} underapp 5>()) in (%let v6 = (<ExternFieldProbe.{initialize_state:1} underapp 3>()) in (%let v7 = (<ExternFieldProbe.{initialize_state:2} underapp 5>()) in (%con Prelude.Interfaces.MkApplicative(v5, v6, v7))))) in (%let v9 = (<ExternFieldProbe.{initialize_state:3} underapp 5>()) in (%let v10 = (<ExternFieldProbe.{initialize_state:4} underapp 3>()) in (%con Prelude.Interfaces.MkMonad(v8, v9, v10))))) in (%let v12 = (<ExternFieldProbe.{initialize_state:5} underapp 2>()) in (%con _builtin.CONS(v11, v12)))) in (%let v16 = (%let v14 = (%let v13 = (%con _builtin.NIL()) in (%con _builtin.CONS(v1, v13))) in (%con _builtin.CONS(v1, v14))) in (Data.IORef.newIORef(v15, v16)))) in (v17 @ (v2))) in (%extprim ExternFieldProbe.set_state(v0, v4, v2)))
+
+export ExternFieldProbe.read_state as read_state
+[0, 1]: %let v2 = (%extprim ExternFieldProbe.get_state(v0, v1)) in (%let v3 = (%extprim Data.IORef.prim__readIORef([__], v2, v1)) in (%case v3 of { %conalt _builtin.CONS(v4, v5) => %case v5 of { %conalt _builtin.CONS(v6, v7) => %case v7 of { %conalt _builtin.NIL() => v4 Just "closed" } Just "closed" } Just "closed" }))
+

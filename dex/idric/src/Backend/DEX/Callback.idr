@@ -16,6 +16,7 @@ record InterfaceCallback where
   method_name : String
   signature : String
   checked_export : String
+  include_receiver : Bool
 
 private
 record LifecycleOverride where
@@ -23,19 +24,40 @@ record LifecycleOverride where
   method_name : String
   signature : String
   checked_export : String
+  before_parent : Bool
 
 private
-parse_callback : String -> Either String (Maybe InterfaceCallback)
-parse_callback directive = case words directive of
-  ["callback", implemented, method_name, signature, checked_export] => do
+callback_result_supported : FrameworkValueType -> Bool
+callback_result_supported VoidValue = True
+callback_result_supported (ExistingValue BooleanValue) = True
+callback_result_supported (ExistingValue TextValue) = True
+callback_result_supported (ExistingValue ObjectValue) = True
+callback_result_supported (ReferenceValue (MkTypeReference descriptor)) =
+  case unpack descriptor of
+    'L' :: _ => True
+    _ => False
+callback_result_supported _ = False
+
+private
+declared_callback : Bool -> String -> String -> String -> String ->
+  Either String (Maybe InterfaceCallback)
+declared_callback receiver implemented method_name signature checked_export = do
     validate_reference_descriptor implemented
     _ <- validate_method_name method_name
     _ <- validate_method_name checked_export
     (arguments, result) <- parse_method_descriptor signature
-    if result /= VoidValue
-      then Left "DEX callback bridge currently requires a void result"
+    if not (callback_result_supported result)
+      then Left "DEX callback result must be void, Boolean, Text or a non-array object reference"
       else Right (Just (DeclaredCallback (MkTypeReference implemented)
-                          method_name signature checked_export))
+                          method_name signature checked_export receiver))
+
+private
+parse_callback : String -> Either String (Maybe InterfaceCallback)
+parse_callback directive = case words directive of
+  ["callback", implemented, method_name, signature, checked_export] =>
+    declared_callback False implemented method_name signature checked_export
+  ["callback", "receiver", implemented, method_name, signature, checked_export] =>
+    declared_callback True implemented method_name signature checked_export
   "callback" :: _ =>
     Left "DEX callback requires interface, method, JVM signature and checked export"
   ["activity", create_export, action_export] => do
@@ -54,11 +76,25 @@ parse_callback directive = case words directive of
   ["override", "onResume", "()V", checked_export] => do
     _ <- validate_method_name checked_export
     Right Nothing
+  ["override", "onPause", "()V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
+  ["override", "onSaveInstanceState", "(Landroid/os/Bundle;)V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
+  ["override", "onActivityResult", "(IILandroid/content/Intent;)V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
   ["override", "onDestroy", "()V", checked_export] => do
     _ <- validate_method_name checked_export
     Right Nothing
+  ["override", "before-parent", "onDestroy", "()V", checked_export] => do
+    _ <- validate_method_name checked_export
+    Right Nothing
+  "override" :: "before-parent" :: _ =>
+    Left "DEX before-parent lifecycle admits onDestroy() only"
   "extends" :: _ => Left "DEX checked subclass currently admits android.app.Activity only"
-  "override" :: _ => Left "DEX checked lifecycle admits onCreate(Bundle), onNewIntent(Intent), onResume() and onDestroy() only"
+  "override" :: _ => Left "DEX checked lifecycle admits onCreate(Bundle), onNewIntent(Intent), onResume(), onPause(), onSaveInstanceState(Bundle), onActivityResult(Int32, Int32, Intent) and onDestroy() only"
   [] => Right Nothing
   _ => Left "Unsupported DEX directive; expected unquoted callback, activity, extends or override declaration"
 
@@ -70,13 +106,21 @@ private
 explicit_override : String -> Maybe LifecycleOverride
 explicit_override directive = case words directive of
   ["override", "onCreate", "(Landroid/os/Bundle;)V", checked_export] =>
-    Just (DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export)
+    Just (DeclaredOverride "onCreate" "(Landroid/os/Bundle;)V" checked_export False)
   ["override", "onNewIntent", "(Landroid/content/Intent;)V", checked_export] =>
-    Just (DeclaredOverride "onNewIntent" "(Landroid/content/Intent;)V" checked_export)
+    Just (DeclaredOverride "onNewIntent" "(Landroid/content/Intent;)V" checked_export False)
   ["override", "onResume", "()V", checked_export] =>
-    Just (DeclaredOverride "onResume" "()V" checked_export)
+    Just (DeclaredOverride "onResume" "()V" checked_export False)
+  ["override", "onPause", "()V", checked_export] =>
+    Just (DeclaredOverride "onPause" "()V" checked_export False)
+  ["override", "onSaveInstanceState", "(Landroid/os/Bundle;)V", checked_export] =>
+    Just (DeclaredOverride "onSaveInstanceState" "(Landroid/os/Bundle;)V" checked_export False)
+  ["override", "onActivityResult", "(IILandroid/content/Intent;)V", checked_export] =>
+    Just (DeclaredOverride "onActivityResult" "(IILandroid/content/Intent;)V" checked_export False)
   ["override", "onDestroy", "()V", checked_export] =>
-    Just (DeclaredOverride "onDestroy" "()V" checked_export)
+    Just (DeclaredOverride "onDestroy" "()V" checked_export False)
+  ["override", "before-parent", "onDestroy", "()V", checked_export] =>
+    Just (DeclaredOverride "onDestroy" "()V" checked_export True)
   _ => Nothing
 
 private
@@ -84,32 +128,54 @@ argument_registers : Int -> List FrameworkValueType -> List Register
 argument_registers start [] = []
 argument_registers start (value :: rest) =
   MkRegister start :: argument_registers
-    (start + if value == LongValue then 2 else 1) rest
+    (start + if value == LongValue || value == ExistingValue DoubleValue then 2 else 1) rest
 
 private
-bridge_method : String -> List MethodPlan -> InterfaceCallback ->
+callback_return : FrameworkValueType -> Instruction
+callback_return VoidValue = ReturnVoid
+callback_return (ExistingValue BooleanValue) = ReturnInteger (MkRegister 0)
+callback_return _ = ReturnObject (MkRegister 0)
+
+private
+bridge_method : String -> TypeReference -> List MethodPlan -> InterfaceCallback ->
   Either String MethodPlan
-bridge_method class_descriptor methods callback = do
+bridge_method class_descriptor superclass methods callback = do
+  (arguments, result) <- parse_method_descriptor callback.signature
   target <- case filter (\method => method.mode == StaticMethod &&
                            method.method_name == callback.checked_export) methods of
     [target] => Right target
     _ => Left ("DEX callback has no unique checked static export `" ++
                 callback.checked_export ++ "`")
+  if callback.include_receiver && superclass /= MkTypeReference "Landroid/app/Activity;"
+    then Left "DEX receiver callback requires a checked Activity superclass"
+    else Right ()
+  let source_arguments = if callback.include_receiver then drop 1 target.parameter_types
+                         else target.parameter_types
   let reference = MkMethodReference (MkTypeReference class_descriptor)
-                    target.method_name target.parameter_types target.result_type
+                    target.method_name source_arguments target.result_type
   if method_descriptor reference /= callback.signature
     then Left ("DEX callback signature disagrees with checked export `" ++
                 callback.checked_export ++ "`")
     else Right ()
-  words <- parameter_register_words target.parameter_types
+  if callback.include_receiver &&
+      target.parameter_types /= ReferenceValue superclass :: arguments
+    then Left "DEX receiver callback signature must include its checked Activity receiver"
+    else Right ()
+  let source_reference = MkMethodReference (MkTypeReference class_descriptor)
+                           target.method_name target.parameter_types target.result_type
+  words <- parameter_register_words arguments
   -- v0 is a local; incoming `this` is v1. Source arguments start at v2.
-  -- No instance state or implicit receiver enters the checked static body.
+  -- Existing callbacks exclude `this`. The explicit receiver declaration binds
+  -- this Activity before the current platform arguments; it captures no state.
+  let source_registers = if callback.include_receiver
+        then MkRegister 1 :: argument_registers 2 arguments
+        else argument_registers 2 target.parameter_types
   let bridge = MkMethodPlan ("interface bridge to " ++ target.source_name)
-                 callback.method_name target.parameter_count target.parameter_types
-                 VoidValue (words + 2)
-                 [ InvokeMethod (Invoke InvokeStatic reference
-                     (argument_registers 2 target.parameter_types) Nothing)
-                 , ReturnVoid ]
+                 callback.method_name (cast (length arguments)) arguments
+                 result (words + 2)
+                 [ InvokeMethod (Invoke InvokeStatic source_reference source_registers
+                     (if result == VoidValue then Nothing else Just (MkRegister 0)))
+                 , callback_return result ]
   Right ({ mode := InstanceMethod } bridge)
 
 private
@@ -202,11 +268,12 @@ override_method class_descriptor superclass methods lifecycle = do
                       target.method_name target.parameter_types target.result_type
   let incoming = argument_registers 1 expected_arguments
   let source_incoming = if target.parameter_types == receiver_only then take 1 incoming else incoming
+  let parent_call = InvokeMethod (Invoke InvokeSuper call_parent incoming Nothing)
+  let source_call = InvokeMethod (Invoke InvokeStatic call_source source_incoming Nothing)
+  let calls = if lifecycle.before_parent then [source_call, parent_call] else [parent_call, source_call]
   let bridge = MkMethodPlan ("platform lifecycle to " ++ target.source_name)
                  lifecycle.method_name (cast (length arguments)) arguments result (words + 2)
-                 [ InvokeMethod (Invoke InvokeSuper call_parent incoming Nothing)
-                 , InvokeMethod (Invoke InvokeStatic call_source source_incoming Nothing)
-                 , ReturnVoid ]
+                 (calls ++ [ReturnVoid])
   Right ({ mode := InstanceMethod } bridge)
 
 ||| Metadata supplies the platform method contract; the compiler checks its
@@ -218,11 +285,13 @@ with_interface_callbacks : String -> List MethodPlan -> List String ->
 with_interface_callbacks class_descriptor methods directives = do
   parsed <- traverse parse_callback directives
   let callbacks = mapMaybe id parsed
-  bridges <- traverse (bridge_method class_descriptor methods) callbacks
   let declarations = activity_declarations directives
   let parents = filter explicit_parent directives
   let overrides = mapMaybe explicit_override directives
   if length parents > 1 then Left "DEX class has repeated superclass declarations" else Right ()
+  if length (nub (map (\lifecycle => lifecycle.method_name) overrides)) /= length overrides
+    then Left "DEX class has repeated lifecycle overrides"
+    else Right ()
   if not (null overrides) && null parents
     then Left "DEX lifecycle override requires its Activity superclass"
     else Right ()
@@ -231,6 +300,7 @@ with_interface_callbacks class_descriptor methods directives = do
     else Right ()
   (selected_parent, lifecycle) <- select_activity_adapter class_descriptor methods declarations
   let superclass = if null parents then selected_parent else MkTypeReference "Landroid/app/Activity;"
+  bridges <- traverse (bridge_method class_descriptor superclass methods) callbacks
   explicit_lifecycle <- traverse (override_method class_descriptor superclass methods) overrides
   let plan = MkFilePlan class_descriptor
         (methods ++ if null callbacks && null declarations && null parents then []
