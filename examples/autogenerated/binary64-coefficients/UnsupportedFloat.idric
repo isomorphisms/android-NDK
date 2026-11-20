@@ -1,0 +1,9 @@
+module UnsupportedFloat
+import Data.Text
+%foreign "dex:static:Ljava/lang/Double;:parseDouble:(Ljava/lang/String;)F"
+wrong_coefficient : Text → Double
+%export "dex:unsupported_float"
+unsupported_float : Text → Int32
+unsupported_float source = if wrong_coefficient source > 0.0 then 1 else 0
+main : IO ()
+main = pure ()

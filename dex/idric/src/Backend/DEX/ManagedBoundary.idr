@@ -15,6 +15,10 @@ number_type : TypeReference
 number_type = MkTypeReference "Ljava/math/BigInteger;"
 
 private
+binary64_type : TypeReference
+binary64_type = MkTypeReference "Ljava/lang/Double;"
+
+private
 generated_type : TypeReference
 generated_type = MkTypeReference "LIdric/Generated;"
 
@@ -43,6 +47,9 @@ to_managed (ExistingValue BooleanValue) source destination =
 to_managed LongValue source destination = Right
   [call InvokeStatic number_type "valueOf" [LongValue]
     (ReferenceValue number_type) [source] (Just destination)]
+to_managed (ExistingValue DoubleValue) source destination = Right
+  [call InvokeStatic binary64_type "valueOf" [ExistingValue DoubleValue]
+    (ReferenceValue binary64_type) [source] (Just destination)]
 to_managed (ExistingValue TextValue) source destination = Right
   [MoveObject destination source, CheckCast destination (MkTypeReference "Ljava/lang/String;")]
 to_managed (ExistingValue ObjectValue) source destination = Right [MoveObject destination source]
@@ -62,6 +69,12 @@ from_managed (ExistingValue BooleanValue) source destination =
 from_managed LongValue source destination = Right
   [call InvokeStatic generated_type "__idricLongExact" [object_value]
     LongValue [source] (Just destination)]
+from_managed (ExistingValue DoubleValue) source destination = Right
+  [ MoveObject (MkRegister 8) source
+  , CheckCast (MkRegister 8) binary64_type
+  , call InvokeVirtual binary64_type "doubleValue" [] (ExistingValue DoubleValue)
+      [MkRegister 8] (Just destination)
+  ]
 from_managed (ExistingValue TextValue) source destination = Right
   [MoveObject destination source, CheckCast destination (MkTypeReference "Ljava/lang/String;")]
 from_managed (ExistingValue ObjectValue) source destination = Right [MoveObject destination source]
@@ -73,6 +86,7 @@ from_managed type _ _ = Left ("Managed export cannot return platform value " ++ 
 private
 value_width : FrameworkValueType -> Int
 value_width LongValue = 2
+value_width (ExistingValue DoubleValue) = 2
 value_width _ = 1
 
 private
@@ -99,6 +113,7 @@ private
 return_value : FrameworkValueType -> Register -> Instruction
 return_value VoidValue _ = ReturnVoid
 return_value LongValue source = ReturnWide source
+return_value (ExistingValue DoubleValue) source = ReturnWide source
 return_value (ExistingValue IntegerValue) source = ReturnInteger source
 return_value (ExistingValue BooleanValue) source = ReturnInteger source
 return_value _ source = ReturnObject source

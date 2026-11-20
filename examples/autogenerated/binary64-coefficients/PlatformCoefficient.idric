@@ -1,0 +1,66 @@
+module PlatformCoefficient
+
+import Data.Text
+import Binary64Operators
+
+-- Deliberately the original jsurf DoubleValue.java contract. This declaration
+-- calls the platform operation directly; it does not redefine `cast`.
+%foreign "dex:static:Ljava/lang/Double;:parseDouble:(Ljava/lang/String;)D"
+parse_jsurf_coefficient : Text → Double
+
+%foreign "dex:static:Ljava/lang/Math;:sqrt:(D)D"
+coefficient_sqrt : Double → Double
+
+%foreign "dex:static:Ljava/lang/Math;:pow:(DD)D"
+coefficient_power : Double → Double → Double
+
+%foreign "dex:static:Ljava/lang/Double;:isNaN:(D)Z"
+coefficient_is_nan : Double → Int32
+
+%foreign "dex:static:Ljava/lang/Double;:doubleToLongBits:(D)J"
+coefficient_bits : Double → Int64
+
+%foreign "dex:static:Ljava/lang/Long;:toHexString:(J)Ljava/lang/String;"
+coefficient_hex : Int64 → Text
+
+flag : Bool → Int32 → Int32
+flag True weight = weight
+flag False weight = 0
+
+-- An independent caller supplies lexemes and checks these numeric observations.
+-- NumberFormatException from malformed platform input propagates unchanged.
+%export "dex:coefficient_observation"
+export
+coefficient_observation : Text → Int32
+coefficient_observation input =
+  let coefficient = parse_jsurf_coefficient input
+      zero = subtract_coefficients coefficient coefficient
+      unordered = divide_coefficients zero zero in
+  case input of
+    "0.4" ⇒ flag (coefficient ≟ 0.4) 1
+    "16777217" ⇒ flag (coefficient ≟ 16777217.0) 2
+    "4.9406564584124654e-324" ⇒ flag (coefficient > 0.0) 4
+    "-0.0" ⇒ flag ((divide_coefficients 1.0 coefficient) < 0.0) 8
+    "1e309" ⇒ flag (coefficient > 1.7976931348623157e308) 16
+    "0.25" ⇒
+      flag ((coefficient_sqrt coefficient) ≟ 0.5) 32 +
+      flag ((coefficient_power coefficient 2.0) ≟ 0.0625) 64 +
+      flag ((coefficient_is_nan unordered) ≟ 1) 128
+    "3" ⇒ flag ((coefficient_power coefficient 2.0) ≟ 9.0) 256
+    _ ⇒ flag (coefficient ≟ coefficient) 512
+
+%export "dex:parsed_coefficient_bits"
+export
+parsed_coefficient_bits : Text → Text
+parsed_coefficient_bits input = coefficient_hex (coefficient_bits (parse_jsurf_coefficient input))
+
+%export "dex:squared_coefficient_bits"
+export
+squared_coefficient_bits : Text → Text
+squared_coefficient_bits input =
+  coefficient_hex (coefficient_bits (coefficient_power (parse_jsurf_coefficient input) 2.0))
+
+-- The frontend requires a source entry even when the DEX driver emits only
+-- explicitly selected pure exports. This entry is not part of their graph.
+main : IO ()
+main = pure ()

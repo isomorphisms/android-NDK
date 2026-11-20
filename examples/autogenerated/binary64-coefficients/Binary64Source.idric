@@ -1,0 +1,56 @@
+module Binary64Source
+
+import Data.Text
+import System
+import Binary64Operators
+
+check : Text → Bool → IO ()
+check name True = putStrLn ("PASS " ++ name)
+check name False = do
+  putStrLn ("FAIL " ++ name)
+  exitFailure
+
+-- Runtime-selected source Double values prevent compile-time folding from
+-- standing in for the actual managed arithmetic path.
+select_step : Text → Double
+select_step "one" = 1.0
+select_step _ = 2.0
+
+flag : Bool → Int32 → Int32
+flag True weight = weight
+flag False weight = 0
+
+-- The external observation boundary is a supported Text-to-Int32 ABI. It does
+-- not add a Double export ABI or ask a candidate to judge its own PASS marker.
+%export "dex:binary64_observation"
+export
+binary64_observation : Text → Int32
+binary64_observation selection =
+  let step = select_step selection
+      expected_product : Double = case selection of
+        "one" ⇒ 1.5
+        _ ⇒ 3.0
+      expected_half : Double = case selection of
+        "one" ⇒ 0.5
+        _ ⇒ 1.0
+      zero = subtract_coefficients step step
+      negative_zero = negate zero
+      unordered = divide_coefficients zero zero in
+  flag ((subtract_coefficients (16777217.0 + step) 16777217.0) ≟ step) 1 +
+  flag ((multiply_coefficients step 1.5) ≟ expected_product) 2 +
+  flag ((divide_coefficients step 2.0) ≟ expected_half) 4 +
+  flag ((negate step + step) ≟ 0.0) 8 +
+  flag ((divide_coefficients step zero) > 0.0) 16 +
+  flag ((divide_coefficients step negative_zero) < 0.0) 32 +
+  flag (zero ≟ negative_zero) 64 +
+  flag (not (unordered ≟ unordered)) 128 +
+  flag (not (unordered < step)) 256 +
+  flag (not (unordered <= step)) 512 +
+  flag (not (unordered > step)) 1024 +
+  flag (not (unordered >= step)) 2048
+
+main : IO ()
+main = do
+  check "binary64 first input" (binary64_observation "one" ≟ 4095)
+  check "binary64 second input" (binary64_observation "two" ≟ 4095)
+  putStrLn "PASS managed binary64 coefficients"

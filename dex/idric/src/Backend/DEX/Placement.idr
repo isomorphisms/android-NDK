@@ -63,11 +63,22 @@ instruction_registers (ArrayLength destination array) = Right [destination, arra
 instruction_registers (ArrayGetObject destination array index) = Right [destination, array, index]
 instruction_registers (IntToLong destination source) =
   Right [destination, next_register destination, source]
+instruction_registers (SignedIntToBinary64 destination source) =
+  Right [destination, next_register destination, source]
 instruction_registers (LongConstant destination value) =
   Right [destination, next_register destination]
 instruction_registers (AddLong destination left right) =
   Right [destination, next_register destination, left, next_register left,
          right, next_register right]
+instruction_registers (Binary64Constant destination _) =
+  Right [destination, next_register destination]
+instruction_registers (Binary64Binary _ destination left right) =
+  Right [destination, next_register destination, left, next_register left,
+         right, next_register right]
+instruction_registers (NegateBinary64 destination source) =
+  Right [destination, next_register destination, source, next_register source]
+instruction_registers (CompareBinary64 _ destination left right) =
+  Right [destination, left, next_register left, right, next_register right]
 instruction_registers (StaticGetObject destination field) = Right [destination]
 instruction_registers (StaticPutObject source field) = Right [source]
 instruction_registers (NullReference destination) = Right [destination]
@@ -147,9 +158,18 @@ instruction_staging (ArrayGetObject destination array index) =
   Right (destination.number > 255 || array.number > 255 || index.number > 255, 0)
 instruction_staging (IntToLong destination source) =
   Right (destination.number > 15 || source.number > 15, 0)
+instruction_staging (SignedIntToBinary64 destination source) =
+  Right (destination.number > 15 || source.number > 15, 0)
 instruction_staging (LongConstant destination value) =
   Right (destination.number > 255, 0)
 instruction_staging (AddLong destination left right) =
+  Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
+instruction_staging (Binary64Constant destination _) = Right (destination.number > 255, 0)
+instruction_staging (Binary64Binary _ destination left right) =
+  Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
+instruction_staging (NegateBinary64 destination source) =
+  Right (destination.number > 15 || source.number > 15, 0)
+instruction_staging (CompareBinary64 _ destination left right) =
   Right (destination.number > 255 || left.number > 255 || right.number > 255, 0)
 instruction_staging (StaticGetObject destination field) =
   Right (destination.number > 255, 0)
@@ -310,6 +330,33 @@ place_instruction scratch_start (AddLong destination left right) =
   if low_byte_register target && low_byte_register left_input && low_byte_register right_input
     then Right [AddLong target left_input right_input]
     else Left "DEX add-long register staging needs three disjoint wide pairs"
+place_instruction scratch_start (Binary64Constant destination bits) =
+  let target = shift_register destination in
+  if low_byte_register target
+    then Right [Binary64Constant target bits]
+    else Right [Binary64Constant scratch_zero bits, MoveWide target scratch_zero]
+place_instruction scratch_start (Binary64Binary operation destination left right) =
+  let target = shift_register destination
+      first = shift_register left
+      second = shift_register right in
+  if low_byte_register target && low_byte_register first && low_byte_register second
+    then Right [Binary64Binary operation target first second]
+    else Left "DEX binary64 arithmetic staging needs three disjoint wide pairs"
+place_instruction scratch_start (NegateBinary64 destination source) =
+  let target = shift_register destination
+      input_register = shift_register source
+      input = if input_register.number <= 15 then input_register else scratch_zero
+      output = if target.number <= 15 then target else scratch_zero
+      moves_before = if input_register.number <= 15 then [] else [MoveWide scratch_zero input_register]
+      suffix = if target.number <= 15 then [] else [MoveWide target scratch_zero]
+  in Right (moves_before ++ [NegateBinary64 output input] ++ suffix)
+place_instruction scratch_start (CompareBinary64 bias destination left right) =
+  let target = shift_register destination
+      first = shift_register left
+      second = shift_register right in
+  if low_byte_register target && low_byte_register first && low_byte_register second
+    then Right [CompareBinary64 bias target first second]
+    else Left "DEX binary64 comparison staging needs disjoint wide input pairs"
 place_instruction scratch_start (StaticGetObject destination field) =
   let target = shift_register destination in
   if low_byte_register target
@@ -328,6 +375,14 @@ place_instruction scratch_start (IntToLong destination source) =
       moves_before = if input_register.number <= 15 then [] else [Move scratch_zero input_register]
       suffix = if target.number <= 15 then [] else [MoveWide target scratch_zero]
   in Right (moves_before ++ [IntToLong output input] ++ suffix)
+place_instruction scratch_start (SignedIntToBinary64 destination source) =
+  let target = shift_register destination
+      input_register = shift_register source
+      input = if input_register.number <= 15 then input_register else scratch_zero
+      output = if target.number <= 15 then target else scratch_zero
+      moves_before = if input_register.number <= 15 then [] else [Move scratch_zero input_register]
+      suffix = if target.number <= 15 then [] else [MoveWide target scratch_zero]
+  in Right (moves_before ++ [SignedIntToBinary64 output input] ++ suffix)
 place_instruction scratch_start (IntegerBinary operation destination left right) =
   let target = shift_register destination
       first = shift_register left

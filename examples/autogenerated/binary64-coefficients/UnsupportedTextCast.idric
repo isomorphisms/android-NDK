@@ -1,0 +1,7 @@
+module UnsupportedTextCast
+import Data.Text
+%export "dex:unsupported_text_cast"
+unsupported_text_cast : Text → Int32
+unsupported_text_cast source = if (the Double (cast source)) > 0.0 then 1 else 0
+main : IO ()
+main = pure ()

@@ -65,10 +65,15 @@ render_instruction (ArrayGetObject destination array index) =
   "aget-object " ++ show destination ++ ", " ++ show array ++ ", " ++ show index
 render_instruction (IntToLong destination source) =
   "int-to-long " ++ show destination ++ ", " ++ show source
+render_instruction instruction@(SignedIntToBinary64 _ _) = show instruction
 render_instruction (LongConstant destination value) =
   "const-wide/16 " ++ show destination ++ ", " ++ show value
 render_instruction (AddLong destination left right) =
   "add-long " ++ show destination ++ ", " ++ show left ++ ", " ++ show right
+render_instruction instruction@(Binary64Constant _ _) = show instruction
+render_instruction instruction@(Binary64Binary _ _ _ _) = show instruction
+render_instruction instruction@(NegateBinary64 _ _) = show instruction
+render_instruction instruction@(CompareBinary64 _ _ _ _) = show instruction
 render_instruction (StaticGetObject destination field) =
   "sget-object " ++ show destination ++ ", " ++ show field
 render_instruction (StaticPutObject source field) =

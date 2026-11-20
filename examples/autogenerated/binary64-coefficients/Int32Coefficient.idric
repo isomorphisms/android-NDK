@@ -1,0 +1,23 @@
+module Int32Coefficient
+
+import Data.Text
+
+%foreign "dex:static:Ljava/lang/Double;:doubleToLongBits:(D)J"
+coefficient_bits : Double → Int64
+
+%foreign "dex:static:Ljava/lang/Long;:toHexString:(J)Ljava/lang/String;"
+coefficient_hex : Int64 → Text
+
+-- The polynomial producer converts its signed Int32 exponent to the original
+-- jsurf binary64 coefficient. An external caller supplies the runtime input.
+exponent_coefficient : Int32 → Double
+exponent_coefficient input = cast input
+
+%export "dex:int32_coefficient_bits"
+export
+int32_coefficient_bits : Int32 → Text
+int32_coefficient_bits input = coefficient_hex (coefficient_bits (exponent_coefficient input))
+
+-- Required by the frontend; excluded from the selected pure export graph.
+main : IO ()
+main = pure ()

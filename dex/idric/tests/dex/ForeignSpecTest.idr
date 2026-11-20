@@ -69,6 +69,26 @@ method_signature foreign = case foreign.operation of
 
 main : IO ()
 main = do
+  case parse_dex_foreign
+    "dex:static:Ljava/lang/Double;:parseDouble:(Ljava/lang/String;)D"
+    [CFString] CFDouble of
+    Left explanation => fail explanation
+    Right foreign => do
+      expect "parseDouble remains pure" (foreign.effect == PureForeign)
+      expect "parseDouble returns explicit binary64"
+        (foreign_target_result foreign == ExistingValue DoubleValue)
+  case parse_dex_foreign
+    "dex:static:Ljava/lang/Math;:pow:(DD)D"
+    [CFDouble, CFDouble] CFDouble of
+    Left explanation => fail explanation
+    Right foreign => expect "pow retains paired Double arguments"
+      (foreign_target_arguments foreign == [ExistingValue DoubleValue, ExistingValue DoubleValue])
+  expect_left "binary64 target rejects integral source"
+    (parse_dex_foreign "dex:static:Ljava/lang/Math;:sqrt:(D)D" [CFInt64] CFDouble)
+  expect_left "integral target rejects binary64 source"
+    (parse_dex_foreign "dex:static:Ljava/lang/Long;:signum:(J)I" [CFDouble] CFInt32)
+  expect_left "Float32 remains an unsupported checked foreign descriptor"
+    (parse_dex_foreign "dex:static:Ljava/lang/Math;:sqrt:(F)F" [CFDouble] CFDouble)
   case calling_uid of
     Left explanation => fail explanation
     Right foreign => do

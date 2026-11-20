@@ -1,0 +1,6 @@
+module UnsupportedDoubleExport
+%export "dex:unsupported_double_export"
+unsupported_double_export : Double → Double
+unsupported_double_export coefficient = coefficient + 0.4
+main : IO ()
+main = pure ()

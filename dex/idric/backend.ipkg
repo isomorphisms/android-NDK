@@ -7,6 +7,7 @@ depends = idris2
 
 modules =
   Backend.DEX.IR,
+  Backend.DEX.Binary64,
   Backend.DEX.Placement,
   Backend.DEX.Invoke,
   Backend.DEX.Foreign,
