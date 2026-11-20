@@ -101,6 +101,7 @@ jobs:
         env:
           CATFOOD_ROOT: ${{ github.workspace }}/.tools/runtime
           CATFOOD_JOBS: '2'
+          CC: ${{ steps.ick.outputs.compiler }} -fno-link-libatomic -std=gnu11
         run: |
           sh .tools/catfood/build-tools.sh
           mkdir -p "$RUNNER_TEMP/grease/bin"
