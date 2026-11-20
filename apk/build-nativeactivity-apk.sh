@@ -301,7 +301,9 @@ fi
 cp "$manifest_apk" "$unaligned"
 (
     cd "$work/payload"
-    "$zip_tool" -q -u "${zip_options[@]}" "$unaligned" "lib/$abi/$libname"
+    # Direct APK loading (extractNativeLibs=false) requires stored native
+    # entries. Keep DEX/assets on their independent compression path.
+    "$zip_tool" -q -0 -u "${zip_options[@]}" "$unaligned" "lib/$abi/$libname"
     if [[ -n ${ANDROID_DEX_FILE:-} ]]; then
         "$zip_tool" -q -u "${zip_options[@]}" "$unaligned" classes.dex
     fi
@@ -320,7 +322,7 @@ cp "$manifest_apk" "$unaligned"
 
 unsigned_apk_sha=$(sha256sum "$unaligned" | awk '{print $1}')
 
-"$zipalign" -f 4 "$unaligned" "$aligned"
+"$zipalign" -P 16 -f 4 "$unaligned" "$aligned"
 aligned_apk_sha=$(sha256sum "$aligned" | awk '{print $1}')
 
 # Publish only once every finished-APK check passes. A failed candidate never
@@ -334,6 +336,16 @@ aligned_apk_sha=$(sha256sum "$aligned" | awk '{print $1}')
     --ks-key-alias "$ANDROID_KEY_ALIAS" \
     --out "$signed" \
     "$aligned"
+
+# zipalign intentionally skips compressed entries; its successful exit alone
+# cannot establish that an ELF can be mapped directly from the finished APK.
+native_entry="lib/$abi/$libname"
+native_method=$(LC_ALL=C unzip -lv "$signed" "$native_entry" |
+    awk -v entry="$native_entry" '$NF == entry { print $2 }')
+[[ "$native_method" == Stored ]] || fail "finished APK native library is compressed or missing"
+"$zipalign" -c -P 16 4 "$signed" >/dev/null
+unzip -p "$signed" "$native_entry" > "$work/finished-native.so"
+cmp "$native_library" "$work/finished-native.so" || fail "finished APK native library bytes changed"
 
 cert_report=$("$apksigner" verify --verbose --print-certs "$signed" 2>&1)
 printf '%s\n' "$cert_report"

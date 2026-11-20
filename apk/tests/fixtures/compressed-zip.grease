@@ -1,0 +1,9 @@
+#!/usr/bin/env grease
+set -eu -o pipefail
+# Hostile producer dependency: silently undo the requested storage method.
+var real_zip = ENV.ANDROID_TEST_REAL_ZIP
+var arguments = ['-9']
+for argument in (ARGV) {
+  if (argument !== '-0') { setvar arguments = arguments ++ [argument] }
+}
+exec "$real_zip" @arguments
