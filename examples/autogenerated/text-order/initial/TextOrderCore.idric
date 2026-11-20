@@ -1,0 +1,23 @@
+module TextOrderCore
+import Data.Text
+
+-- Only the compiled negative control selects the incompatible UTF-16 API.
+%foreign "dex:virtual:Ljava/lang/String;:compareTo:(Ljava/lang/String;)I"
+utf16_comparison : Text → Text → Int32
+
+use_utf16 : Bool
+use_utf16 = False
+
+flag : Bool → Text
+flag True = "1"
+flag False = "0"
+
+export
+compare_text : Text → Text → Text
+compare_text left right =
+  if use_utf16
+    then let compared = utf16_comparison left right in
+      flag (compared < 0) ++ flag (compared <= 0) ++ flag (left ≟ right) ++
+      flag (compared >= 0) ++ flag (compared > 0)
+    else flag (left < right) ++ flag (left <= right) ++ flag (left ≟ right) ++
+      flag (left >= right) ++ flag (left > right)

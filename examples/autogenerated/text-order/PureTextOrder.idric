@@ -1,0 +1,10 @@
+module PureTextOrder
+import Data.Text
+import TextOrderCore
+
+%export "dex:text_order_one"
+text_order_one : Text → Text
+text_order_one supplied = compare_text supplied "\xE000"
+
+main : IO ()
+main = pure ()

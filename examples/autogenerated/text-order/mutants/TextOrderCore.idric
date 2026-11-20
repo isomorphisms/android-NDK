@@ -1,0 +1,18 @@
+module TextOrderCore
+import Data.Text
+
+-- Deliberately incompatible but valid checked platform operation. Only the
+-- negative managed-export candidate includes this declaration and behavior.
+%foreign "dex:virtual:Ljava/lang/String;:compareTo:(Ljava/lang/String;)I"
+utf16_comparison : Text → Text → Int32
+
+flag : Bool → Text
+flag True = "1"
+flag False = "0"
+
+export
+compare_text : Text → Text → Text
+compare_text left right =
+  let compared = utf16_comparison left right in
+  flag (compared < 0) ++ flag (compared <= 0) ++ flag (left ≟ right) ++
+    flag (compared >= 0) ++ flag (compared > 0)

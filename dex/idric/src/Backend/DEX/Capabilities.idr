@@ -4,6 +4,7 @@ import Backend.DEX.IR
 import Compiler.ANF
 import Core.CompileExpr
 import Core.Name
+import Core.TT.Primitive
 import Data.List
 import Data.String
 
@@ -34,6 +35,15 @@ mutual
     maybe [] (expression_requirements name) fallback
   expression_requirements name (Administrative_Normal_Form_Constant_Case _ _ alternatives fallback) =
     concatMap (constant_requirements name) alternatives ++ maybe [] (expression_requirements name) fallback
+  expression_requirements name (Administrative_Normal_Form_Primitive_Operation _ _ operation _) =
+    case operation of
+      LT StringType => require "unicode-text-order" name
+      LTE StringType => require "unicode-text-order" name
+      EQ StringType => require "unicode-text-order" name
+      GTE StringType => require "unicode-text-order" name
+      GT StringType => require "unicode-text-order" name
+      StrAppend => require "text-concatenation" name
+      _ => []
   expression_requirements name _ = []
 
   private

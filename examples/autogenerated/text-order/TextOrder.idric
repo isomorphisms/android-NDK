@@ -1,0 +1,10 @@
+module TextOrder
+import Data.Text
+import TextOrderCore
+
+%export "dex:text_order"
+text_order : Text → Text → Text
+text_order = compare_text
+
+main : IO ()
+main = pure ()
