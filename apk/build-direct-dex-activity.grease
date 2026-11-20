@@ -1,8 +1,8 @@
 #!/usr/bin/env grease
 # Application inputs own package/resources/signer; this producer owns packaging.
 set -eu -o pipefail
-if (len(ARGV) !== 8) {
-  echo 'usage: grease build-direct-dex-activity.grease SDK MANIFEST RESOURCES DEX TEST_KEYSTORE PACKAGE CERTIFICATE FRESH_OUTPUT' >&2
+if (len(ARGV) !== 8 and len(ARGV) !== 9) {
+  echo 'usage: grease build-direct-dex-activity.grease SDK MANIFEST RESOURCES DEX TEST_KEYSTORE PACKAGE CERTIFICATE FRESH_OUTPUT [PAYLOAD_DIRECTORY]' >&2
   exit 2
 }
 var sdk = ARGV[0]
@@ -13,6 +13,8 @@ var keystore = ARGV[4]
 var package = ARGV[5]
 var certificate = ARGV[6]
 var output = ARGV[7]
+var payload = ''
+if (len(ARGV) === 9) { setvar payload = ARGV[8] }
 for path in "$sdk" "$manifest" "$resources" "$dex" "$keystore" "$output" {
   if (path[0] !== '/') { echo 'FAIL absolute producer path required' >&2; exit 2 }
 }
@@ -23,6 +25,43 @@ test -s "$dex"
 if ! test -s "$keystore" { echo 'FAIL explicit public test keystore missing' >&2; exit 1 }
 if test -e "$output" { echo 'FAIL refusing reused package output' >&2; exit 1 }
 mkdir -p "$output/evidence"
+if (len(payload) !== 0) {
+  if (payload[0] !== '/') { echo 'FAIL absolute payload path required' >&2; exit 2 }
+  test -d "$payload"
+  var special = $(find "$payload" -mindepth 1 ! -type d ! -type f -print -quit)
+  if (len(special) !== 0) { echo 'FAIL payload contains a symlink or special file' >&2; exit 1 }
+  find "$payload" -type f -printf '%P\n' | LC_ALL=C sort > "$output/evidence/payload-files.txt"
+  test -s "$output/evidence/payload-files.txt"
+  if rg -n -v '^(classes([2-9]|[1-9][0-9]+)\.dex|lib/(armeabi-v7a|arm64-v8a|x86|x86_64)/lib[A-Za-z0-9_]+\.so|assets/[A-Za-z0-9_/-]+(\.[A-Za-z0-9_]+)?)$' "$output/evidence/payload-files.txt" {
+    echo 'FAIL undeclared payload entry' >&2; exit 1
+  }
+  var last_dex = $(awk '/^classes[0-9]+[.]dex$/ { count++ } END { print count + 1 }' "$output/evidence/payload-files.txt")
+  for index in @(seq 2 "$last_dex") {
+    if ! test -s "$payload/classes$index.dex" { echo 'FAIL noncontiguous payload DEX sequence' >&2; exit 1 }
+  }
+  # Check every named input before archiving; a filename containing a newline
+  # cannot name both validated entries and is consequently rejected here.
+  for entry in @(cat "$output/evidence/payload-files.txt") {
+    test -f "$payload/$entry"
+    if (entry ~ /'.dex' $/) {
+      try { "$tools/dexdump" -c "$payload/$entry" > "$output/evidence/$entry-checksum.txt" 2>&1 }
+      if (_error.code !== 0) { echo 'FAIL payload DEX integrity' >&2; exit 1 }
+    }
+    if rg -q '^lib/' <<< "$entry" {
+      var machine = 'Advanced Micro Devices X86-64'
+      if rg -q '^lib/armeabi-v7a/' <<< "$entry" { setvar machine = 'ARM' }
+      if rg -q '^lib/arm64-v8a/' <<< "$entry" { setvar machine = 'AArch64' }
+      if rg -q '^lib/x86/' <<< "$entry" { setvar machine = 'Intel 80386' }
+      var elf_record = "$output/evidence/$(echo "$entry" | tr '/' '_').elf.txt"
+      readelf -h -l -d "$payload/$entry" > "$elf_record"
+      if ! rg -q -F "Machine:                           $machine" "$elf_record" {
+        echo 'FAIL payload ELF ABI differs from directory identity' >&2; exit 1
+      }
+      if ! rg -q 'Type:.*DYN' "$elf_record" { echo 'FAIL payload native object is not dynamic ELF' >&2; exit 1 }
+    }
+    sha256sum "$payload/$entry" >> "$output/evidence/payload-sha256.txt"
+  }
+}
 "$tools/dexdump" -c "$dex" > "$output/evidence/dex-checksum.txt"
 # Stable PUBLIC TEST lane only. Production/private signing is not inferred.
 keytool -list -v -keystore "$keystore" -storepass wegert-debug -alias wegert-debug \
@@ -37,6 +76,10 @@ sha256sum "$manifest" "$dex" "$keystore" "$tools/aapt2" "$tools/zipalign" \
   --manifest "$manifest" "$output/resources.zip"
 cp "$output/resource-base.apk" "$output/candidate-unaligned.apk"
 cp "$dex" "$output/classes.dex"
+if (len(payload) !== 0) {
+  cd "$payload"
+  zip -q "$output/candidate-unaligned.apk" -@ < "$output/evidence/payload-files.txt"
+}
 cd "$output"
 zip -q candidate-unaligned.apk classes.dex
 "$tools/zipalign" -f -p 4 "$output/candidate-unaligned.apk" "$output/candidate-aligned.apk"
@@ -54,6 +97,15 @@ if ! rg -q -F "package: name='$package'" "$output/evidence/badging.txt" {
 rg -q -F "launchable-activity: name='Idric.Generated'" "$output/evidence/badging.txt"
 unzip -p "$output/candidate-signed.apk" classes.dex > "$output/evidence/received.dex"
 cmp "$dex" "$output/evidence/received.dex"
+if (len(payload) !== 0) {
+  mkdir -p "$output/evidence/received-payload"
+  for entry in @(cat "$output/evidence/payload-files.txt") {
+    var received = "$output/evidence/received-payload/$(echo "$entry" | tr '/' '_')"
+    unzip -p "$output/candidate-signed.apk" "$entry" > "$received"
+    cmp "$payload/$entry" "$received"
+  }
+  sha256sum -c "$output/evidence/payload-sha256.txt" > "$output/evidence/payload-unchanged.txt"
+}
 mv "$output/candidate-signed.apk" "$output/ib-material-reader.apk"
 sha256sum "$output/ib-material-reader.apk" > "$output/evidence/apk-sha256.txt"
 echo 'PASS direct checked-DEX Activity package, resources, byte identity, alignment and stable public test signer' > "$output/evidence/result.txt"
